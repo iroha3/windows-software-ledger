@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DATA_DIR = path.resolve(import.meta.dir, '../data');
-const EXPORTS_DIR = path.resolve(import.meta.dir, '../exports');
 const SOFTWARE_FILE = path.join(DATA_DIR, 'software.json');
 
 const INTENT_LABELS = {
@@ -28,9 +27,6 @@ export function exportChecklists() {
   }
 
   const items = JSON.parse(fs.readFileSync(SOFTWARE_FILE, 'utf-8'));
-  if (!fs.existsSync(EXPORTS_DIR)) {
-    fs.mkdirSync(EXPORTS_DIR, { recursive: true });
-  }
 
   // 1. 生成 RECOVERY_CHECKLIST.md
   const groups = {
@@ -98,9 +94,6 @@ export function exportChecklists() {
     groups.drop.length === 0 ? '*暂无*' : renderDropList(groups.drop)
   ];
 
-  const checklistPath = path.join(EXPORTS_DIR, 'RECOVERY_CHECKLIST.md');
-  fs.writeFileSync(checklistPath, checklistLines.join('\n'), 'utf-8');
-
   // 2. 生成 AWESOME_LIST.md
   const awesomeLines = [
     '# 个人工作流精选软件资产库 (Awesome Software List)',
@@ -115,15 +108,8 @@ export function exportChecklists() {
       : renderAwesomeList(awesomeItems)
   ];
 
-  const awesomePath = path.join(EXPORTS_DIR, 'AWESOME_LIST.md');
-  fs.writeFileSync(awesomePath, awesomeLines.join('\n'), 'utf-8');
-
   return {
     success: true,
-    checklistPath,
-    awesomePath,
-    recoveryListPath: checklistPath,
-    awesomeListPath: awesomePath,
     checklistFilename: 'RECOVERY_CHECKLIST.md',
     awesomeFilename: 'AWESOME_LIST.md',
     checklistContent: checklistLines.join('\n'),

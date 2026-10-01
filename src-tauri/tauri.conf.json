@@ -11,10 +11,10 @@
     "windows": [
       {
         "title": "软件备份台账",
-        "width": 1360,
-        "height": 900,
+        "width": 1200,
+        "height": 720,
         "minWidth": 960,
-        "minHeight": 640,
+        "minHeight": 560,
         "resizable": true
       }
     ],

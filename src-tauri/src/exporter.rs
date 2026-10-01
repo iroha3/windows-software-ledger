@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use std::fs;
 
 use crate::store;
 
@@ -131,8 +130,6 @@ pub fn export_checklists() -> Value {
     }
 
     let items = store::read_software();
-    let exports_dir = store::exports_dir();
-    let _ = fs::create_dir_all(&exports_dir);
 
     let mut must: Vec<&Value> = Vec::new();
     let mut should: Vec<&Value> = Vec::new();
@@ -248,17 +245,8 @@ pub fn export_checklists() -> Value {
     ];
     let awesome_content = awesome_lines.join("\n");
 
-    let checklist_path = exports_dir.join("RECOVERY_CHECKLIST.md");
-    let awesome_path = exports_dir.join("AWESOME_LIST.md");
-    let _ = fs::write(&checklist_path, &checklist_content);
-    let _ = fs::write(&awesome_path, &awesome_content);
-
     json!({
         "success": true,
-        "checklistPath": checklist_path.to_string_lossy(),
-        "awesomePath": awesome_path.to_string_lossy(),
-        "recoveryListPath": checklist_path.to_string_lossy(),
-        "awesomeListPath": awesome_path.to_string_lossy(),
         "checklistFilename": "RECOVERY_CHECKLIST.md",
         "awesomeFilename": "AWESOME_LIST.md",
         "checklistContent": checklist_content,

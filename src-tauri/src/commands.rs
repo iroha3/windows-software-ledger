@@ -583,7 +583,6 @@ mod tests {
 
         let ex = export_markdown();
         assert_eq!(ex.get("success").and_then(|v| v.as_bool()), Some(true));
-        assert!(store::exports_dir().join("RECOVERY_CHECKLIST.md").exists());
 
         let cfg = save_config(json!({ "llm_model": "test-model" }));
         assert_eq!(cfg["config"]["llm_model"], "test-model");

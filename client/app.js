@@ -1320,16 +1320,15 @@ function downloadMarkdownFile(content, filename) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('已下载到 下载\\' + filename, 'success');
 }
 
 window.downloadExportFile = function(type) {
   if (!window.__lastExportData) return;
   if (type === 'checklist') {
     downloadMarkdownFile(window.__lastExportData.checklistContent || '', window.__lastExportData.checklistFilename || 'RECOVERY_CHECKLIST.md');
-    showToast('正在下载重装恢复清单...', 'info');
   } else if (type === 'awesome') {
     downloadMarkdownFile(window.__lastExportData.awesomeContent || '', window.__lastExportData.awesomeFilename || 'AWESOME_LIST.md');
-    showToast('正在下载精选资产库...', 'info');
   }
 };
 
@@ -1357,7 +1356,7 @@ async function handleExport() {
       const modalBody = document.getElementById('exportModalBody');
       modalBody.innerHTML = `
         <p style="margin-bottom: 12px; color: var(--ink-2);">
-          两份清单文档已<strong>自动触发浏览器下载</strong>，同时也已保存备份至本地 <code>exports/</code> 目录：
+          两份清单文档已<strong>自动下载</strong>至浏览器下载目录：
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
           <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
@@ -1382,7 +1381,6 @@ async function handleExport() {
         <p style="font-size: 12px; color: var(--ink-3);">如果浏览器拦截了自动弹出下载，可点击上方按钮重新下载。</p>
       `;
       document.getElementById('exportModal').classList.add('show');
-      showToast('清单已成功导出并触发下载！', 'success');
     } else {
       showToast('导出失败: ' + (data.error || data.message), 'error');
     }

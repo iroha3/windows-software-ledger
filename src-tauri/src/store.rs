@@ -17,20 +17,26 @@ pub fn app_root() -> PathBuf {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(start) = exe.parent() {
-            let mut dir = start.to_path_buf();
-            for _ in 0..8 {
-                if dir.join("package.json").exists() || dir.join("data").exists() {
-                    return dir;
-                }
-                match dir.parent() {
-                    Some(p) => dir = p.to_path_buf(),
-                    None => break,
-                }
-            }
-            return start.to_path_buf();
+            return resolve_root_from(start);
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// 从给定目录向上寻找含 `data/` 或 `package.json` 的目录；
+/// 便携场景下 exe 与 `data/` 同级，会在第一层直接命中。
+fn resolve_root_from(start: &Path) -> PathBuf {
+    let mut dir = start.to_path_buf();
+    for _ in 0..8 {
+        if dir.join("package.json").exists() || dir.join("data").exists() {
+            return dir;
+        }
+        match dir.parent() {
+            Some(p) => dir = p.to_path_buf(),
+            None => break,
+        }
+    }
+    start.to_path_buf()
 }
 
 pub fn data_dir() -> PathBuf {
@@ -44,9 +50,6 @@ pub fn config_file() -> PathBuf {
 }
 pub fn evidence_dir() -> PathBuf {
     app_root().join("evidence")
-}
-pub fn exports_dir() -> PathBuf {
-    app_root().join("exports")
 }
 pub fn scripts_dir() -> PathBuf {
     app_root().join("scripts")
@@ -102,6 +105,36 @@ pub fn default_config() -> Value {
             "DESKTOP-HEGVCTR": "台式工作站"
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_portable_layout() {
+        let base = std::env::temp_dir().join(format!("ledger_root_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+
+        // exe 与 data/ 同级 -> 直接命中 exe 目录
+        let portable = base.join("app");
+        fs::create_dir_all(portable.join("data")).unwrap();
+        assert_eq!(resolve_root_from(&portable), portable);
+
+        // 只有 exe、data/ 尚未创建 -> 回退到 exe 同级
+        let fresh = base.join("fresh");
+        fs::create_dir_all(&fresh).unwrap();
+        assert_eq!(resolve_root_from(&fresh), fresh);
+
+        // 嵌套子目录向上回溯
+        let nested = base.join("nested");
+        fs::create_dir_all(nested.join("data")).unwrap();
+        let deep = nested.join("a").join("b");
+        fs::create_dir_all(&deep).unwrap();
+        assert_eq!(resolve_root_from(&deep), nested);
+
+        let _ = fs::remove_dir_all(&base);
+    }
 }
 
 pub fn get_config() -> Value {

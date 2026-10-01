@@ -573,6 +573,7 @@ function bindEvents() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('已下载到 下载\\' + filename, 'success');
   }
 
   // 导出 Markdown 清单
@@ -590,7 +591,6 @@ function bindEvents() {
             downloadMarkdownFile(data.awesomeContent, data.awesomeFilename || 'AWESOME_LIST.md');
           }, 300);
         }
-        showToast('已成功导出并触发清单直接下载！', 'success');
       } else {
         showToast('导出失败: ' + (data.error || data.message), 'error');
       }

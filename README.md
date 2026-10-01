@@ -103,10 +103,10 @@ bun run scripts/test_llm.js "Git" "C:\Program Files\Git" "http://192.168.1.100:1
 
 ## 📄 产物导出
 
-在页面右上角点击 **「📄 导出 Markdown 清单」**，将即时生成两份高价值落地文件：
+在页面右上角点击 **「📄 导出 Markdown 清单」**，将即时生成并直接下载两份高价值落地文件：
 
-1. **[RECOVERY_CHECKLIST.md](file:///E:/Projects/backup-software-list-tools/exports/RECOVERY_CHECKLIST.md)**:
+1. **RECOVERY_CHECKLIST.md**:
    - ⚠️ 重装前必须备份的资产汇总表（列出所有需要打包的便携目录与配置文件路径）。
    - 按意愿分组的重装待办清单（已就绪项自动打勾，带官网链接与配置备忘）。
-2. **[AWESOME_LIST.md](file:///E:/Projects/backup-software-list-tools/exports/AWESOME_LIST.md)**:
+2. **AWESOME_LIST.md**:
    - 沉淀长期个人精选工作流软件库（点亮每行开头的星标 ★ 即可收录）。
