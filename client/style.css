@@ -1518,8 +1518,7 @@ tr.selected td {
 .about-key-row .keys {
   display: inline-flex;
   gap: 4px;
-  flex-shrink: 0;
-  min-width: 92px;
+  flex: 0 0 120px;
 }
 .about-key-row .desc {
   color: var(--ink-3);
