@@ -72,7 +72,7 @@ export function exportChecklists() {
     '## ⚠️ 重装前必须备份的资产清单 (Pre-install Backup Tasks)',
     '',
     backupTasks.length === 0
-      ? '*暂无标记为需要打包目录或导出配置的软件。在决策中台中将处置方式标记为「保留/压缩目录」或「导出配置」后将在此列出。*'
+      ? '*暂无标记为需要打包目录或导出配置的软件。在软件备份台账中将处置方式标记为「保留/压缩目录」或「导出配置」后将在此列出。*'
       : '| 软件名称 | 处置方式 | 机器分布与路径 | 备份备忘与配置说明 |\n|---|---|---|---|\n' +
         backupTasks.map(t => {
           const paths = t.machines.map(m => `\`${m.machine_id}\`: ${m.install_location || m.path || '未记录路径'}`).join('<br>');
@@ -111,7 +111,7 @@ export function exportChecklists() {
     '这份清单记录了深度融入日常开发与生产力工作流的高价值工具。',
     '',
     awesomeItems.length === 0
-      ? '*暂无收录。在决策中台表格中为认可的软件点亮星标 ★ 即可收录至此。*'
+      ? '*暂无收录。在软件备份台账表格中为认可的软件点亮星标 ★ 即可收录至此。*'
       : renderAwesomeList(awesomeItems)
   ];
 

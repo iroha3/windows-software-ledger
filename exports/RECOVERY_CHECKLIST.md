@@ -1,20 +1,20 @@
 # 电脑重装恢复备忘清单 (Recovery Checklist)
 
-> 生成时间: 2026/10/1 19:12:18  
+> 生成时间: 2026/10/1 19:25:54  
 > 统计概览: 软件总数 **236** | 必须恢复 **7** | 建议恢复 **0** | 用到再装 **0** | 待确认 **229** | 待备份资产 **0**
 
 ---
 
 ## ⚠️ 重装前必须备份的资产清单 (Pre-install Backup Tasks)
 
-*暂无标记为需要打包目录或导出配置的软件。在决策中台中将处置方式标记为「保留/压缩目录」或「导出配置」后将在此列出。*
+*暂无标记为需要打包目录或导出配置的软件。在软件备份台账中将处置方式标记为「保留/压缩目录」或「导出配置」后将在此列出。*
 
 ---
 
 ## 一、🔴 必须恢复 (Must Restore)
 
 ### 📂 开发工具
-- [ ] **ripgrep** (cli) [官网/下载](https://github.com/BurntSushi/ripgrep/releases) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
+- [x] **ripgrep** (cli) [官网/下载](https://github.com/BurntSushi/ripgrep/releases) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)* *(已就绪)*
   - 💡 **备注/配置说明**: ripgrep 为命令行工具，无图形界面配置文件。主要依赖系统环境变量（PATH）及用户级缓存目录（通常在 %APPDATA%\ripgrep 或 %LOCALAPPDATA%\ripgrep）。若需保留搜索历史或自定义配置，建议检查上述 AppData 路径下的 JSON 文件；否则可直接重新下载最新版本。
 - [ ] **AutoHotkey** `2.0.19` (desktop) [官网/下载](https://www.autohotkey.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
   - 💡 **备注/配置说明**: 配置文件通常位于 C:\Users\[用户名]\AppData\Roaming\AutoHotkey，包含脚本文件 (.ahk) 及注册表设置。

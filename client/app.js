@@ -1,5 +1,5 @@
 // client/app.js
-// 软件决策中台前端交互逻辑：统一线性 SVG 图标、卡片连续切换、实时无感自动保存、云端/本地 LLM 支持
+// 软件备份台账前端交互逻辑：统一线性 SVG 图标、卡片连续切换、实时无感自动保存、云端/本地 LLM 支持
 
 let softwareList = [];
 let machinesList = [];
@@ -67,6 +67,8 @@ const btnBatchOnDemand = document.getElementById('btnBatchOnDemand');
 const btnBatchDrop = document.getElementById('btnBatchDrop');
 const btnBatchReset = document.getElementById('btnBatchReset');
 const btnBatchReady = document.getElementById('btnBatchReady');
+const btnBatchConfig = document.getElementById('btnBatchConfig');
+const batchConfigLabel = document.getElementById('batchConfigLabel');
 const btnBatchMerge = document.getElementById('btnBatchMerge');
 const btnBatchDelete = document.getElementById('btnBatchDelete');
 const btnBatchLLM = document.getElementById('btnBatchLLM');
@@ -356,6 +358,10 @@ function updateBatchBar() {
   if (selectedIds.size > 0) {
     batchBar.classList.add('show');
     batchInfo.innerText = `已选 ${selectedIds.size} 项`;
+    const items = softwareList.filter(s => selectedIds.has(s.id));
+    const allHaveConfig = items.length > 0 && items.every(s => s.has_config);
+    if (batchConfigLabel) batchConfigLabel.innerText = allHaveConfig ? '设为无配置' : '设为有配置';
+    if (btnBatchConfig) btnBatchConfig.title = allHaveConfig ? '快捷键: 7 (批量标记为无配置)' : '快捷键: 7 (批量标记为有配置)';
   } else {
     batchBar.classList.remove('show');
   }
@@ -488,8 +494,11 @@ function bindKeyboardShortcuts() {
       showToast(`已标记选中的 ${selectedIds.size} 项为 已就绪`, 'success');
     } else if (key === '7' || code === 'Digit7' || code === 'Numpad7') {
       e.preventDefault();
-      handleBatchLLM();
+      batchConfigToggle();
     } else if (key === '8' || code === 'Digit8' || code === 'Numpad8') {
+      e.preventDefault();
+      handleBatchLLM();
+    } else if (key === '9' || code === 'Digit9' || code === 'Numpad9') {
       e.preventDefault();
       batchMerge();
     } else if (key === 'Escape') {
@@ -869,6 +878,19 @@ function bindEvents() {
       openDrawer(id);
       return;
     }
+
+    // 点击行内任意空白处即可切换勾选，无需精确点中小复选框
+    const row = e.target.closest('tr[data-id]');
+    if (row && !e.target.closest('input, select, button, a, textarea, [data-action]')) {
+      const id = row.dataset.id;
+      const cb = row.querySelector('.row-checkbox');
+      if (cb) {
+        cb.checked = !cb.checked;
+        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        row.classList.toggle('selected', cb.checked);
+        updateBatchBar();
+      }
+    }
   });
 
   // 抽屉字段实时自动保存监听 (无感同步，无需手动点击保存)
@@ -996,6 +1018,7 @@ function bindEvents() {
     batchUpdate({ prep_status: 'ready' });
     showToast('已标记为已就绪', 'success');
   });
+  btnBatchConfig.addEventListener('click', batchConfigToggle);
   btnBatchDelete.addEventListener('click', () => {
     const now = Date.now();
     if (now - lastDeleteTime < 2000) {
@@ -1023,6 +1046,10 @@ function bindEvents() {
   btnConfig.addEventListener('click', openConfigModal);
   btnSaveConfig.addEventListener('click', saveConfigModal);
 
+  // 关于弹窗
+  const btnAbout = document.getElementById('btnAbout');
+  if (btnAbout) btnAbout.addEventListener('click', openAboutModal);
+
   bindPreset('presetLocal', () => {
     configLlmUrl.value = 'http://127.0.0.1:1234/v1/chat/completions';
     configLlmModel.value = 'qwen3.5-4b';
@@ -1030,8 +1057,8 @@ function bindEvents() {
     showToast('已填入本地 LM Studio 预设', 'info');
   });
   bindPreset('presetDeepseek', () => {
-    configLlmUrl.value = 'https://api.deepseek.com/chat/completions';
-    configLlmModel.value = 'deepseek-chat';
+    configLlmUrl.value = 'https://api.deepseek.com';
+    configLlmModel.value = 'deepseek-flash';
     configLlmKey.focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
   });
@@ -1086,9 +1113,20 @@ async function batchUpdate(updates) {
     body: JSON.stringify({ ids, updates })
   });
 
-  selectedIds.clear();
+  // 保留勾选，方便连续批量设置多项（按 Esc 可取消选择）
   await fetchStatus();
   renderTable();
+  updateBatchBar();
+}
+
+// 批量切换有无配置：若选中项已全部有配置则清空，否则统一标记为有配置
+function batchConfigToggle() {
+  if (selectedIds.size === 0) return;
+  const items = softwareList.filter(s => selectedIds.has(s.id));
+  const allHaveConfig = items.length > 0 && items.every(s => s.has_config);
+  const next = !allHaveConfig;
+  batchUpdate({ has_config: next });
+  showToast(`已将 ${items.length} 项标记为「${next ? '有配置' : '无配置'}」`, 'info');
 }
 
 // 恢复默认 / 重置
@@ -1406,6 +1444,23 @@ async function handleConfirmBatchAdd() {
     showToast('添加失败: ' + e.message, 'error');
   } finally {
     btnConfirmBatchAdd.disabled = false;
+  }
+}
+
+// 关于弹窗
+async function openAboutModal() {
+  const endpointEl = document.getElementById('aboutLlmEndpoint');
+  if (endpointEl) endpointEl.innerText = '读取中...';
+  document.getElementById('aboutModal').classList.add('show');
+  if (endpointEl) {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      const keyState = cfg.llm_api_key ? '已配置 Key' : '无 Key';
+      endpointEl.innerText = `${cfg.llm_url || '未设置'}  ·  ${cfg.llm_model || '未设置'}  (${keyState})`;
+    } catch (e) {
+      endpointEl.innerText = '读取失败';
+    }
   }
 }
 

@@ -607,6 +607,9 @@ function bindEvents() {
   if (btnConfig) btnConfig.addEventListener('click', openConfigModal);
   if (btnSaveConfig) btnSaveConfig.addEventListener('click', saveConfigModal);
 
+  const btnAbout = document.getElementById('btnAbout');
+  if (btnAbout) btnAbout.addEventListener('click', openAboutModal);
+
   bindPreset('presetLocal', () => {
     document.getElementById('configLlmUrl').value = 'http://127.0.0.1:1234/v1/chat/completions';
     document.getElementById('configLlmModel').value = 'qwen3.5-4b';
@@ -614,8 +617,8 @@ function bindEvents() {
     showToast('已填入本地 LM Studio 预设', 'info');
   });
   bindPreset('presetDeepseek', () => {
-    document.getElementById('configLlmUrl').value = 'https://api.deepseek.com/chat/completions';
-    document.getElementById('configLlmModel').value = 'deepseek-chat';
+    document.getElementById('configLlmUrl').value = 'https://api.deepseek.com';
+    document.getElementById('configLlmModel').value = 'deepseek-flash';
     document.getElementById('configLlmKey').focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
   });
@@ -631,6 +634,23 @@ function bindEvents() {
     document.getElementById('configLlmKey').focus();
     showToast('已填入硅基流动预设，请填入 API Key', 'info');
   });
+}
+
+// 关于弹窗
+async function openAboutModal() {
+  const endpointEl = document.getElementById('aboutLlmEndpoint');
+  if (endpointEl) endpointEl.innerText = '读取中...';
+  document.getElementById('aboutModal').classList.add('show');
+  if (endpointEl) {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      const keyState = cfg.llm_api_key ? '已配置 Key' : '无 Key';
+      endpointEl.innerText = `${cfg.llm_url || '未设置'}  ·  ${cfg.llm_model || '未设置'}  (${keyState})`;
+    } catch (e) {
+      endpointEl.innerText = '读取失败';
+    }
+  }
 }
 
 // 设置弹窗逻辑

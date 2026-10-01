@@ -1,7 +1,7 @@
 {
   "name": "backup-software-list-tools",
   "version": "1.0.0",
-  "description": "轻量、低摩擦的 3 台电脑软件迁移与重装备份决策中台",
+  "description": "轻量、低摩擦的 3 台电脑软件迁移与重装备份台账",
   "main": "server/index.js",
   "scripts": {
     "start": "bun run server/index.js",

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>卡片速审工作台 · 软件清单与决策中台</title>
+  <title>卡片速审工作台 · 软件备份台账</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232c6e64%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><path d=%22M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z%22/><polyline points=%223.27 6.96 12 12.01 20.73 6.96%22/><line x1=%2212%22 y1=%2222.08%22 x2=%2212%22 y2=%2212%22/></svg>">
   <style>
     svg { fill: none; }
@@ -44,6 +44,10 @@
       <button id="btnConfig" class="btn btn-secondary" title="配置设备别名、扫描目录与大模型">
         <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         <span>中台设置</span>
+      </button>
+      <button id="btnAbout" class="btn btn-secondary" title="关于本工具 / 快捷键速查">
+        <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>关于</span>
       </button>
       <button id="btnThemeToggle" class="btn btn-secondary" title="切换日夜间主题">
         <span id="themeIcon"></span> <span id="themeText">夜间</span>
@@ -333,6 +337,54 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="document.getElementById('configModal').classList.remove('show')">取消</button>
         <button class="btn btn-primary" id="btnSaveConfig">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关于弹窗 -->
+  <div class="modal-overlay" id="aboutModal">
+    <div class="modal-content" style="width: 540px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          关于
+        </h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('aboutModal').classList.remove('show')">
+          <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="about-hero">
+          <svg class="i lg" viewBox="0 0 24 24" style="color: var(--accent);"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <div>
+            <div class="about-name">软件备份台账</div>
+            <div class="about-version">v1.0.0</div>
+          </div>
+        </div>
+        <p class="about-desc">本地优先的软件清点与备份决策工具：扫描本机软件、归并去重、标注恢复意愿与处置方式，并导出重装恢复清单与精选资产库。</p>
+        <div class="about-section">
+          <h4>快捷键</h4>
+          <div class="about-keys">
+            <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span class="desc">意愿：必须 / 建议 / 按需 / 淘汰 / 待确认</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>6</kbd><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd></span><span class="desc">就绪 / 配置 / AI 预判 / 合并</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>PageUp</kbd><kbd>PageDown</kbd></span><span class="desc">或 <kbd>[</kbd><kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> 连续切卡</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>/</kbd></span><span class="desc">聚焦筛选框</span></div>
+          </div>
+        </div>
+        <div class="about-section">
+          <h4>数据位置</h4>
+          <div class="about-keys">
+            <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>exports</kbd></span><span class="desc">RECOVERY_CHECKLIST.md、AWESOME_LIST.md</span></div>
+          </div>
+        </div>
+        <div class="about-section">
+          <h4>当前大模型端点</h4>
+          <div class="about-endpoint" id="aboutLlmEndpoint">读取中...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="document.getElementById('aboutModal').classList.remove('show')">关闭</button>
       </div>
     </div>
   </div>

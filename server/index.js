@@ -294,12 +294,18 @@ const server = Bun.serve({
 `;
 
         try {
+          // 允许只填服务基址 (如 https://api.deepseek.com)，自动补全为 chat/completions 端点
+          let llmEndpoint = (cfg.llm_url || '').trim();
+          if (llmEndpoint && !llmEndpoint.includes('/chat/completions')) {
+            llmEndpoint = llmEndpoint.replace(/\/+$/, '') + '/chat/completions';
+          }
+
           const fetchHeaders = { 'Content-Type': 'application/json' };
           if (cfg.llm_api_key && cfg.llm_api_key.trim()) {
             fetchHeaders['Authorization'] = `Bearer ${cfg.llm_api_key.trim()}`;
           }
 
-          const llmRes = await fetch(cfg.llm_url, {
+          const llmRes = await fetch(llmEndpoint, {
             method: 'POST',
             headers: fetchHeaders,
             body: JSON.stringify({
@@ -387,7 +393,7 @@ const server = Bun.serve({
 
 const currentCfg = getConfig();
 console.log(`==================================================`);
-console.log(` 软件决策中台已在本地启动: http://localhost:${PORT}`);
+console.log(` 软件备份台账已在本地启动: http://localhost:${PORT}`);
 console.log(` 数据文件: ${SOFTWARE_FILE}`);
 console.log(` LLM 端点: ${currentCfg.llm_url} (模型: ${currentCfg.llm_model})`);
 console.log(`==================================================`);
