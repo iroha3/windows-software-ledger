@@ -367,7 +367,12 @@ const server = Bun.serve({
 
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const file = Bun.file(filePath);
-        return new Response(file, { headers });
+        return new Response(file, {
+          headers: {
+            ...headers,
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        });
       }
 
       return new Response('Not Found', { status: 404, headers });
