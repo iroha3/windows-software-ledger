@@ -14,7 +14,8 @@ const EVIDENCE_DIR = path.join(ROOT_DIR, 'evidence');
 
 const DEFAULT_CONFIG = {
   llm_url: process.env.LLM_URL || 'http://127.0.0.1:1234/v1/chat/completions',
-  llm_model: process.env.LLM_MODEL || 'qwen3.5-4b'
+  llm_model: process.env.LLM_MODEL || 'qwen3.5-4b',
+  llm_api_key: process.env.LLM_API_KEY || ''
 };
 
 function getConfig() {
@@ -267,9 +268,14 @@ const server = Bun.serve({
 `;
 
         try {
+          const fetchHeaders = { 'Content-Type': 'application/json' };
+          if (cfg.llm_api_key && cfg.llm_api_key.trim()) {
+            fetchHeaders['Authorization'] = `Bearer ${cfg.llm_api_key.trim()}`;
+          }
+
           const llmRes = await fetch(cfg.llm_url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: fetchHeaders,
             body: JSON.stringify({
               model: cfg.llm_model,
               messages: [{ role: 'user', content: prompt }],

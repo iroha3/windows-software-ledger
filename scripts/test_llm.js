@@ -7,11 +7,13 @@ const args = process.argv.slice(2);
 const softwareName = args[0] || 'PotPlayer';
 const softwarePath = args[1] || 'D:\\Software\\PotPlayer\\PotPlayer64.exe';
 const llmUrl = args[2] || process.env.LLM_URL || 'http://127.0.0.1:1234/v1/chat/completions';
-const modelName = process.env.LLM_MODEL || 'qwen3.5-4b';
+const modelName = process.env.LLM_MODEL || args[3] || 'qwen3.5-4b';
+const apiKey = process.env.LLM_API_KEY || args[4] || '';
 
 console.log('==================================================');
-console.log(` 🤖 测试本地 LLM 软件分析提示词`);
+console.log(` 测试 LLM 软件分析提示词`);
 console.log(` 目标模型: ${modelName} @ ${llmUrl}`);
+if (apiKey) console.log(` API Key: 已配置 (${apiKey.slice(0, 4)}...${apiKey.slice(-4)})`);
 console.log(` 软件名称: ${softwareName}`);
 console.log(` 探测路径: ${softwarePath}`);
 console.log('==================================================');
@@ -43,9 +45,14 @@ const prompt = `你是一个 Windows 软件与系统重装迁移专家。请根�
 async function main() {
   const startTime = performance.now();
   try {
+    const fetchHeaders = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.trim()) {
+      fetchHeaders['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+
     const res = await fetch(llmUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: fetchHeaders,
       body: JSON.stringify({
         model: modelName,
         messages: [{ role: 'user', content: prompt }],

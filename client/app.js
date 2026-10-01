@@ -1,4 +1,5 @@
 // client/app.js
+// 软件决策中台前端交互逻辑：统一线性 SVG 图标、卡片连续切换、实时无感自动保存、云端/本地 LLM 支持
 
 let softwareList = [];
 let machinesList = [];
@@ -7,6 +8,36 @@ let selectedIds = new Set();
 let activeMachine = 'all';
 let activeItem = null;
 let lastDeleteTime = 0; // 用于双击 Delete 防误触
+
+// 自动保存防抖计时器与标志
+let autoSaveTimer = null;
+let pendingDrawerSave = false;
+
+// 统一轻量线性 SVG 图标库 (Feather / Lucide 风格，避免使用 Emoji)
+const ICONS = {
+  box: `<svg class="i" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+  settings: `<svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+  moon: `<svg class="i sm" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`,
+  sun: `<svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`,
+  plus: `<svg class="i sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
+  refresh: `<svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`,
+  download: `<svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
+  search: `<svg class="i sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
+  folder: `<svg class="i sm" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+  star: `<svg class="i sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`,
+  starFilled: `<svg class="i sm fill" viewBox="0 0 24 24" style="color: #c9a24a;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`,
+  check: `<svg class="i sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+  sparkles: `<svg class="i sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`,
+  link: `<svg class="i sm" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`,
+  trash: `<svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+  x: `<svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+  arrowLeft: `<svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>`,
+  arrowRight: `<svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>`,
+  externalLink: `<svg class="i sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
+  device: `<svg class="i sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+  info: `<svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
+  alertTriangle: `<svg class="i sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+};
 
 // DOM 元素引用
 const toastContainer = document.getElementById('toastContainer');
@@ -48,9 +79,13 @@ const btnConfig = document.getElementById('btnConfig');
 const sideDrawer = document.getElementById('sideDrawer');
 const drawerOverlay = document.getElementById('drawerOverlay');
 const btnCloseDrawer = document.getElementById('btnCloseDrawer');
-const btnSaveDrawer = document.getElementById('btnSaveDrawer');
+const btnCloseDrawerBottom = document.getElementById('btnCloseDrawerBottom');
 const btnDeleteCurrent = document.getElementById('btnDeleteCurrent');
 const btnDrawerLLM = document.getElementById('btnDrawerLLM');
+const btnPrevDrawer = document.getElementById('btnPrevDrawer');
+const btnNextDrawer = document.getElementById('btnNextDrawer');
+const drawerIndexBadge = document.getElementById('drawerIndexBadge');
+const drawerSaveStatus = document.getElementById('drawerSaveStatus');
 
 // 批量添加弹窗
 const batchAddModal = document.getElementById('batchAddModal');
@@ -62,18 +97,19 @@ const btnConfirmBatchAdd = document.getElementById('btnConfirmBatchAdd');
 const configModal = document.getElementById('configModal');
 const configLlmUrl = document.getElementById('configLlmUrl');
 const configLlmModel = document.getElementById('configLlmModel');
+const configLlmKey = document.getElementById('configLlmKey');
 const btnSaveConfig = document.getElementById('btnSaveConfig');
 
-// Toast 非阻塞消息提示系统
+// Toast 非阻塞消息提示系统 (使用纯净 SVG 图标)
 function showToast(message, type = 'info', duration = 2500) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  let icon = 'ℹ️';
-  if (type === 'success') icon = '✅';
-  if (type === 'warning') icon = '⚠️';
-  if (type === 'error') icon = '❌';
+  let iconSvg = ICONS.info;
+  if (type === 'success') iconSvg = ICONS.check;
+  if (type === 'warning') iconSvg = ICONS.alertTriangle;
+  if (type === 'error') iconSvg = ICONS.alertTriangle;
 
-  toast.innerHTML = `<span>${icon}</span><span>${escapeHtml(message)}</span>`;
+  toast.innerHTML = `<span style="display:inline-flex;align-items:center;">${iconSvg}</span><span>${escapeHtml(message)}</span>`;
   toastContainer.appendChild(toast);
 
   setTimeout(() => {
@@ -101,11 +137,11 @@ function initTheme() {
 function applyTheme(theme) {
   if (theme === 'dark') {
     document.documentElement.setAttribute('data-theme', 'dark');
-    themeIcon.innerText = '☀️';
+    themeIcon.innerHTML = ICONS.sun;
     themeText.innerText = '日间';
   } else {
     document.documentElement.removeAttribute('data-theme');
-    themeIcon.innerText = '🌙';
+    themeIcon.innerHTML = ICONS.moon;
     themeText.innerText = '夜间';
   }
   localStorage.setItem('app-theme', theme);
@@ -132,7 +168,7 @@ async function fetchStatus() {
 
 function renderPathFilter(paths) {
   const currentVal = pathFilter.value;
-  let html = `<option value="all">📂 全部安装路径</option>`;
+  let html = `<option value="all">全部安装路径</option>`;
   for (const p of paths) {
     html += `<option value="${escapeHtml(p)}" ${currentVal === p ? 'selected' : ''}>${escapeHtml(p)}</option>`;
   }
@@ -245,8 +281,8 @@ function renderTable() {
           <input type="checkbox" class="row-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''}>
         </td>
         <td style="text-align: center;">
-          <span class="awesome-star ${item.is_awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${item.id}">
-            ${item.is_awesome ? '★' : '☆'}
+          <span class="awesome-star ${item.is_awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${item.id}" title="${item.is_awesome ? '取消精选' : '设为精选'}">
+            ${item.is_awesome ? ICONS.starFilled : ICONS.star}
           </span>
         </td>
         <td>
@@ -255,7 +291,7 @@ function renderTable() {
             <div class="software-tags">
               <span class="tag-cat">${item.category || '未分类'}</span>
               <span class="tag-form">${item.type || 'desktop'}</span>
-              ${item.is_new ? '<span style="background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:4px;font-size:10px;">新添加</span>' : ''}
+              ${item.is_new ? '<span style="background:var(--accent-soft);color:var(--accent);padding:1px 5px;border-radius:4px;font-size:10.5px;">新添加</span>' : ''}
             </div>
           </div>
         </td>
@@ -265,31 +301,32 @@ function renderTable() {
         <td>${machineBadges}</td>
         <td>
           <select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${item.id}">
-            <option value="must" ${item.restore_intent === 'must' ? 'selected' : ''}>🔴 必须恢复</option>
-            <option value="should" ${item.restore_intent === 'should' ? 'selected' : ''}>🟡 建议恢复</option>
-            <option value="on_demand" ${item.restore_intent === 'on_demand' ? 'selected' : ''}>🔵 用到再装</option>
-            <option value="drop" ${item.restore_intent === 'drop' ? 'selected' : ''}>⚫ 淘汰弃用</option>
-            <option value="unreviewed" ${(!item.restore_intent || item.restore_intent === 'unreviewed') ? 'selected' : ''}>⚪ 待确认</option>
+            <option value="must" ${item.restore_intent === 'must' ? 'selected' : ''}>必须恢复</option>
+            <option value="should" ${item.restore_intent === 'should' ? 'selected' : ''}>建议恢复</option>
+            <option value="on_demand" ${item.restore_intent === 'on_demand' ? 'selected' : ''}>用到再装</option>
+            <option value="drop" ${item.restore_intent === 'drop' ? 'selected' : ''}>淘汰弃用</option>
+            <option value="unreviewed" ${(!item.restore_intent || item.restore_intent === 'unreviewed') ? 'selected' : ''}>待确认</option>
           </select>
         </td>
         <td>
           <select class="strategy-select" data-field="backup_strategy" data-id="${item.id}">
-            <option value="none" ${(!item.backup_strategy || item.backup_strategy === 'none') ? 'selected' : ''}>➖ 无需操作</option>
-            <option value="copy_dir" ${item.backup_strategy === 'copy_dir' ? 'selected' : ''}>📦 保留/压缩目录</option>
-            <option value="copy_config" ${item.backup_strategy === 'copy_config' ? 'selected' : ''}>⚙️ 导出/备份配置</option>
-            <option value="redownload" ${item.backup_strategy === 'redownload' ? 'selected' : ''}>🌐 重新下载</option>
-            <option value="sync_account" ${item.backup_strategy === 'sync_account' ? 'selected' : ''}>☁️ 账号同步</option>
+            <option value="none" ${(!item.backup_strategy || item.backup_strategy === 'none') ? 'selected' : ''}>无需操作</option>
+            <option value="copy_dir" ${item.backup_strategy === 'copy_dir' ? 'selected' : ''}>保留/压缩目录</option>
+            <option value="copy_config" ${item.backup_strategy === 'copy_config' ? 'selected' : ''}>导出/备份配置</option>
+            <option value="redownload" ${item.backup_strategy === 'redownload' ? 'selected' : ''}>重新下载</option>
+            <option value="sync_account" ${item.backup_strategy === 'sync_account' ? 'selected' : ''}>账号同步</option>
           </select>
         </td>
         <td style="text-align: center;">
           <span class="prep-badge prep-${prepStatus}" data-action="toggle-prep" data-id="${item.id}">
-            ${prepStatus === 'ready' ? '✅ 已就绪' : '⏳ 待办'}
+            <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>
+            ${prepStatus === 'ready' ? '已就绪' : '待办'}
           </span>
         </td>
         <td>
-          <div style="display: flex; align-items: center; gap: 4px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
             <input type="text" class="cell-input" data-field="download_url" data-id="${item.id}" value="${escapeHtml(item.download_url || '')}" placeholder="官网或下载网址...">
-            ${item.download_url ? `<a href="${escapeHtml(item.download_url)}" target="_blank" style="text-decoration:none;" title="打开链接">🔗</a>` : ''}
+            ${item.download_url ? `<a href="${escapeHtml(item.download_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;" title="打开外链">${ICONS.externalLink}</a>` : ''}
           </div>
         </td>
         <td>
@@ -299,8 +336,9 @@ function renderTable() {
     `;
   }
 
-  tableBody.innerHTML = html || `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--text-dim);">没有匹配的软件项</td></tr>`;
+  tableBody.innerHTML = html || `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--ink-3);">没有匹配的软件项</td></tr>`;
   updateBatchBar();
+  if (activeItem) updateDrawerNavigation();
 }
 
 function updateBatchBar() {
@@ -321,19 +359,69 @@ function isTypingInField() {
   if (tag === 'textarea') return true;
   if (tag === 'input') {
     const type = (el.type || 'text').toLowerCase();
-    // 只有文本类的 input 会阻断快捷键，复选框与单选框不阻断！
     return ['text', 'search', 'url', 'email', 'password', 'number'].includes(type);
   }
   return false;
 }
 
-// 绑定全局快捷键 (支持主键盘数字与小键盘数字 1~8、Esc、双击 Delete)
+// 绑定全局快捷键
 function bindKeyboardShortcuts() {
   window.addEventListener('keydown', e => {
-    // 如果正在输入文字，或侧栏抽屉打开，或弹窗打开，则不触发快捷键
+    const isDrawerOpen = sideDrawer && sideDrawer.classList.contains('show');
+    const isModalOpen = !!document.querySelector('.modal-overlay.show');
+
+    // 1. 如果抽屉打开：处理连续切卡与 Esc 关闭
+    if (isDrawerOpen) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDrawer();
+        return;
+      }
+      // Alt+Left / Alt+Right 无论焦点在何处均切卡
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        switchDrawerCard(-1);
+        return;
+      }
+      if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        switchDrawerCard(1);
+        return;
+      }
+      // 非打字状态下，按 [ 或 ] 快速切卡
+      if (!isTypingInField()) {
+        if (e.key === '[' || e.key === 'BracketLeft') {
+          e.preventDefault();
+          switchDrawerCard(-1);
+          return;
+        }
+        if (e.key === ']' || e.key === 'BracketRight') {
+          e.preventDefault();
+          switchDrawerCard(1);
+          return;
+        }
+      }
+      return;
+    }
+
+    // 2. 如果模态弹窗打开：只监听 Esc 关闭
+    if (isModalOpen) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
+      }
+      return;
+    }
+
+    // 3. 页面常规状态：如果按 '/' 聚焦搜索框
+    if (!isTypingInField() && e.key === '/') {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+
+    // 4. 正在打字则不触发表格快捷键
     if (isTypingInField()) return;
-    if (sideDrawer && sideDrawer.classList.contains('show')) return;
-    if (document.querySelector('.modal-overlay.show')) return;
 
     if (selectedIds.size === 0) return;
 
@@ -382,10 +470,161 @@ function bindKeyboardShortcuts() {
         executeBatchDelete();
       } else {
         lastDeleteTime = now;
-        showToast('⚠️ 2秒内再次按 Delete 确认删除', 'warning', 2000);
+        showToast('2秒内再次按 Delete 确认删除', 'warning', 2000);
       }
     }
   });
+}
+
+// 抽屉导航与连续切卡
+function updateDrawerNavigation() {
+  const list = getFilteredSoftware();
+  if (!activeItem) return;
+  const idx = list.findIndex(s => s.id === activeItem.id);
+
+  if (idx !== -1) {
+    drawerIndexBadge.textContent = `${idx + 1} / ${list.length}`;
+    btnPrevDrawer.disabled = idx <= 0;
+    btnNextDrawer.disabled = idx >= list.length - 1;
+  } else {
+    drawerIndexBadge.textContent = `— / ${list.length}`;
+    btnPrevDrawer.disabled = true;
+    btnNextDrawer.disabled = true;
+  }
+}
+
+function switchDrawerCard(delta) {
+  flushDrawerSave();
+  const list = getFilteredSoftware();
+  if (!activeItem || list.length === 0) return;
+  const idx = list.findIndex(s => s.id === activeItem.id);
+  if (idx === -1) return;
+  const nextIdx = idx + delta;
+  if (nextIdx >= 0 && nextIdx < list.length) {
+    openDrawer(list[nextIdx].id);
+  }
+}
+
+// 抽屉实时无感自动保存
+function markDrawerSaving() {
+  pendingDrawerSave = true;
+  if (drawerSaveStatus) {
+    drawerSaveStatus.className = 'save-status saving';
+    drawerSaveStatus.innerHTML = `<span class="spinner"></span> 保存中...`;
+  }
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(performDrawerAutoSave, 350);
+}
+
+async function performDrawerAutoSave() {
+  if (!activeItem) return;
+  clearTimeout(autoSaveTimer);
+  pendingDrawerSave = false;
+
+  const updates = {
+    name: document.getElementById('drawerName').value.trim() || activeItem.name,
+    version: document.getElementById('drawerVersion').value.trim(),
+    category: document.getElementById('drawerCategory').value,
+    type: document.getElementById('drawerType').value,
+    prep_status: document.getElementById('drawerPrepStatus').value,
+    download_url: document.getElementById('drawerUrl').value.trim(),
+    restore_intent: document.getElementById('drawerIntent').value,
+    backup_strategy: document.getElementById('drawerStrategy').value,
+    config_notes: document.getElementById('drawerNotes').value.trim(),
+    is_awesome: document.getElementById('drawerAwesome').checked,
+    awesome_role: document.getElementById('drawerAwesomeRole').value.trim()
+  };
+
+  Object.assign(activeItem, updates);
+  document.getElementById('drawerTitle').innerText = activeItem.name;
+
+  try {
+    await fetch('/api/software/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: activeItem.id, updates })
+    });
+    renderTable();
+    await fetchStatus();
+    if (drawerSaveStatus) {
+      drawerSaveStatus.className = 'save-status';
+      drawerSaveStatus.innerHTML = `${ICONS.check} 已同步`;
+    }
+  } catch (e) {
+    console.error('Auto save error:', e);
+  }
+}
+
+function flushDrawerSave() {
+  if (pendingDrawerSave) {
+    performDrawerAutoSave();
+  }
+}
+
+// 侧边抽屉管理
+function openDrawer(id) {
+  flushDrawerSave();
+  activeItem = softwareList.find(s => s.id === id);
+  if (!activeItem) return;
+
+  document.getElementById('drawerTitle').innerText = activeItem.name;
+  document.getElementById('drawerName').value = activeItem.name;
+  document.getElementById('drawerVersion').value = activeItem.version || '';
+  document.getElementById('drawerCategory').value = activeItem.category || '开发工具';
+  document.getElementById('drawerType').value = activeItem.type || 'desktop';
+  document.getElementById('drawerPrepStatus').value = activeItem.prep_status || 'todo';
+  document.getElementById('drawerUrl').value = activeItem.download_url || '';
+  document.getElementById('drawerIntent').value = activeItem.restore_intent || 'unreviewed';
+  document.getElementById('drawerStrategy').value = activeItem.backup_strategy || 'none';
+  document.getElementById('drawerNotes').value = activeItem.config_notes || '';
+  document.getElementById('drawerAwesome').checked = !!activeItem.is_awesome;
+  document.getElementById('drawerAwesomeRole').value = activeItem.awesome_role || '';
+
+  if (drawerSaveStatus) {
+    drawerSaveStatus.className = 'save-status';
+    drawerSaveStatus.innerHTML = `${ICONS.check} 已同步`;
+  }
+
+  updateDrawerNavigation();
+
+  const listEl = document.getElementById('drawerMachinesList');
+  listEl.innerHTML = activeItem.machines.map(m => `
+    <div class="machine-item-card">
+      <div style="font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 5px;">
+        ${ICONS.device} ${m.machine_id} (${m.form})
+      </div>
+      <div>路径: <code>${m.install_location || m.path || '未记录路径'}</code></div>
+      ${m.version ? `<div>版本: <code>${m.version}</code></div>` : ''}
+      ${m.publisher ? `<div>发布者: ${m.publisher}</div>` : ''}
+    </div>
+  `).join('') || '<div style="color: var(--ink-3)">暂无关联机器信息</div>';
+
+  sideDrawer.classList.add('show');
+  drawerOverlay.classList.add('show');
+}
+
+function closeDrawer() {
+  flushDrawerSave();
+  sideDrawer.classList.remove('show');
+  drawerOverlay.classList.remove('show');
+  activeItem = null;
+}
+
+async function deleteCurrentItem() {
+  if (!activeItem) return;
+  const name = activeItem.name;
+  const id = activeItem.id;
+  softwareList = softwareList.filter(s => s.id !== id);
+  await fetch('/api/software/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [id] })
+  });
+
+  closeDrawer();
+  renderTable();
+  await fetchStatus();
+  showToast(`已删除软件【${name}】`, 'info');
 }
 
 // 事件绑定
@@ -499,10 +738,10 @@ function bindEvents() {
       if (item) {
         item.is_awesome = !item.is_awesome;
         star.classList.toggle('starred', item.is_awesome);
-        star.innerText = item.is_awesome ? '★' : '☆';
+        star.innerHTML = item.is_awesome ? ICONS.starFilled : ICONS.star;
         await updateItemField(id, { is_awesome: item.is_awesome });
         await fetchStatus();
-        showToast(item.is_awesome ? '已加入 Awesome 精选库 ★' : '已取消精选标记');
+        showToast(item.is_awesome ? '已加入 Awesome 精选库' : '已取消精选标记');
       }
       return;
     }
@@ -515,7 +754,7 @@ function bindEvents() {
         const nextStatus = item.prep_status === 'ready' ? 'todo' : 'ready';
         item.prep_status = nextStatus;
         prepBtn.className = `prep-badge prep-${nextStatus}`;
-        prepBtn.innerHTML = nextStatus === 'ready' ? '✅ 已就绪' : '⏳ 待办';
+        prepBtn.innerHTML = `<span class="status-dot dot-${nextStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>${nextStatus === 'ready' ? '已就绪' : '待办'}`;
         await updateItemField(id, { prep_status: nextStatus });
         await fetchStatus();
       }
@@ -529,6 +768,30 @@ function bindEvents() {
       return;
     }
   });
+
+  // 抽屉字段实时自动保存监听 (无感同步，无需手动点击保存)
+  const autoSaveInputs = ['drawerName', 'drawerVersion', 'drawerUrl', 'drawerNotes', 'drawerAwesomeRole'];
+  autoSaveInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', markDrawerSaving);
+  });
+
+  const autoSaveSelects = ['drawerType', 'drawerCategory', 'drawerPrepStatus', 'drawerIntent', 'drawerStrategy', 'drawerAwesome'];
+  autoSaveSelects.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', markDrawerSaving);
+  });
+
+  // 抽屉切卡按钮
+  btnPrevDrawer.addEventListener('click', () => switchDrawerCard(-1));
+  btnNextDrawer.addEventListener('click', () => switchDrawerCard(1));
+
+  // 抽屉关闭与删除
+  btnCloseDrawer.addEventListener('click', closeDrawer);
+  btnCloseDrawerBottom.addEventListener('click', closeDrawer);
+  drawerOverlay.addEventListener('click', closeDrawer);
+  btnDeleteCurrent.addEventListener('click', deleteCurrentItem);
+  btnDrawerLLM.addEventListener('click', handleDrawerLLM);
 
   // 批量操作按钮
   btnBatchMust.addEventListener('click', () => {
@@ -561,7 +824,7 @@ function bindEvents() {
       executeBatchDelete();
     } else {
       lastDeleteTime = now;
-      showToast('⚠️ 2秒内再次点击删除确认', 'warning', 2000);
+      showToast('2秒内再次点击删除确认', 'warning', 2000);
     }
   });
   btnBatchMerge.addEventListener('click', batchMerge);
@@ -577,16 +840,34 @@ function bindEvents() {
   });
   btnConfirmBatchAdd.addEventListener('click', handleConfirmBatchAdd);
 
-  // 配置按钮
+  // 配置弹窗与快捷预设
   btnConfig.addEventListener('click', openConfigModal);
   btnSaveConfig.addEventListener('click', saveConfigModal);
 
-  // 侧边抽屉
-  btnCloseDrawer.addEventListener('click', closeDrawer);
-  drawerOverlay.addEventListener('click', closeDrawer);
-  btnSaveDrawer.addEventListener('click', saveDrawer);
-  btnDeleteCurrent.addEventListener('click', deleteCurrentItem);
-  btnDrawerLLM.addEventListener('click', handleDrawerLLM);
+  document.getElementById('presetLocal').addEventListener('click', () => {
+    configLlmUrl.value = 'http://127.0.0.1:1234/v1/chat/completions';
+    configLlmModel.value = 'qwen3.5-4b';
+    configLlmKey.value = '';
+    showToast('已填入本地 LM Studio 预设', 'info');
+  });
+  document.getElementById('presetDeepseek').addEventListener('click', () => {
+    configLlmUrl.value = 'https://api.deepseek.com/chat/completions';
+    configLlmModel.value = 'deepseek-chat';
+    configLlmKey.focus();
+    showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
+  });
+  document.getElementById('presetOpenai').addEventListener('click', () => {
+    configLlmUrl.value = 'https://api.openai.com/v1/chat/completions';
+    configLlmModel.value = 'gpt-4o-mini';
+    configLlmKey.focus();
+    showToast('已填入 OpenAI 预设，请填入 API Key', 'info');
+  });
+  document.getElementById('presetSilicon').addEventListener('click', () => {
+    configLlmUrl.value = 'https://api.siliconflow.cn/v1/chat/completions';
+    configLlmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
+    configLlmKey.focus();
+    showToast('已填入硅基流动预设，请填入 API Key', 'info');
+  });
 }
 
 // 单项更新
@@ -680,7 +961,7 @@ async function batchMerge() {
   }
 }
 
-// 本地 LLM 批量辅助推断
+// LLM 批量智能推断
 async function handleBatchLLM() {
   if (selectedIds.size === 0) return;
   const ids = Array.from(selectedIds);
@@ -724,14 +1005,14 @@ async function handleBatchLLM() {
     selectedIds.clear();
     await fetchStatus();
     renderTable();
-    showToast(`本地 LLM 已为 ${successCount} 款软件补全了建议！`, 'success');
+    showToast(`LLM 已为 ${successCount} 款软件补全了建议！`, 'success');
   } finally {
     btnBatchLLM.disabled = false;
     btnBatchLLM.innerHTML = originalHtml;
   }
 }
 
-// 抽屉内部单条 AI 推断
+// 抽屉单条 AI 补全
 async function handleDrawerLLM() {
   if (!activeItem) return;
   btnDrawerLLM.disabled = true;
@@ -751,66 +1032,70 @@ async function handleDrawerLLM() {
       if (sug.type) document.getElementById('drawerType').value = sug.type;
       if (sug.restore_intent) document.getElementById('drawerIntent').value = sug.restore_intent;
       if (sug.backup_strategy) document.getElementById('drawerStrategy').value = sug.backup_strategy;
-      if (sug.download_url) document.getElementById('drawerUrl').value = sug.download_url;
-      if (sug.config_notes) document.getElementById('drawerNotes').value = sug.config_notes;
-      showToast('已自动预填推荐字段，核对无误后请点击保存', 'success');
+      if (sug.download_url && !document.getElementById('drawerUrl').value) {
+        document.getElementById('drawerUrl').value = sug.download_url;
+      }
+      if (sug.config_notes && !document.getElementById('drawerNotes').value) {
+        document.getElementById('drawerNotes').value = sug.config_notes;
+      }
+      markDrawerSaving();
+      showToast('AI 预填完成，已自动保存！', 'success');
     } else {
-      showToast('LLM 未返回有效结果: ' + (data.error || ''), 'error');
+      showToast('AI 建议生成异常: ' + (data.error || '未知错误'), 'warning');
     }
-  } catch (err) {
-    showToast('请求失败，请检查 LLM 服务是否就绪: ' + err.message, 'error');
+  } catch (e) {
+    showToast('调用失败: ' + e.message, 'error');
   } finally {
     btnDrawerLLM.disabled = false;
-    btnDrawerLLM.innerText = '🤖 AI 预填';
+    btnDrawerLLM.innerHTML = `${ICONS.sparkles} AI预填`;
   }
 }
 
-// 扫描本机
+// 本机扫描
 async function handleScanLocal() {
   btnScanLocal.disabled = true;
   scanIcon.innerHTML = '<span class="spinner"></span>';
-  showToast('开始扫描本机软件与环境...', 'info', 3000);
+  showToast('正在启动 Windows 采集脚本扫描本机...', 'info');
+
   try {
     const res = await fetch('/api/scan', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast('本机扫描已完成并自动归并入库！', 'success');
       await loadSoftware();
       await fetchStatus();
+      showToast(`本机扫描完成！已归一化 ${data.ingestRes?.totalIngested || 0} 个软件条目`, 'success');
     } else {
-      showToast('扫描出错: ' + (data.error || '未知错误'), 'error');
+      showToast('扫描执行失败: ' + data.error, 'error');
     }
   } catch (e) {
-    showToast('请求失败: ' + e.message, 'error');
+    showToast('扫描请求异常: ' + e.message, 'error');
   } finally {
     btnScanLocal.disabled = false;
-    scanIcon.innerText = '🔄';
+    scanIcon.innerHTML = ICONS.refresh;
   }
 }
 
 // 导出 Markdown
 async function handleExport() {
-  btnExport.disabled = true;
   try {
     const res = await fetch('/api/export', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      const modal = document.getElementById('exportModal');
-      const body = document.getElementById('exportModalBody');
-      body.innerHTML = `
-        <p style="margin-bottom: 12px;">已成功生成两份高价值资产文档：</p>
-        <div style="background: var(--bg-hover); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 13px; margin-bottom: 12px; border: 1px solid var(--border-color);">
-          <div>✅ <b>恢复清单</b>: ${data.checklistPath}</div>
-          <div>✅ <b>精选清单</b>: ${data.awesomePath}</div>
+      const modalBody = document.getElementById('exportModalBody');
+      modalBody.innerHTML = `
+        <p style="margin-bottom: 12px; color: var(--ink-2);">已成功生成两份高价值清单文档至项目 <code>exports/</code> 目录：</p>
+        <div style="background: var(--surface-2); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12.5px; margin-bottom: 12px; box-shadow: inset 0 0 0 1px var(--rule);">
+          <div><strong>1. 重装恢复清单:</strong> ${data.recoveryListPath}</div>
+          <div style="margin-top: 6px;"><strong>2. 精选资产库:</strong> ${data.awesomeListPath}</div>
         </div>
-        <p><b>数据概览</b>：软件总数 <b>${data.stats.total}</b>，必须恢复 <b>${data.stats.must}</b>，建议恢复 <b>${data.stats.should}</b>，已就绪 <b>${data.stats.ready || 0}</b>，待打包备份资产 <b>${data.stats.backupTasks}</b>，精选工具 <b>${data.stats.awesome}</b> 款。</p>
+        <p style="font-size: 12px; color: var(--ink-3);">可以直接打开 Markdown 查看或在重装后按清单逐项恢复。</p>
       `;
-      modal.classList.add('show');
+      document.getElementById('exportModal').classList.add('show');
+    } else {
+      showToast('导出失败: ' + data.error, 'error');
     }
   } catch (e) {
-    showToast('导出失败: ' + e.message, 'error');
-  } finally {
-    btnExport.disabled = false;
+    showToast('导出异常: ' + e.message, 'error');
   }
 }
 
@@ -818,35 +1103,37 @@ async function handleExport() {
 async function handleConfirmBatchAdd() {
   const text = batchAddInput.value.trim();
   if (!text) {
-    showToast('请输入至少一个软件名称', 'warning');
+    showToast('请输入要添加的软件名称', 'warning');
     return;
   }
 
-  const rawNames = text.split(/[,，\n\r;；]+/).map(n => n.trim()).filter(Boolean);
-  if (rawNames.length === 0) return;
+  const rawNames = text.split(/[\n,，;；]+/).map(s => s.trim()).filter(Boolean);
+  if (rawNames.length === 0) {
+    showToast('未检测到有效的软件名称', 'warning');
+    return;
+  }
 
-  const defaultIntent = batchAddIntent.value;
+  const restore_intent = batchAddIntent.value;
   btnConfirmBatchAdd.disabled = true;
 
   try {
     const res = await fetch('/api/software/batch-add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names: rawNames, restore_intent: defaultIntent })
+      body: JSON.stringify({ names: rawNames, restore_intent })
     });
     const data = await res.json();
     if (data.success) {
       batchAddModal.classList.remove('show');
-      for (const it of (data.items || []).reverse()) {
-        softwareList.unshift(it);
+      batchAddInput.value = '';
+
+      for (const item of data.items) {
+        softwareList.unshift(item);
       }
-      
-      searchInput.value = '';
-      activeMachine = 'all';
+
+      categoryFilter.value = 'all';
       intentFilter.value = 'all';
       strategyFilter.value = 'all';
-      categoryFilter.value = 'all';
-      pathFilter.value = 'all';
       prepFilter.value = 'all';
 
       renderTable();
@@ -872,6 +1159,7 @@ async function openConfigModal() {
     const cfg = await res.json();
     configLlmUrl.value = cfg.llm_url || 'http://127.0.0.1:1234/v1/chat/completions';
     configLlmModel.value = cfg.llm_model || 'qwen3.5-4b';
+    configLlmKey.value = cfg.llm_api_key || '';
     configModal.classList.add('show');
   } catch (e) {
     showToast('读取配置失败', 'error');
@@ -881,6 +1169,7 @@ async function openConfigModal() {
 async function saveConfigModal() {
   const llm_url = configLlmUrl.value.trim();
   const llm_model = configLlmModel.value.trim();
+  const llm_api_key = configLlmKey.value.trim();
   if (!llm_url) {
     showToast('请输入有效的 LLM API URL', 'warning');
     return;
@@ -890,95 +1179,16 @@ async function saveConfigModal() {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ llm_url, llm_model })
+      body: JSON.stringify({ llm_url, llm_model, llm_api_key })
     });
     const data = await res.json();
     if (data.success) {
       configModal.classList.remove('show');
-      showToast('LLM 端点配置已保存！', 'success');
+      showToast('LLM 服务与密钥配置已保存！', 'success');
     }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
   }
-}
-
-// 侧边抽屉管理 (加宽并一屏全览)
-function openDrawer(id) {
-  activeItem = softwareList.find(s => s.id === id);
-  if (!activeItem) return;
-
-  document.getElementById('drawerTitle').innerText = activeItem.name;
-  document.getElementById('drawerName').value = activeItem.name;
-  document.getElementById('drawerVersion').value = activeItem.version || '';
-  document.getElementById('drawerCategory').value = activeItem.category || '开发工具';
-  document.getElementById('drawerType').value = activeItem.type || 'desktop';
-  document.getElementById('drawerPrepStatus').value = activeItem.prep_status || 'todo';
-  document.getElementById('drawerUrl').value = activeItem.download_url || '';
-  document.getElementById('drawerIntent').value = activeItem.restore_intent || 'unreviewed';
-  document.getElementById('drawerStrategy').value = activeItem.backup_strategy || 'none';
-  document.getElementById('drawerNotes').value = activeItem.config_notes || '';
-  document.getElementById('drawerAwesome').checked = !!activeItem.is_awesome;
-  document.getElementById('drawerAwesomeRole').value = activeItem.awesome_role || '';
-
-  const listEl = document.getElementById('drawerMachinesList');
-  listEl.innerHTML = activeItem.machines.map(m => `
-    <div class="machine-item-card">
-      <div style="font-weight: 600; color: var(--accent-blue);">🖥️ ${m.machine_id} (${m.form})</div>
-      <div>路径: <code>${m.install_location || m.path || '未记录路径'}</code></div>
-      ${m.version ? `<div>版本: <code>${m.version}</code></div>` : ''}
-      ${m.publisher ? `<div>发布者: ${m.publisher}</div>` : ''}
-    </div>
-  `).join('') || '<div style="color: var(--text-dim)">暂无关联机器信息</div>';
-
-  sideDrawer.classList.add('show');
-  drawerOverlay.classList.add('show');
-}
-
-function closeDrawer() {
-  sideDrawer.classList.remove('show');
-  drawerOverlay.classList.remove('show');
-  activeItem = null;
-}
-
-async function saveDrawer() {
-  if (!activeItem) return;
-  const updates = {
-    name: document.getElementById('drawerName').value.trim(),
-    version: document.getElementById('drawerVersion').value.trim(),
-    category: document.getElementById('drawerCategory').value,
-    type: document.getElementById('drawerType').value,
-    prep_status: document.getElementById('drawerPrepStatus').value,
-    download_url: document.getElementById('drawerUrl').value.trim(),
-    restore_intent: document.getElementById('drawerIntent').value,
-    backup_strategy: document.getElementById('drawerStrategy').value,
-    config_notes: document.getElementById('drawerNotes').value.trim(),
-    is_awesome: document.getElementById('drawerAwesome').checked,
-    awesome_role: document.getElementById('drawerAwesomeRole').value.trim()
-  };
-
-  Object.assign(activeItem, updates);
-  await updateItemField(activeItem.id, updates);
-  closeDrawer();
-  renderTable();
-  await fetchStatus();
-  showToast(`已保存【${activeItem.name}】的修改`, 'success');
-}
-
-async function deleteCurrentItem() {
-  if (!activeItem) return;
-  const name = activeItem.name;
-  const id = activeItem.id;
-  softwareList = softwareList.filter(s => s.id !== id);
-  await fetch('/api/software/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: [id] })
-  });
-
-  closeDrawer();
-  renderTable();
-  await fetchStatus();
-  showToast(`已删除软件【${name}】`, 'info');
 }
 
 function escapeHtml(str) {
