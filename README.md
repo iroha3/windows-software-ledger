@@ -2,6 +2,8 @@
 
 # 软件备份台账
 
+**windows-software-ledger** · 简称 WSL
+
 **把电脑里的软件家底清点清楚，重装迁移时有据可依。**
 
 本地优先 · 单 exe 绿色运行 · 数据可携带
@@ -77,5 +79,3 @@
 ## License
 
 本项目基于 [GNU Affero General Public License v3.0](LICENSE) 授权。
-
-Copyright © 2025
