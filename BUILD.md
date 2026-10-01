@@ -75,6 +75,21 @@ scripts\cargo-msvc.bat test
 > scripts\cargo-msvc.bat build
 > ```
 
+## 版本号与自动发布
+
+**版本号唯一来源：`src-tauri\Cargo.toml` 中 `[package]` 的 `version`。**
+
+`src-tauri\tauri.conf.json` 刻意不写 `version`，Tauri 会自动回退使用 Cargo 的版本号（根目录 `package.json` 的 `version` 只服务旧版 Bun 分支，与桌面版无关）。
+
+改好版本号并推送到 `master` 后，GitHub Actions（`.github\workflows\release.yml`）会自动：
+
+1. 读取该版本号；
+2. 若 `v<version>` tag 尚不存在，在 `windows-latest` 上构建 `software-ledger.exe`；
+3. 打包为 `software-ledger-v<version>-windows-x64.zip`（内含 exe 与 LICENSE）；
+4. 创建同名 tag 与 Release 并上传该 zip。
+
+若 tag 已存在则整条流程跳过，不会重复发版。
+
 ## 安装包（可选）
 
 仓库未内置 Tauri CLI。如需生成 NSIS 安装包：

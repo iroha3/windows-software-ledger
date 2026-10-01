@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "软件备份台账",
-  "version": "1.0.0",
   "identifier": "com.iroha3.software-ledger",
   "build": {
     "frontendDist": "../client"
