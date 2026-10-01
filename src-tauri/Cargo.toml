@@ -1,5 +1,5 @@
 [package]
-name = "software-ledger"
+name = "windows-software-ledger"
 version = "1.0.0"
 description = "软件备份台账"
 authors = ["iroha3"]
@@ -7,7 +7,7 @@ license = "AGPL-3.0"
 edition = "2021"
 
 [lib]
-name = "software_ledger_lib"
+name = "windows_software_ledger_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

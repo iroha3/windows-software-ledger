@@ -65,9 +65,9 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.version.outputs.version }}"
-          $zip = "software-ledger-v$version-windows-x64.zip"
+          $zip = "windows-software-ledger-v$version-windows-x64.zip"
           New-Item -ItemType Directory -Force package | Out-Null
-          Copy-Item "src-tauri/target/release/software-ledger.exe" package/
+          Copy-Item "src-tauri/target/release/windows-software-ledger.exe" package/
           Copy-Item "LICENSE" package/
           Compress-Archive -Path "package/*" -DestinationPath $zip
           Write-Host "packaged $zip"
@@ -79,7 +79,7 @@ jobs:
         run: |
           version="${{ needs.version.outputs.version }}"
           gh release create "v$version" \
-            "software-ledger-v$version-windows-x64.zip" \
+            "windows-software-ledger-v$version-windows-x64.zip" \
             --target "$GITHUB_SHA" \
             --title "v$version" \
             --generate-notes

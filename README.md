@@ -2,8 +2,6 @@
 
 # 软件备份台账
 
-**windows-software-ledger** · 简称 WSL
-
 **把电脑里的软件家底清点清楚，重装迁移时有据可依。**
 
 本地优先 · 单 exe 绿色运行 · 数据可携带
@@ -43,7 +41,7 @@
 
 ## 安装
 
-1. 前往 [Releases](../../releases) 下载最新的 `software-ledger.exe`。
+1. 前往 [Releases](../../releases) 下载最新的 `windows-software-ledger.exe`。
 2. 放进任意文件夹，双击运行。
 3. 首次运行会在 exe 同级自动创建 `data/` 目录，所有清单与设置都保存在这里。
 
@@ -53,7 +51,7 @@
 
 ```
 软件备份台账/
-├─ software-ledger.exe
+├─ windows-software-ledger.exe
 └─ data/                 ← 清单与设置，连同文件夹一起拷走即可
 ```
 

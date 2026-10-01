@@ -507,7 +507,7 @@ fn run_scan() -> Value {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let scan_dir = std::env::temp_dir()
-        .join(format!("software-ledger-scan-{}-{}", std::process::id(), stamp));
+        .join(format!("windows-software-ledger-scan-{}-{}", std::process::id(), stamp));
     let script = scan_dir.join("collect.ps1");
     let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
     let output_dir = scan_dir.join(&machine);

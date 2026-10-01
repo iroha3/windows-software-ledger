@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    software_ledger_lib::run()
+    windows_software_ledger_lib::run()
 }

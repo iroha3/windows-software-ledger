@@ -23,7 +23,7 @@ scripts\cargo-msvc.bat build --release
 产物：
 
 ```
-src-tauri\target\release\software-ledger.exe
+src-tauri\target\release\windows-software-ledger.exe
 ```
 
 `scripts\cargo-msvc.bat` 是一个包装脚本，用于在 Git Bash / MSYS 等环境下正确加载 MSVC 环境（否则 `/usr/bin/link` 会抢占 MSVC 的 `link.exe`，报 `link: extra operand`）。
@@ -71,7 +71,7 @@ scripts\cargo-msvc.bat test
 > 修改图标后需先清理再构建，否则增量编译会沿用过期的图标资源：
 >
 > ```bat
-> scripts\cargo-msvc.bat clean -p software-ledger
+> scripts\cargo-msvc.bat clean -p windows-software-ledger
 > scripts\cargo-msvc.bat build
 > ```
 
@@ -79,13 +79,13 @@ scripts\cargo-msvc.bat test
 
 **版本号唯一来源：`src-tauri\Cargo.toml` 中 `[package]` 的 `version`。**
 
-`src-tauri\tauri.conf.json` 刻意不写 `version`，Tauri 会自动回退使用 Cargo 的版本号（根目录 `package.json` 的 `version` 只服务旧版 Bun 分支，与桌面版无关）。
+`src-tauri\tauri.conf.json` 刻意不写 `version`，Tauri 会自动回退使用 Cargo 的版本号（旧版 Bun 中台所需的 `package.json` 只存在于 `bun` 分支）。
 
 改好版本号并推送到 `master` 后，GitHub Actions（`.github\workflows\release.yml`）会自动：
 
 1. 读取该版本号；
-2. 若 `v<version>` tag 尚不存在，在 `windows-latest` 上构建 `software-ledger.exe`；
-3. 打包为 `software-ledger-v<version>-windows-x64.zip`（内含 exe 与 LICENSE）；
+2. 若 `v<version>` tag 尚不存在，在 `windows-latest` 上构建 `windows-software-ledger.exe`；
+3. 打包为 `windows-software-ledger-v<version>-windows-x64.zip`（内含 exe 与 LICENSE）；
 4. 创建同名 tag 与 Release 并上传该 zip。
 
 若 tag 已存在则整条流程跳过，不会重复发版。
