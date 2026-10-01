@@ -2,41 +2,45 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// 测试之间串行化对 `SOFTWARE_LEDGER_ROOT` 的修改，避免并行测试互相干扰。
-#[cfg(test)]
-pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// 数据根目录：优先环境变量，其次从 exe 向上寻找 package.json / data 目录，
-/// 这样开发时（target/debug）与打包后（exe 同级放 data/）都能命中同一个项目目录。
+/// 数据根目录 = 可执行文件所在目录。
+/// 便携发布：exe 与 `data/` 放同一个文件夹，`data/` 首次运行自动创建。
 pub fn app_root() -> PathBuf {
-    if let Ok(p) = std::env::var("SOFTWARE_LEDGER_ROOT") {
-        let pb = PathBuf::from(p);
-        if pb.exists() {
-            return pb;
-        }
+    #[cfg(test)]
+    if let Some(root) = test_support::root_override() {
+        return root;
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(start) = exe.parent() {
-            return resolve_root_from(start);
-        }
-    }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
-/// 从给定目录向上寻找含 `data/` 或 `package.json` 的目录；
-/// 便携场景下 exe 与 `data/` 同级，会在第一层直接命中。
-fn resolve_root_from(start: &Path) -> PathBuf {
-    let mut dir = start.to_path_buf();
-    for _ in 0..8 {
-        if dir.join("package.json").exists() || dir.join("data").exists() {
-            return dir;
-        }
-        match dir.parent() {
-            Some(p) => dir = p.to_path_buf(),
-            None => break,
+/// 仅测试使用：把数据根临时指向临时目录，并串行化并行测试。
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, MutexGuard};
+
+    static ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    pub(crate) fn root_override() -> Option<PathBuf> {
+        ROOT.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(crate) struct Guard(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            *ROOT.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
-    start.to_path_buf()
+
+    pub(crate) fn use_root(root: &Path) -> Guard {
+        let serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        *ROOT.lock().unwrap_or_else(|e| e.into_inner()) = Some(root.to_path_buf());
+        Guard(serial)
+    }
 }
 
 pub fn data_dir() -> PathBuf {
@@ -112,37 +116,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolves_portable_layout() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("SOFTWARE_LEDGER_ROOT");
+    fn data_paths_live_under_root() {
         let base = std::env::temp_dir().join(format!("ledger_root_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
-
-        // exe 与 data/ 同级 -> 直接命中 exe 目录
-        let portable = base.join("app");
-        fs::create_dir_all(portable.join("data")).unwrap();
-        assert_eq!(resolve_root_from(&portable), portable);
-
-        // 只有 exe、data/ 尚未创建 -> 回退到 exe 同级
-        let fresh = base.join("fresh");
-        fs::create_dir_all(&fresh).unwrap();
-        assert_eq!(resolve_root_from(&fresh), fresh);
-
-        // 嵌套子目录向上回溯
-        let nested = base.join("nested");
-        fs::create_dir_all(nested.join("data")).unwrap();
-        let deep = nested.join("a").join("b");
-        fs::create_dir_all(&deep).unwrap();
-        assert_eq!(resolve_root_from(&deep), nested);
-
-        // 实际 exe 路径解析：测试二进制位于 target/debug/deps，
-        // 应回溯到仓库根目录（含 package.json / data），而非任何临时目录。
-        let real = app_root();
-        assert!(real.join("package.json").exists(), "app_root={:?}", real);
-        assert!(real.join("data").exists(), "app_root={:?}", real);
-        assert_eq!(evidence_dir(), real.join("evidence"));
-        assert_eq!(scripts_dir(), real.join("scripts"));
-
+        fs::create_dir_all(&base).unwrap();
+        {
+            let _guard = test_support::use_root(&base);
+            assert_eq!(data_dir(), base.join("data"));
+            assert_eq!(software_file(), base.join("data").join("software.json"));
+            assert_eq!(config_file(), base.join("data").join("config.json"));
+            assert_eq!(evidence_dir(), base.join("evidence"));
+            assert_eq!(scripts_dir(), base.join("scripts"));
+        }
         let _ = fs::remove_dir_all(&base);
     }
 }

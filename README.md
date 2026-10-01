@@ -44,7 +44,9 @@ bunx tauri build
 
 > `scripts/cargo-msvc.bat` 仅用于在 Git Bash / MSYS 环境下正确加载 MSVC 链接器；在 “x64 Native Tools Command Prompt for VS” 中可直接运行 `cargo`。
 >
-> 数据目录解析顺序：环境变量 `SOFTWARE_LEDGER_ROOT` → 从 exe 向上查找含 `data/` 或 `package.json` 的目录 → exe 同级目录。
+> 数据目录规则只有一条：**永远是 exe 所在目录下的 `data/`**。没有环境变量、不向上查找、不依赖 `package.json`。便携发布 = 一个 exe + 旁边的 `data/` 文件夹，`data/` 首次运行自动创建。
+>
+> （`cargo run` 调试时 exe 在 `src-tauri/target/debug/`，数据就在 `target/debug/data/`；正式使用请跑 `--release` 或直接把 exe 和 `data/` 放一起。）
 
 ---
 

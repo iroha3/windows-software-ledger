@@ -342,7 +342,6 @@ mod tests {
 
     #[test]
     fn ingest_normalizes_and_filters() {
-        let _guard = crate::store::ENV_LOCK.lock().unwrap();
         let root = std::env::temp_dir().join(format!("ledger_ingest_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let machine_dir = root.join("evidence").join("TEST-MACHINE");
@@ -355,7 +354,7 @@ mod tests {
         ]);
         fs::write(machine_dir.join("registry-apps.json"), registry.to_string()).unwrap();
 
-        std::env::set_var("SOFTWARE_LEDGER_ROOT", &root);
+        let _guard = crate::store::test_support::use_root(&root);
         let res = run_ingest();
         assert_eq!(res.get("success").and_then(|v| v.as_bool()), Some(true));
 
@@ -388,7 +387,6 @@ mod tests {
             Some("TEST-MACHINE")
         );
 
-        std::env::remove_var("SOFTWARE_LEDGER_ROOT");
         let _ = fs::remove_dir_all(&root);
     }
 }

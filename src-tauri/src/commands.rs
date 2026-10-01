@@ -529,11 +529,10 @@ mod tests {
 
     #[test]
     fn crud_roundtrip() {
-        let _guard = crate::store::ENV_LOCK.lock().unwrap();
         let root = std::env::temp_dir().join(format!("ledger_cmd_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("data")).unwrap();
-        std::env::set_var("SOFTWARE_LEDGER_ROOT", &root);
+        let _guard = crate::store::test_support::use_root(&root);
 
         let seed = json!([
             { "id": "SW-001", "name": "A", "restore_intent": "must", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "backup_strategy": "none", "prep_status": "todo" },
@@ -588,7 +587,6 @@ mod tests {
         assert_eq!(cfg["config"]["llm_model"], "test-model");
         assert_eq!(get_config()["llm_model"], "test-model");
 
-        std::env::remove_var("SOFTWARE_LEDGER_ROOT");
         let _ = fs::remove_dir_all(&root);
     }
 }
