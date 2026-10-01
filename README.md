@@ -46,6 +46,8 @@ bunx tauri build
 >
 > 数据目录规则只有一条：**永远是 exe 所在目录下的 `data/`**。没有环境变量、不向上查找、不依赖 `package.json`。便携发布 = 一个 exe + 旁边的 `data/` 文件夹，`data/` 首次运行自动创建。
 >
+> `collect.ps1` 已**编译进 exe**，运行时释放到系统临时目录再执行，所以扫描本机不需要外部 `scripts/` 目录。
+>
 > （`cargo run` 调试时 exe 在 `src-tauri/target/debug/`，数据就在 `target/debug/data/`；正式使用请跑 `--release` 或直接把 exe 和 `data/` 放一起。）
 
 ---

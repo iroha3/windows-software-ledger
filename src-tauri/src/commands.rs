@@ -453,7 +453,14 @@ pub async fn llm_analyze(payload: Value) -> Value {
 // 扫描本机 + 导出
 // ---------------------------------------------------------------------------
 
-fn run_powershell(script: &std::path::Path, custom_dirs: &str) -> Result<String, String> {
+/// 采集脚本直接编译进 exe，分发时无需再带 scripts/ 目录。
+const COLLECT_PS1: &str = include_str!("../../scripts/collect.ps1");
+
+fn run_powershell(
+    script: &std::path::Path,
+    output_dir: &std::path::Path,
+    custom_dirs: &str,
+) -> Result<String, String> {
     let mut last_err = String::new();
     for exe in ["pwsh", "powershell"] {
         let mut cmd = Command::new(exe);
@@ -461,7 +468,9 @@ fn run_powershell(script: &std::path::Path, custom_dirs: &str) -> Result<String,
             .arg("-ExecutionPolicy")
             .arg("Bypass")
             .arg("-File")
-            .arg(script);
+            .arg(script)
+            .arg("-OutputDir")
+            .arg(output_dir);
         if !custom_dirs.is_empty() {
             cmd.arg("-CustomPortableDirs").arg(custom_dirs);
         }
@@ -490,10 +499,16 @@ fn run_powershell(script: &std::path::Path, custom_dirs: &str) -> Result<String,
 #[tauri::command]
 pub async fn scan_local() -> Value {
     let result = tauri::async_runtime::spawn_blocking(|| {
-        let script = store::scripts_dir().join("collect.ps1");
-        if !script.exists() {
-            return json!({ "success": false, "error": format!("找不到采集脚本: {}", script.display()) });
+        // 释放内置采集脚本到临时文件；带 UTF-8 BOM 以兼容 PowerShell 5.1
+        let script = std::env::temp_dir().join("software-ledger-collect.ps1");
+        let body = format!("\u{feff}{}", COLLECT_PS1.trim_start_matches('\u{feff}'));
+        if let Err(e) = std::fs::write(&script, body) {
+            return json!({ "success": false, "error": format!("无法释放采集脚本: {}", e) });
         }
+
+        let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+        let output_dir = store::evidence_dir().join(&machine);
+
         let cfg = store::get_config();
         let dirs = cfg
             .get("scan_directories")
@@ -501,13 +516,16 @@ pub async fn scan_local() -> Value {
             .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
             .unwrap_or_default();
 
-        match run_powershell(&script, &dirs) {
+        let res = match run_powershell(&script, &output_dir, &dirs) {
             Ok(output) => {
                 let ingest = run_ingest();
                 json!({ "success": true, "output": output, "ingestRes": ingest })
             }
             Err(err) => json!({ "success": false, "error": err }),
-        }
+        };
+
+        let _ = std::fs::remove_file(&script);
+        res
     })
     .await;
 

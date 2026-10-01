@@ -55,9 +55,6 @@ pub fn config_file() -> PathBuf {
 pub fn evidence_dir() -> PathBuf {
     app_root().join("evidence")
 }
-pub fn scripts_dir() -> PathBuf {
-    app_root().join("scripts")
-}
 
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
 pub fn read_json(path: &Path) -> Value {
@@ -126,7 +123,6 @@ mod tests {
             assert_eq!(software_file(), base.join("data").join("software.json"));
             assert_eq!(config_file(), base.join("data").join("config.json"));
             assert_eq!(evidence_dir(), base.join("evidence"));
-            assert_eq!(scripts_dir(), base.join("scripts"));
         }
         let _ = fs::remove_dir_all(&base);
     }
