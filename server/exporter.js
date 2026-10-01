@@ -122,6 +122,12 @@ export function exportChecklists() {
     success: true,
     checklistPath,
     awesomePath,
+    recoveryListPath: checklistPath,
+    awesomeListPath: awesomePath,
+    checklistFilename: 'RECOVERY_CHECKLIST.md',
+    awesomeFilename: 'AWESOME_LIST.md',
+    checklistContent: checklistLines.join('\n'),
+    awesomeContent: awesomeLines.join('\n'),
     stats: {
       total: items.length,
       must: groups.must.length,

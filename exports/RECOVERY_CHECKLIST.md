@@ -1,7 +1,7 @@
 # 电脑重装恢复备忘清单 (Recovery Checklist)
 
-> 生成时间: 2026/10/1 17:36:06  
-> 统计概览: 软件总数 **236** | 必须恢复 **6** | 建议恢复 **1** | 用到再装 **0** | 待确认 **229** | 待备份资产 **0**
+> 生成时间: 2026/10/1 18:32:28  
+> 统计概览: 软件总数 **236** | 必须恢复 **9** | 建议恢复 **0** | 用到再装 **0** | 待确认 **227** | 待备份资产 **0**
 
 ---
 
@@ -13,16 +13,9 @@
 
 ## 一、🔴 必须恢复 (Must Restore)
 
-### 📂 系统工具
-- [ ] **ripgrep** (desktop) — 机器: `DESKTOP-HEGVCTR`
-- [ ] **x86** (desktop) [官网/下载](https://www.quickhash.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
-  - 💡 **备注/配置说明**: 配置文件通常位于 C:\Users\[用户名]\AppData\Roaming\QuickHash 或安装目录下的 config 文件夹中，建议备份后重新下载以确保版本兼容性。
-
-### 📂 办公与笔记
-- [ ] **发送至 OneNote** (desktop) [官网/下载](https://www.microsoft.com/zh-cn/microsoft-365/onenote) — 机器: `DESKTOP-HEGVCTR` *(处置: ☁️ 账号登录同步)*
-  - 💡 **备注/配置说明**: OneNote 主要依赖 OneDrive 或 Microsoft 账户进行云同步，本地配置通常存储在 AppData\Roaming\Microsoft\OneNote 目录下。迁移时建议优先恢复云端笔记数据，而非直接复制安装文件。
-
 ### 📂 开发工具
+- [ ] **ripgrep** (cli) [官网/下载](https://github.com/BurntSushi/ripgrep/releases) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
+  - 💡 **备注/配置说明**: ripgrep 为命令行工具，无图形界面配置文件。主要依赖系统环境变量（PATH）及用户级缓存目录（通常在 %APPDATA%\ripgrep 或 %LOCALAPPDATA%\ripgrep）。若需保留搜索历史或自定义配置，建议检查上述 AppData 路径下的 JSON 文件；否则可直接重新下载最新版本。
 - [ ] **AutoHotkey** `2.0.19` (desktop) [官网/下载](https://www.autohotkey.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
   - 💡 **备注/配置说明**: 配置文件通常位于 C:\Users\[用户名]\AppData\Roaming\AutoHotkey，包含脚本文件 (.ahk) 及注册表设置。
 - [ ] **AutoHotkey Dash** (desktop) [官网/下载](https://www.autohotkey.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
@@ -30,13 +23,27 @@
 - [ ] **Zed** `1.14.2` (desktop) [官网/下载](https://zed.dev/downloads) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
   - 💡 **备注/配置说明**: Zed 的配置文件默认存储在 C:\Users\iroha3\.config\zed 目录下，包含用户偏好设置。由于 Zed 是跨平台 Rust 编写的编辑器，其安装程序会将配置迁移到 Windows 的 AppData/Local/Zed 目录中。建议重新下载时选择'Copy Configurations'选项以保留设置，或手动备份上述配置文件路径。
 
-
-## 二、🟡 建议恢复 (Should Restore)
+### 📂 系统工具
+- [ ] **7-Zip** `24.07` (desktop) [官网/下载](https://www.7-zip.org/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
+- [ ] **x86** (desktop) [官网/下载](https://www.quickhash.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
+  - 💡 **备注/配置说明**: 配置文件通常位于 C:\Users\[用户名]\AppData\Roaming\QuickHash 或安装目录下的 config 文件夹中，建议备份后重新下载以确保版本兼容性。
 
 ### 📂 其他
 - [ ] **15minutes** (desktop) [官网/下载](https://www.15minutes.com/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
   - 💡 **备注/配置说明**: 该应用为独立桌面程序，无显著配置文件迁移需求。若需保留设置，建议检查安装目录下的默认文件夹或用户文档中的配置数据。
 
+### 📂 办公与笔记
+- [ ] **发送至 OneNote** (desktop) [官网/下载](https://www.microsoft.com/zh-cn/microsoft-365/onenote) — 机器: `DESKTOP-HEGVCTR` *(处置: ☁️ 账号登录同步)*
+  - 💡 **备注/配置说明**: OneNote 主要依赖 OneDrive 或 Microsoft 账户进行云同步，本地配置通常存储在 AppData\Roaming\Microsoft\OneNote 目录下。迁移时建议优先恢复云端笔记数据，而非直接复制安装文件。
+
+### 📂 通讯与社交
+- [ ] **AfterChat** `0.0.36` (desktop) [官网/下载](https://www.after.com/download/) — 机器: `DESKTOP-HEGVCTR` *(处置: 🌐 重新下载安装)*
+  - 💡 **备注/配置说明**: 配置文件位于 C:\Users\iroha3\AppData\Local\AfterChat，包含聊天记录、联系人及设置。由于该软件已停止维护且官方下载源不稳定，建议重新下载最新版本以获取完整功能与修复已知问题。
+
+
+## 二、🟡 建议恢复 (Should Restore)
+
+*暂无建议恢复的软件*
 
 ## 三、🔵 用到再装 (On Demand)
 

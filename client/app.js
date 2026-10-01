@@ -128,8 +128,8 @@ function showToast(message, type = 'info', duration = 2500) {
 // 初始载入
 async function init() {
   initTheme();
-  await loadSoftware();
   await fetchStatus();
+  await loadSoftware();
   bindEvents();
   bindKeyboardShortcuts();
 }
@@ -168,6 +168,9 @@ async function fetchStatus() {
     renderStats(data.stats);
     renderMachineTabs(data.machines);
     renderPathFilter(availablePaths);
+    if (softwareList.length > 0) {
+      renderTable();
+    }
   } catch (e) {
     console.error('Failed to fetch status:', e);
   }
@@ -329,7 +332,7 @@ function renderTable() {
         <td style="text-align: center;">
           <span class="prep-badge prep-${prepStatus}" data-action="toggle-prep" data-id="${item.id}">
             <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>
-            ${prepStatus === 'ready' ? '已就绪' : '待办'}
+            ${prepStatus === 'ready' ? '就绪' : '待办'}
           </span>
         </td>
         <td>
@@ -1073,7 +1076,10 @@ async function batchMerge() {
 
 // LLM 批量智能推断
 async function handleBatchLLM() {
-  if (selectedIds.size === 0) return;
+  if (selectedIds.size === 0) {
+    showToast('请先勾选需要 AI 预判的软件', 'warning');
+    return;
+  }
   const ids = Array.from(selectedIds);
   btnBatchLLM.disabled = true;
   const originalHtml = btnBatchLLM.innerHTML;
@@ -1100,8 +1106,8 @@ async function handleBatchLLM() {
           if (sug.type) updates.type = sug.type;
           if (sug.restore_intent) updates.restore_intent = sug.restore_intent;
           if (sug.backup_strategy) updates.backup_strategy = sug.backup_strategy;
-          if (sug.download_url && !item.download_url) updates.download_url = sug.download_url;
-          if (sug.config_notes && !item.config_notes) updates.config_notes = sug.config_notes;
+          if (sug.download_url) updates.download_url = sug.download_url;
+          if (sug.config_notes) updates.config_notes = sug.config_notes;
 
           Object.assign(item, updates);
           await updateItemField(id, updates);
@@ -1115,7 +1121,7 @@ async function handleBatchLLM() {
     selectedIds.clear();
     await fetchStatus();
     renderTable();
-    showToast(`LLM 已为 ${successCount} 款软件补全了建议！`, 'success');
+    showToast(`LLM 已成功预判并更新了 ${successCount} 款软件！`, 'success');
   } finally {
     btnBatchLLM.disabled = false;
     btnBatchLLM.innerHTML = originalHtml;
@@ -1147,10 +1153,10 @@ async function handleDrawerLLM() {
         });
       }
       if (sug.backup_strategy) document.getElementById('drawerStrategy').value = sug.backup_strategy;
-      if (sug.download_url && !document.getElementById('drawerUrl').value) {
+      if (sug.download_url) {
         document.getElementById('drawerUrl').value = sug.download_url;
       }
-      if (sug.config_notes && !document.getElementById('drawerNotes').value) {
+      if (sug.config_notes) {
         document.getElementById('drawerNotes').value = sug.config_notes;
       }
       markDrawerSaving();
@@ -1190,27 +1196,87 @@ async function handleScanLocal() {
   }
 }
 
+function downloadMarkdownFile(content, filename) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+window.downloadExportFile = function(type) {
+  if (!window.__lastExportData) return;
+  if (type === 'checklist') {
+    downloadMarkdownFile(window.__lastExportData.checklistContent || '', window.__lastExportData.checklistFilename || 'RECOVERY_CHECKLIST.md');
+    showToast('正在下载重装恢复清单...', 'info');
+  } else if (type === 'awesome') {
+    downloadMarkdownFile(window.__lastExportData.awesomeContent || '', window.__lastExportData.awesomeFilename || 'AWESOME_LIST.md');
+    showToast('正在下载精选资产库...', 'info');
+  }
+};
+
 // 导出 Markdown
 async function handleExport() {
+  btnExport.disabled = true;
+  const oldText = btnExport.innerHTML;
+  btnExport.innerHTML = '<span class="spinner"></span> 导出中...';
   try {
     const res = await fetch('/api/export', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
+      window.__lastExportData = data;
+
+      // 自动触发浏览器直接下载
+      if (data.checklistContent) {
+        downloadMarkdownFile(data.checklistContent, data.checklistFilename || 'RECOVERY_CHECKLIST.md');
+      }
+      if (data.awesomeContent) {
+        setTimeout(() => {
+          downloadMarkdownFile(data.awesomeContent, data.awesomeFilename || 'AWESOME_LIST.md');
+        }, 300);
+      }
+
       const modalBody = document.getElementById('exportModalBody');
       modalBody.innerHTML = `
-        <p style="margin-bottom: 12px; color: var(--ink-2);">已成功生成两份高价值清单文档至项目 <code>exports/</code> 目录：</p>
-        <div style="background: var(--surface-2); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12.5px; margin-bottom: 12px; box-shadow: inset 0 0 0 1px var(--rule);">
-          <div><strong>1. 重装恢复清单:</strong> ${data.recoveryListPath}</div>
-          <div style="margin-top: 6px;"><strong>2. 精选资产库:</strong> ${data.awesomeListPath}</div>
+        <p style="margin-bottom: 12px; color: var(--ink-2);">
+          两份清单文档已<strong>自动触发浏览器下载</strong>，同时也已保存备份至本地 <code>exports/</code> 目录：
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
+          <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 600; color: var(--ink);">📋 重装恢复备忘清单</div>
+              <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">${escapeHtml(data.checklistFilename || 'RECOVERY_CHECKLIST.md')}</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="downloadExportFile('checklist')">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> 重新下载
+            </button>
+          </div>
+          <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 600; color: var(--ink);">⭐ 个人精选资产库</div>
+              <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">${escapeHtml(data.awesomeFilename || 'AWESOME_LIST.md')}</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="downloadExportFile('awesome')">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> 重新下载
+            </button>
+          </div>
         </div>
-        <p style="font-size: 12px; color: var(--ink-3);">可以直接打开 Markdown 查看或在重装后按清单逐项恢复。</p>
+        <p style="font-size: 12px; color: var(--ink-3);">如果浏览器拦截了自动弹出下载，可点击上方按钮重新下载。</p>
       `;
       document.getElementById('exportModal').classList.add('show');
+      showToast('清单已成功导出并触发下载！', 'success');
     } else {
-      showToast('导出失败: ' + data.error, 'error');
+      showToast('导出失败: ' + (data.error || data.message), 'error');
     }
   } catch (e) {
     showToast('导出异常: ' + e.message, 'error');
+  } finally {
+    btnExport.disabled = false;
+    btnExport.innerHTML = oldText;
   }
 }
 

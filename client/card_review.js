@@ -515,16 +515,41 @@ function bindEvents() {
     }
   });
 
+  function downloadMarkdownFile(content, filename) {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // 导出 Markdown 清单
   btnExport.addEventListener('click', async () => {
+    btnExport.disabled = true;
     try {
       const res = await fetch('/api/export', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        showToast('已成功导出 Markdown 清单至 exports/ 目录！', 'success');
+        if (data.checklistContent) {
+          downloadMarkdownFile(data.checklistContent, data.checklistFilename || 'RECOVERY_CHECKLIST.md');
+        }
+        if (data.awesomeContent) {
+          setTimeout(() => {
+            downloadMarkdownFile(data.awesomeContent, data.awesomeFilename || 'AWESOME_LIST.md');
+          }, 300);
+        }
+        showToast('已成功导出并触发清单直接下载！', 'success');
+      } else {
+        showToast('导出失败: ' + (data.error || data.message), 'error');
       }
     } catch (e) {
       showToast('导出异常: ' + e.message, 'error');
+    } finally {
+      btnExport.disabled = false;
     }
   });
 
