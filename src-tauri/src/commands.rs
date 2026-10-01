@@ -551,6 +551,17 @@ pub fn export_markdown() -> Value {
     export_checklists()
 }
 
+/// 用系统默认程序打开外链。
+/// 只放行 http/https，避免 URL 被当作本地文件或命令执行。
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("仅支持打开 http/https 链接".to_string());
+    }
+    opener::open(url).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

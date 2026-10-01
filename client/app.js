@@ -341,7 +341,7 @@ function buildRowHtml(item) {
       <td>
         <div style="display: flex; align-items: center; gap: 6px;">
           <input type="text" class="cell-input" data-field="download_url" data-id="${item.id}" value="${escapeHtml(item.download_url || '')}" placeholder="官网或下载网址...">
-          ${item.download_url ? `<a href="${escapeHtml(item.download_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;" title="打开外链">${ICONS.externalLink}</a>` : ''}
+          ${item.download_url ? `<span data-action="open-url" data-url="${escapeHtml(item.download_url)}" style="color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;" title="用默认浏览器打开官网">${ICONS.externalLink}</span>` : ''}
         </div>
       </td>
       <td>
@@ -901,6 +901,13 @@ function bindEvents() {
       return;
     }
 
+    const linkBtn = e.target.closest('[data-action="open-url"]');
+    if (linkBtn) {
+      e.preventDefault();
+      window.openExternal(linkBtn.dataset.url);
+      return;
+    }
+
     // 点击行内任意空白处即可切换勾选，无需精确点中小复选框
     const row = e.target.closest('tr[data-id]');
     if (row && !e.target.closest('input, select, button, a, textarea, [data-action]')) {
@@ -998,7 +1005,7 @@ function bindEvents() {
   if (btnOpenUrl) {
     btnOpenUrl.addEventListener('click', () => {
       const url = document.getElementById('drawerUrl').value.trim();
-      if (url) window.open(url.startsWith('http') ? url : `https://${url}`, '_blank', 'noopener,noreferrer');
+      if (url) window.openExternal(url);
       else showToast('暂无下载或官网链接', 'info');
     });
   }

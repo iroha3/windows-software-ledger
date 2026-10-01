@@ -19,6 +19,7 @@ pub fn run() {
             commands::llm_analyze,
             commands::scan_local,
             commands::export_markdown,
+            commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

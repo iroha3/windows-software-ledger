@@ -496,7 +496,7 @@ function bindEvents() {
   // 打开外部链接
   btnCardOpenUrl.addEventListener('click', () => {
     const url = cardUrl.value.trim();
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) window.openExternal(url);
     else showToast('当前尚未录入官网或下载链接', 'warning');
   });
 

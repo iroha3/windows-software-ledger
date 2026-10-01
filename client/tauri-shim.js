@@ -4,6 +4,22 @@
 (function () {
   const tauri = window.__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
+
+  // 打开外部链接：Tauri 下走原生 open_url 命令（交给系统默认浏览器），
+  // 浏览器 / Bun 下退回 window.open。始终挂载，两种环境都可用。
+  window.openExternal = function (url) {
+    if (!url) return;
+    const full = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+    if (typeof invoke === 'function') {
+      invoke('open_url', { url: full }).catch((err) => {
+        console.error('open_url failed:', err);
+        window.open(full, '_blank', 'noopener,noreferrer');
+      });
+    } else {
+      window.open(full, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   if (typeof invoke !== 'function') return;
 
   const originalFetch = window.fetch.bind(window);
