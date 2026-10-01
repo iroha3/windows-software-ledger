@@ -46,7 +46,7 @@ bunx tauri build
 >
 > 数据目录规则只有一条：**永远是 exe 所在目录下的 `data/`**。没有环境变量、不向上查找、不依赖 `package.json`。便携发布 = 一个 exe + 旁边的 `data/` 文件夹，`data/` 首次运行自动创建。
 >
-> `collect.ps1` 已**编译进 exe**，运行时释放到系统临时目录再执行，所以扫描本机不需要外部 `scripts/` 目录。
+> `collect.ps1` 已**编译进 exe**，运行时释放到系统临时目录执行；采集出的证据也在同一个临时目录里，`ingest` 进 `data/software.json` 后立即删除。所以：扫描不需要外部 `scripts/`，数据目录里也不会留下 `evidence/`。
 >
 > （`cargo run` 调试时 exe 在 `src-tauri/target/debug/`，数据就在 `target/debug/data/`；正式使用请跑 `--release` 或直接把 exe 和 `data/` 放一起。）
 
@@ -96,12 +96,9 @@ bun run scripts/test_llm.js "Git" "C:\Program Files\Git" "http://192.168.1.100:1
 ### 1. 本机（已完成扫描）
 - 打开网页中台，点击顶部 **「🔄 扫描本机」** 即可一键重新抓取本机注册表、便携软件与快捷方式并自动入库。
 
-### 2. 另外两台电脑采集
-1. 将 [scripts](file:///E:/Projects/backup-software-list-tools/scripts) 目录拷至 U 盘或共享盘。
-2. 在目标机器上双击运行 `collect.bat`（零依赖，调用 Windows 原生 PowerShell）。
-3. 脚本执行完成后，会在同级生成 `evidence/<电脑名>/` 目录。
-4. 将该文件夹复制到本项目的 `evidence/` 目录下。
-5. 刷新或点击网页中台，即可在顶部机器 Tabs 中直接切换查看各台机器分布。
+### 2. 另外两台电脑
+- 原生 app 的「扫描本机」只采集**当前这台机器**：证据在系统临时目录内即时合并进 `data/software.json` 后删除，不落盘。
+- 需要聚合多台机器时，可继续用 Bun 中台版本：在目标机器运行 `collect.bat`，把生成的 `evidence/<电脑名>/` 拷到项目 [evidence](file:///E:/Projects/backup-software-list-tools/evidence) 目录，再执行 `bun server/ingest.js` 合并（顶层机器 Tabs 会随之出现）。
 
 ---
 

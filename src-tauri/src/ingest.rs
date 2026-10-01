@@ -1,6 +1,7 @@
 use regex::Regex;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::LazyLock;
 
 use crate::store;
@@ -208,8 +209,10 @@ fn add_or_update(
     items.push(item);
 }
 
-pub fn run_ingest() -> Value {
-    let ev = store::evidence_dir();
+/// 把某个证据目录下的所有机器结果合并进 `software.json`。
+/// 证据目录只是入参，调用方（扫描）用临时目录，用完自行删除。
+pub fn run_ingest(evidence_root: &Path) -> Value {
+    let ev = evidence_root;
     if !ev.exists() {
         return json!({ "success": false, "message": "Evidence directory does not exist" });
     }
@@ -234,7 +237,7 @@ pub fn run_ingest() -> Value {
         .unwrap_or(0);
 
     let mut machine_dirs: Vec<String> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&ev) {
+    if let Ok(rd) = std::fs::read_dir(ev) {
         for e in rd.flatten() {
             if e.path().is_dir() {
                 machine_dirs.push(e.file_name().to_string_lossy().to_string());
@@ -344,7 +347,8 @@ mod tests {
     fn ingest_normalizes_and_filters() {
         let root = std::env::temp_dir().join(format!("ledger_ingest_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let machine_dir = root.join("evidence").join("TEST-MACHINE");
+        let evidence_root = root.join("evidence");
+        let machine_dir = evidence_root.join("TEST-MACHINE");
         fs::create_dir_all(&machine_dir).unwrap();
 
         let registry = json!([
@@ -355,7 +359,7 @@ mod tests {
         fs::write(machine_dir.join("registry-apps.json"), registry.to_string()).unwrap();
 
         let _guard = crate::store::test_support::use_root(&root);
-        let res = run_ingest();
+        let res = run_ingest(&evidence_root);
         assert_eq!(res.get("success").and_then(|v| v.as_bool()), Some(true));
 
         let items = store::read_software();

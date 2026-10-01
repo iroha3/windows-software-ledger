@@ -46,13 +46,6 @@ pub fn get_status() -> Value {
         }
     };
 
-    if let Ok(rd) = std::fs::read_dir(store::evidence_dir()) {
-        for e in rd.flatten() {
-            if e.path().is_dir() {
-                push_machine(&e.file_name().to_string_lossy(), &mut machines);
-            }
-        }
-    }
     for item in &software {
         if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
             for m in ms {
@@ -496,18 +489,34 @@ fn run_powershell(
     Err(last_err)
 }
 
-#[tauri::command]
-pub async fn scan_local() -> Value {
-    let result = tauri::async_runtime::spawn_blocking(|| {
-        // 释放内置采集脚本到临时文件；带 UTF-8 BOM 以兼容 PowerShell 5.1
-        let script = std::env::temp_dir().join("software-ledger-collect.ps1");
-        let body = format!("\u{feff}{}", COLLECT_PS1.trim_start_matches('\u{feff}'));
-        if let Err(e) = std::fs::write(&script, body) {
-            return json!({ "success": false, "error": format!("无法释放采集脚本: {}", e) });
+/// 临时目录偶尔被杀毒/索引短暂占用，删除失败时重试几次。
+fn remove_dir_retry(dir: &std::path::Path) {
+    for _ in 0..5 {
+        if std::fs::remove_dir_all(dir).is_ok() {
+            return;
         }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    eprintln!("[scan] 未能删除临时目录: {}", dir.display());
+}
 
-        let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
-        let output_dir = store::evidence_dir().join(&machine);
+/// 扫描本机：临时目录内采集 -> ingest 进 software.json -> 删除临时目录。
+fn run_scan() -> Value {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let scan_dir = std::env::temp_dir()
+        .join(format!("software-ledger-scan-{}-{}", std::process::id(), stamp));
+    let script = scan_dir.join("collect.ps1");
+    let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+    let output_dir = scan_dir.join(&machine);
+
+    let run = || -> Result<Value, String> {
+        std::fs::create_dir_all(&scan_dir).map_err(|e| format!("无法创建临时目录: {}", e))?;
+        // 带 UTF-8 BOM，兼容 PowerShell 5.1
+        let body = format!("\u{feff}{}", COLLECT_PS1.trim_start_matches('\u{feff}'));
+        std::fs::write(&script, body).map_err(|e| format!("无法释放采集脚本: {}", e))?;
 
         let cfg = store::get_config();
         let dirs = cfg
@@ -516,20 +525,22 @@ pub async fn scan_local() -> Value {
             .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
             .unwrap_or_default();
 
-        let res = match run_powershell(&script, &output_dir, &dirs) {
-            Ok(output) => {
-                let ingest = run_ingest();
-                json!({ "success": true, "output": output, "ingestRes": ingest })
-            }
-            Err(err) => json!({ "success": false, "error": err }),
-        };
+        let output = run_powershell(&script, &output_dir, &dirs)?;
+        let ingest = run_ingest(&scan_dir);
+        Ok(json!({ "success": true, "output": output, "ingestRes": ingest }))
+    };
 
-        let _ = std::fs::remove_file(&script);
-        res
-    })
-    .await;
+    let res = match run() {
+        Ok(v) => v,
+        Err(err) => json!({ "success": false, "error": err }),
+    };
+    remove_dir_retry(&scan_dir);
+    res
+}
 
-    match result {
+#[tauri::command]
+pub async fn scan_local() -> Value {
+    match tauri::async_runtime::spawn_blocking(run_scan).await {
         Ok(v) => v,
         Err(e) => json!({ "success": false, "error": e.to_string() }),
     }
@@ -604,6 +615,28 @@ mod tests {
         let cfg = save_config(json!({ "llm_model": "test-model" }));
         assert_eq!(cfg["config"]["llm_model"], "test-model");
         assert_eq!(get_config()["llm_model"], "test-model");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn scan_populates_software_and_leaves_no_evidence() {
+        let root = std::env::temp_dir().join(format!("ledger_scan_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let res = run_scan();
+        assert_eq!(
+            res.get("success").and_then(|v| v.as_bool()),
+            Some(true),
+            "scan result: {}",
+            res
+        );
+        // 证据只存在于临时目录，数据根下不应残留 evidence/
+        assert!(!root.join("evidence").exists(), "evidence should not persist");
+        assert!(!store::read_software().is_empty(), "scan should populate software.json");
 
         let _ = fs::remove_dir_all(&root);
     }
