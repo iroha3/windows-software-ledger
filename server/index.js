@@ -15,7 +15,17 @@ const EVIDENCE_DIR = path.join(ROOT_DIR, 'evidence');
 const DEFAULT_CONFIG = {
   llm_url: process.env.LLM_URL || 'http://127.0.0.1:1234/v1/chat/completions',
   llm_model: process.env.LLM_MODEL || 'qwen3.5-4b',
-  llm_api_key: process.env.LLM_API_KEY || ''
+  llm_api_key: process.env.LLM_API_KEY || '',
+  scan_directories: [
+    'D:\\Portable',
+    'D:\\Tools',
+    'D:\\Software',
+    'E:\\Portable',
+    'E:\\Tools',
+    'E:\\Software',
+    'C:\\Software',
+    'C:\\Portable'
+  ]
 };
 
 function getConfig() {
@@ -302,8 +312,16 @@ const server = Bun.serve({
 
       // 一键扫描本机
       if (pathname === '/api/scan' && req.method === 'POST') {
+        const cfg = getConfig();
         const scriptPath = path.join(ROOT_DIR, 'scripts', 'collect.ps1');
-        const proc = Bun.spawn(['pwsh', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+        const customDirs = Array.isArray(cfg.scan_directories) ? cfg.scan_directories.join(',') : '';
+
+        const spawnArgs = ['pwsh', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
+        if (customDirs) {
+          spawnArgs.push('-CustomPortableDirs', customDirs);
+        }
+
+        const proc = Bun.spawn(spawnArgs, {
           cwd: ROOT_DIR,
           stdout: 'pipe',
           stderr: 'pipe'

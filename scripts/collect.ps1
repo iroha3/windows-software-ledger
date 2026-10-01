@@ -158,12 +158,19 @@ Write-Host "      共解析出 $($shortcuts.Count) 个有效应用程序快捷�
 
 # 5. 扫描便携 / 绿色软件目录
 Write-Host "[5/6] 扫描便携与绿色软件目录..." -ForegroundColor Yellow
-$candidateDirs = @(
+$defaultCandidateDirs = @(
     "D:\Portable", "D:\Tools", "D:\Software", "D:\Green", "D:\Apps",
     "E:\Portable", "E:\Tools", "E:\Software", "E:\Green", "E:\Apps",
     "C:\Portable", "C:\Tools", "C:\Green", "C:\Software",
     "$env:USERPROFILE\Tools", "$env:USERPROFILE\Portable"
-) + $CustomPortableDirs
+)
+$cleanCustom = @()
+foreach ($d in $CustomPortableDirs) {
+    if ($d) {
+        $cleanCustom += ($d -split '[,;]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+}
+$candidateDirs = ($defaultCandidateDirs + $cleanCustom) | Select-Object -Unique
 
 $scannedPortable = @()
 $foundDirs = @()

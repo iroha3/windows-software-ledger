@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>软件清单与迁移决策中台</title>
+  <title>软件清单与重装备份决策中台</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -17,12 +17,17 @@
       <div>
         <div class="logo-title">软件清单与重装备份决策中台</div>
       </div>
-      <span class="badge-tag">3-Machine Migration</span>
     </div>
     <div class="header-actions">
-      <button id="btnConfig" class="btn btn-secondary" title="配置 LLM 端点与 API Key">
+      <!-- 卡片速审视图入口 -->
+      <a href="/card_review.html" class="btn btn-secondary" title="切换到全屏卡片速审模式">
+        <svg class="i sm" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+        <span>卡片速审</span>
+      </a>
+
+      <button id="btnConfig" class="btn btn-secondary" title="配置扫描目录、LLM 端点与 API Key">
         <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        <span>LLM 设置</span>
+        <span>中台设置</span>
       </button>
       <button id="btnThemeToggle" class="btn btn-secondary" title="切换日间/夜间模式">
         <span id="themeIcon"></span> <span id="themeText">夜间</span>
@@ -170,7 +175,7 @@
           <th style="width: 36px; text-align: center;">
             <svg class="i sm fill" viewBox="0 0 24 24" style="color: #c9a24a;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
           </th>
-          <th style="min-width: 200px;">软件名称与分类 (点击展开详情卡片)</th>
+          <th style="min-width: 200px;">软件名称与分类 (点击展开卡片)</th>
           <th style="width: 90px;">版本号</th>
           <th style="min-width: 120px;">所在机器</th>
           <th style="width: 135px;">恢复意愿</th>
@@ -186,30 +191,31 @@
     </table>
   </main>
 
-  <!-- 侧边详情抽屉 (加宽至 680px + 2列网格，一屏全览不滚动，支持快速切卡与实时自动保存) -->
+  <!-- 侧边详情抽屉 (系统重构版：主次分明决策卡片，位置永不漂移的切卡控制器) -->
   <div class="drawer-overlay" id="drawerOverlay"></div>
   <aside class="drawer" id="sideDrawer">
+    <!-- 顶栏：切卡导航位置完全固定，绝不因标题长度发生抖动偏移 -->
     <div class="drawer-header">
       <div class="drawer-header-left">
-        <h3 id="drawerTitle" style="color: var(--ink); font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;">软件详情</h3>
+        <span class="card-chip" id="drawerId">SW-001</span>
         <span id="drawerSaveStatus" class="save-status">
           <svg class="i sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 已同步
         </span>
       </div>
 
-      <!-- 切卡控制器 -->
-      <div class="drawer-nav">
-        <button id="btnPrevDrawer" class="btn btn-secondary btn-sm" title="上一项 (快捷键 [ 或 Alt+←)">
-          <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg> 上一项
-        </button>
-        <span id="drawerIndexBadge" class="drawer-counter">1 / 1</span>
-        <button id="btnNextDrawer" class="btn btn-secondary btn-sm" title="下一项 (快捷键 ] 或 Alt+→)">
-          下一项 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-        </button>
-      </div>
+      <!-- 固定宽度导航器 (按钮像素级锁定) -->
+      <div class="drawer-header-right">
+        <div class="fixed-nav-group">
+          <button id="btnPrevDrawer" class="nav-fixed-btn" title="上一项 (快捷键 PageUp / [ / Alt+←)">
+            <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg> 上一项
+          </button>
+          <span id="drawerIndexBadge" class="nav-fixed-counter">1 / 1</span>
+          <button id="btnNextDrawer" class="nav-fixed-btn" title="下一项 (快捷键 PageDown / ] / Alt+→)">
+            下一项 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+          </button>
+        </div>
 
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <button id="btnDrawerLLM" class="btn btn-primary btn-sm" title="调用 LLM 自动补全">
+        <button id="btnDrawerLLM" class="btn btn-primary btn-sm" title="调用 LLM 智能补全">
           <svg class="i sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg> AI预填
         </button>
         <button id="btnCloseDrawer" class="btn btn-secondary btn-sm" title="关闭 (Esc)">
@@ -217,105 +223,133 @@
         </button>
       </div>
     </div>
+
     <div class="drawer-body">
-      <div class="drawer-grid">
-        <div class="drawer-field grid-full">
-          <label>软件正式名称</label>
-          <input type="text" id="drawerName">
-        </div>
-
-        <div class="drawer-field">
-          <label>版本号</label>
-          <input type="text" id="drawerVersion" placeholder="如：24.07, v1.93.0">
-        </div>
-
-        <div class="drawer-field">
-          <label>形态</label>
-          <select id="drawerType">
-            <option value="desktop">桌面应用 (Desktop)</option>
-            <option value="portable">便携软件 (Portable)</option>
-            <option value="cli">命令行工具 (CLI)</option>
-            <option value="runtime">运行环境/SDK (Runtime)</option>
-            <option value="shortcut">快捷方式 (Shortcut)</option>
-          </select>
-        </div>
-
-        <div class="drawer-field">
-          <label>类别</label>
-          <select id="drawerCategory">
-            <option value="开发工具">开发工具</option>
-            <option value="系统工具">系统工具</option>
-            <option value="浏览器与网络">浏览器与网络</option>
-            <option value="媒体娱乐">媒体娱乐</option>
-            <option value="办公与笔记">办公与笔记</option>
-            <option value="通讯与社交">通讯与社交</option>
-            <option value="其他">其他</option>
-          </select>
-        </div>
-
-        <div class="drawer-field">
-          <label>准备进度</label>
-          <select id="drawerPrepStatus">
-            <option value="todo">待办 (需找安装包/导配置)</option>
-            <option value="ready">全部就绪 (已备好/已导配置)</option>
-          </select>
-        </div>
-
-        <div class="drawer-field">
-          <label>恢复意愿</label>
-          <select id="drawerIntent">
-            <option value="must">必须恢复 (Must Restore)</option>
-            <option value="should">建议恢复 (Should Restore)</option>
-            <option value="on_demand">用到再装 (On Demand)</option>
-            <option value="drop">淘汰弃用 (Drop)</option>
-            <option value="unreviewed">待确认 (Unreviewed)</option>
-          </select>
-        </div>
-
-        <div class="drawer-field">
-          <label>处置方式</label>
-          <select id="drawerStrategy">
-            <option value="none">无需操作</option>
-            <option value="copy_dir">保留/压缩整个目录</option>
-            <option value="copy_config">手动导出/备份配置</option>
-            <option value="redownload">官网或包管理重新下载</option>
-            <option value="sync_account">账号登录同步</option>
-          </select>
-        </div>
-
-        <div class="drawer-field grid-full">
-          <label>官网 / 下载链接</label>
-          <input type="url" id="drawerUrl" placeholder="https://...">
-        </div>
-
-        <div class="drawer-field grid-full">
-          <label>备份备忘与配置迁移说明</label>
-          <textarea id="drawerNotes" placeholder="例如：配置路径在 %APPDATA%\Code\User，或者直接通过账号同步..."></textarea>
-        </div>
-
-        <div class="drawer-field grid-full" style="background: var(--surface-2); padding: 8px 10px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule);">
-          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" id="drawerAwesome">
-            <span style="color: #c9a24a; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-              <svg class="i sm fill" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-              标记为个人 Awesome 精选软件
-            </span>
-          </label>
-          <input type="text" id="drawerAwesomeRole" placeholder="在个人工作流中扮演的角色 / 推荐理由" style="margin-top: 6px;">
-        </div>
-
-        <div class="drawer-field grid-full">
-          <label>所在机器与原始路径证据</label>
-          <div id="drawerMachinesList" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;"></div>
+      <!-- 1. 软件标题与轻量元数据条 (醒目标题，降低次要属性噪点) -->
+      <div class="card-hero-block">
+        <input type="text" id="drawerName" class="card-big-title-input" placeholder="软件正式名称">
+        <div class="card-meta-line">
+          <div class="meta-tag-item">
+            <label>分类</label>
+            <select id="drawerCategory" class="meta-select-compact">
+              <option value="开发工具">开发工具</option>
+              <option value="系统工具">系统工具</option>
+              <option value="浏览器与网络">浏览器与网络</option>
+              <option value="媒体娱乐">媒体娱乐</option>
+              <option value="办公与笔记">办公与笔记</option>
+              <option value="通讯与社交">通讯与社交</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <div class="meta-tag-item">
+            <label>形态</label>
+            <select id="drawerType" class="meta-select-compact">
+              <option value="desktop">桌面应用 (Desktop)</option>
+              <option value="portable">便携免装 (Portable)</option>
+              <option value="cli">命令行 (CLI)</option>
+              <option value="runtime">运行环境 (Runtime)</option>
+              <option value="shortcut">快捷方式 (Shortcut)</option>
+            </select>
+          </div>
+          <div class="meta-tag-item">
+            <label>版本</label>
+            <input type="text" id="drawerVersion" class="meta-input-compact" placeholder="—">
+          </div>
         </div>
       </div>
 
-      <div style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center;">
-        <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">删除此软件</button>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span class="hint">按 [ / ] 快速切卡 · 修改实时自动保存</span>
-          <button id="btnCloseDrawerBottom" class="btn btn-primary btn-sm">完成并关闭</button>
+      <!-- 2. 核心决策中枢 (Level 1: 视觉第一焦点) -->
+      <div class="decision-panel">
+        <div class="decision-section-title">
+          <span>迁移意愿决策</span>
+          <span class="decision-hint">快捷键 1~5 键切换意愿</span>
         </div>
+
+        <!-- 触觉化意愿大胶囊单选器 -->
+        <div class="intent-segmented" id="drawerIntentSegmented">
+          <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
+          <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
+          <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
+          <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
+          <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
+        </div>
+        <!-- 保持原有隐藏 select，保障系统数据与事件无缝协同 -->
+        <select id="drawerIntent" style="display:none;">
+          <option value="must">必须恢复</option>
+          <option value="should">建议恢复</option>
+          <option value="on_demand">用到再装</option>
+          <option value="drop">淘汰弃用</option>
+          <option value="unreviewed">待确认</option>
+        </select>
+
+        <div class="decision-row-grid">
+          <div class="drawer-field">
+            <label>处置方式</label>
+            <select id="drawerStrategy">
+              <option value="none">无需操作 (暂无备份需求)</option>
+              <option value="copy_dir">保留/压缩整个目录 (免装绿色版)</option>
+              <option value="copy_config">手动导出/备份配置文件</option>
+              <option value="redownload">官网或包管理重新下载安装</option>
+              <option value="sync_account">云端账号登录同步即可</option>
+            </select>
+          </div>
+          <div class="drawer-field">
+            <label>准备就绪状态</label>
+            <select id="drawerPrepStatus">
+              <option value="todo">⏳ 待办 (需备安装包/导配置)</option>
+              <option value="ready">✅ 全部就绪 (已备齐/已验证)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 执行备忘与链接 (Level 2: 动作支持层) -->
+      <div class="action-panel">
+        <div class="drawer-field">
+          <label>官网 / 下载链接</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="url" id="drawerUrl" placeholder="https://..." style="flex: 1;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnOpenUrl" title="打开网址">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> 打开
+            </button>
+          </div>
+        </div>
+
+        <div class="drawer-field">
+          <label>备份备忘与配置迁移说明 (关键路径 / 账号 / 特殊设置)</label>
+          <textarea id="drawerNotes" rows="3" placeholder="例如：配置文件在 %APPDATA%\Code\User，或需导出 .reg，或直接云同步..."></textarea>
+        </div>
+      </div>
+
+      <!-- 4. 渐进式个人 Awesome 精选 (Level 3: 打勾后才展开理由输入) -->
+      <div class="awesome-card-block" id="awesomeCardBlock">
+        <label class="awesome-toggle-label">
+          <input type="checkbox" id="drawerAwesome">
+          <span class="awesome-star-icon">★</span>
+          <span>标记为个人 Awesome 精选软件资产</span>
+        </label>
+        <div class="awesome-expand-content" id="awesomeExpandContent" style="display: none;">
+          <label>在个人工作流中扮演的角色 / 推荐理由：</label>
+          <input type="text" id="drawerAwesomeRole" placeholder="如：极速轻量文本搜索利器，命令行与编辑器核心管道...">
+        </div>
+      </div>
+
+      <!-- 5. 机器来源证据 (Level 4: 弱化折叠呈现) -->
+      <div class="evidence-block">
+        <div class="evidence-header" id="evidenceHeader">
+          <span>所在机器与原始路径证据</span>
+          <span id="evidenceToggleIcon" style="font-size: 10px; color: var(--ink-3);">▼</span>
+        </div>
+        <div id="drawerMachinesList" class="evidence-list"></div>
+      </div>
+    </div>
+
+    <!-- 底部操作区 -->
+    <div class="drawer-footer">
+      <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">删除此软件</button>
+      <div class="drawer-footer-right">
+        <span class="hint">快捷键 PageUp/PageDown 或 [ / ] 快速切卡</span>
+        <button id="btnCloseDrawerBottom" class="btn btn-primary btn-sm">完成并关闭</button>
       </div>
     </div>
   </aside>
@@ -357,25 +391,28 @@ ffmpeg, ripgrep, jq, pandoc
     </div>
   </div>
 
-  <!-- LLM 端点配置弹窗 (支持多机/局域网/OpenAI/DeepSeek/SiliconFlow等) -->
+  <!-- 中台综合设置弹窗 (包含扫描目录、LLM 端点与 API Key) -->
   <div class="modal-overlay" id="configModal">
-    <div class="modal-content" style="width: 540px;">
+    <div class="modal-content" style="width: 550px;">
       <div class="modal-header">
         <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
           <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-          LLM 服务配置
+          中台扫描与 LLM 设置
         </h3>
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('configModal').classList.remove('show')">
           <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
-      <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
-        <p style="font-size: 12.5px; color: var(--ink-2); line-height: 1.5;">
-          支持本地运行的大模型（LM Studio / Ollama），亦支持配置外部云端 API（OpenAI / DeepSeek / 硅基流动等兼容格式）：
-        </p>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+        <!-- 扫描目录配置 -->
+        <div class="drawer-field">
+          <label>便携与绿色软件扫描路径 (每行一个目录，扫描本机时自动检测)</label>
+          <textarea id="configScanDirs" rows="4" placeholder="D:\Software&#10;E:\Tools&#10;D:\Portable" style="font-family: var(--mono); font-size: 12px;"></textarea>
+          <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
+        </div>
 
-        <div>
-          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">常用服务预设快捷填充：</label>
+        <div style="border-top: 1px solid var(--rule); padding-top: 10px;">
+          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
           <div class="preset-chips">
             <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
             <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-chat)</button>
@@ -399,7 +436,7 @@ ffmpeg, ripgrep, jq, pandoc
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="document.getElementById('configModal').classList.remove('show')">取消</button>
-        <button class="btn btn-primary" id="btnSaveConfig">保存配置</button>
+        <button class="btn btn-primary" id="btnSaveConfig">保存设置</button>
       </div>
     </div>
   </div>

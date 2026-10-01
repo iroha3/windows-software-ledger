@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卡片速审工作台 · 软件清单与决策中台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="review-app-layout">
+  <!-- Toast 提示容器 -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- 顶部精简导航栏 -->
+  <header style="padding: 8px 18px;">
+    <div class="logo-section">
+      <a href="/" class="btn btn-secondary btn-sm" title="返回常规表格视图">
+        <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        <span>返回表格</span>
+      </a>
+      <div style="font-size: 14px; font-weight: 700; color: var(--ink);">
+        卡片速审工作台 <small style="font-weight: 400; color: var(--ink-3); margin-left: 6px;">Card Review Studio</small>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btnThemeToggle" class="btn btn-secondary btn-sm" title="切换日夜间主题">
+        <span id="themeIcon"></span> <span id="themeText">夜间</span>
+      </button>
+      <button id="btnExport" class="btn btn-primary btn-sm">
+        <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>导出清单</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 主分栏区域 -->
+  <div class="review-split">
+    <!-- 左侧快捷清单列表 -->
+    <aside class="review-sidebar">
+      <div class="review-sidebar-header">
+        <div class="search-wrap">
+          <svg class="i sm search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="reviewSearchInput" class="search-input" style="width: 100%;" placeholder="筛选当前列表...">
+          <kbd class="search-kbd">/</kbd>
+        </div>
+
+        <div style="display: flex; gap: 6px;">
+          <select id="reviewIntentFilter" class="select-filter" style="flex: 1; font-size: 11.5px; padding: 4px 6px;">
+            <option value="all">全部意愿状态</option>
+            <option value="unreviewed">待确认</option>
+            <option value="must">必须恢复</option>
+            <option value="should">建议恢复</option>
+            <option value="on_demand">用到再装</option>
+            <option value="drop">淘汰弃用</option>
+          </select>
+          <select id="reviewCategoryFilter" class="select-filter" style="flex: 1; font-size: 11.5px; padding: 4px 6px;">
+            <option value="all">全部分类</option>
+            <option value="开发工具">开发工具</option>
+            <option value="系统工具">系统工具</option>
+            <option value="浏览器与网络">浏览器与网络</option>
+            <option value="媒体娱乐">媒体娱乐</option>
+            <option value="办公与笔记">办公与笔记</option>
+            <option value="通讯与社交">通讯与社交</option>
+          </select>
+        </div>
+
+        <!-- 评审完成度进度条 -->
+        <div class="review-progress-box">
+          <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--ink-2);">
+            <span>决策进度</span>
+            <span id="reviewProgressText">0 / 0</span>
+          </div>
+          <div class="review-progress-bar-bg">
+            <div class="review-progress-bar-fill" id="reviewProgressBar"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 软件列表 -->
+      <ul class="review-list-items" id="reviewListItems">
+        <!-- 动态生成列表条目 -->
+      </ul>
+    </aside>
+
+    <!-- 右侧居中大卡片评审工作区 -->
+    <main class="review-stage">
+      <div class="review-card-frame" id="reviewCardFrame">
+        <!-- 卡片顶栏：固定宽度的导航，位置绝对不动 -->
+        <div class="drawer-header">
+          <div class="drawer-header-left">
+            <span class="card-chip" id="cardSoftwareId">SW-001</span>
+            <span id="cardSaveStatus" class="save-status">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 已同步
+            </span>
+          </div>
+
+          <div class="drawer-header-right">
+            <div class="fixed-nav-group">
+              <button id="btnCardPrev" class="nav-fixed-btn" title="上一项 (PageUp / [ / Alt+←)">
+                <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg> 上一项
+              </button>
+              <span id="cardIndexBadge" class="nav-fixed-counter">1 / 1</span>
+              <button id="btnCardNext" class="nav-fixed-btn" title="下一项 (PageDown / ] / Alt+→)">
+                下一项 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+              </button>
+            </div>
+
+            <button id="btnCardLLM" class="btn btn-primary btn-sm" title="调用 LLM 补全建议">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg> AI预填
+            </button>
+          </div>
+        </div>
+
+        <div class="review-card-body">
+          <!-- 1. 软件大标题与紧凑元数据条 -->
+          <div class="card-hero-block">
+            <input type="text" id="cardName" class="card-big-title-input" placeholder="软件正式名称">
+            <div class="card-meta-line">
+              <div class="meta-tag-item">
+                <label>分类</label>
+                <select id="cardCategory" class="meta-select-compact">
+                  <option value="开发工具">开发工具</option>
+                  <option value="系统工具">系统工具</option>
+                  <option value="浏览器与网络">浏览器与网络</option>
+                  <option value="媒体娱乐">媒体娱乐</option>
+                  <option value="办公与笔记">办公与笔记</option>
+                  <option value="通讯与社交">通讯与社交</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+              <div class="meta-tag-item">
+                <label>形态</label>
+                <select id="cardType" class="meta-select-compact">
+                  <option value="desktop">桌面应用 (Desktop)</option>
+                  <option value="portable">便携免装 (Portable)</option>
+                  <option value="cli">命令行 (CLI)</option>
+                  <option value="runtime">运行环境 (Runtime)</option>
+                  <option value="shortcut">快捷方式 (Shortcut)</option>
+                </select>
+              </div>
+              <div class="meta-tag-item">
+                <label>版本</label>
+                <input type="text" id="cardVersion" class="meta-input-compact" placeholder="—">
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 核心决策面板 (Level 1) -->
+          <div class="decision-panel">
+            <div class="decision-section-title">
+              <span>迁移意愿决策</span>
+              <span class="decision-hint">数字键 1~5 快速切换</span>
+            </div>
+
+            <!-- 5个大胶囊按钮 -->
+            <div class="intent-segmented" id="cardIntentSegmented">
+              <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
+              <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
+              <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
+              <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
+              <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
+            </div>
+            <select id="cardIntent" style="display:none;">
+              <option value="must">必须恢复</option>
+              <option value="should">建议恢复</option>
+              <option value="on_demand">用到再装</option>
+              <option value="drop">淘汰弃用</option>
+              <option value="unreviewed">待确认</option>
+            </select>
+
+            <div class="decision-row-grid">
+              <div class="drawer-field">
+                <label>处置方式</label>
+                <select id="cardStrategy">
+                  <option value="none">无需操作 (暂无备份需求)</option>
+                  <option value="copy_dir">保留/压缩整个目录 (免装绿色版)</option>
+                  <option value="copy_config">手动导出/备份配置文件</option>
+                  <option value="redownload">官网或包管理重新下载安装</option>
+                  <option value="sync_account">云端账号登录同步即可</option>
+                </select>
+              </div>
+              <div class="drawer-field">
+                <label>准备就绪状态</label>
+                <select id="cardPrepStatus">
+                  <option value="todo">⏳ 待办 (需备安装包/导配置)</option>
+                  <option value="ready">✅ 全部就绪 (已备齐/已验证)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 执行备忘与链接 (Level 2) -->
+          <div class="action-panel">
+            <div class="drawer-field">
+              <label>官网 / 下载链接</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="url" id="cardUrl" placeholder="https://..." style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnCardOpenUrl" title="打开网址">
+                  <svg class="i sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> 打开
+                </button>
+              </div>
+            </div>
+
+            <div class="drawer-field">
+              <label>备份备忘与配置迁移说明 (关键路径 / 账号 / 特殊设置)</label>
+              <textarea id="cardNotes" rows="3" placeholder="例如：配置文件在 %APPDATA%\Code\User，或需导出 .reg，或直接云同步..."></textarea>
+            </div>
+          </div>
+
+          <!-- 4. 渐进式个人 Awesome 精选 (Level 3) -->
+          <div class="awesome-card-block" id="cardAwesomeBlock">
+            <label class="awesome-toggle-label">
+              <input type="checkbox" id="cardAwesome">
+              <span class="awesome-star-icon">★</span>
+              <span>标记为个人 Awesome 精选软件资产</span>
+            </label>
+            <div class="awesome-expand-content" id="cardAwesomeExpand" style="display: none;">
+              <label>在个人工作流中扮演的角色 / 推荐理由：</label>
+              <input type="text" id="cardAwesomeRole" placeholder="如：极速轻量文本搜索利器，命令行与编辑器核心管道...">
+            </div>
+          </div>
+
+          <!-- 5. 机器来源证据 (Level 4) -->
+          <div class="evidence-block">
+            <div class="evidence-header" id="cardEvidenceHeader">
+              <span>所在机器与原始路径证据</span>
+              <span id="cardEvidenceIcon" style="font-size: 10px; color: var(--ink-3);">▼</span>
+            </div>
+            <div id="cardMachinesList" class="evidence-list"></div>
+          </div>
+        </div>
+
+        <!-- 卡片底栏 -->
+        <div class="drawer-footer">
+          <button id="btnCardDelete" class="btn btn-danger btn-sm">删除此软件</button>
+          <div class="drawer-footer-right">
+            <button id="btnCardNextBottom" class="btn btn-primary btn-sm">
+              下一项卡片 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 快捷键指南提示 -->
+      <div class="review-shortcuts-hint">
+        <span>切卡: <kbd>PageUp</kbd> / <kbd>PageDown</kbd> 或 <kbd>Alt+←</kbd> / <kbd>Alt+→</kbd></span>
+        <span>意愿: <kbd>1</kbd>必须 <kbd>2</kbd>建议 <kbd>3</kbd>按需 <kbd>4</kbd>淘汰 <kbd>5</kbd>重置</span>
+        <span>就绪: <kbd>6</kbd></span>
+        <span>修改实时静默保存</span>
+      </div>
+    </main>
+  </div>
+
+  <script src="/card_review.js"></script>
+</body>
+</html>

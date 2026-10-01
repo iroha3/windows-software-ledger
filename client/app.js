@@ -377,18 +377,18 @@ function bindKeyboardShortcuts() {
         closeDrawer();
         return;
       }
-      // Alt+Left / Alt+Right 无论焦点在何处均切卡
-      if (e.altKey && e.key === 'ArrowLeft') {
+      // PageUp / PageDown 与 Alt+Left / Alt+Right 始终切卡 (无惧 Firefox Quick Find 与输入框焦点)
+      if (e.key === 'PageUp' || (e.altKey && e.key === 'ArrowLeft')) {
         e.preventDefault();
         switchDrawerCard(-1);
         return;
       }
-      if (e.altKey && e.key === 'ArrowRight') {
+      if (e.key === 'PageDown' || (e.altKey && e.key === 'ArrowRight')) {
         e.preventDefault();
         switchDrawerCard(1);
         return;
       }
-      // 非打字状态下，按 [ 或 ] 快速切卡
+      // 非打字状态下，按 [ 或 ] 快速切卡，或数字键修改意愿
       if (!isTypingInField()) {
         if (e.key === '[' || e.key === 'BracketLeft') {
           e.preventDefault();
@@ -398,6 +398,29 @@ function bindKeyboardShortcuts() {
         if (e.key === ']' || e.key === 'BracketRight') {
           e.preventDefault();
           switchDrawerCard(1);
+          return;
+        }
+
+        // 数字键 1~5 快速切换当前卡片意愿
+        const drawerIntentMap = { '1': 'must', '2': 'should', '3': 'on_demand', '4': 'drop', '5': 'unreviewed' };
+        if (drawerIntentMap[e.key]) {
+          e.preventDefault();
+          const targetIntent = drawerIntentMap[e.key];
+          document.getElementById('drawerIntent').value = targetIntent;
+          document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.intent === targetIntent);
+          });
+          markDrawerSaving();
+          return;
+        }
+
+        // 6 键快速切换准备就绪状态
+        if (e.key === '6') {
+          e.preventDefault();
+          const prepEl = document.getElementById('drawerPrepStatus');
+          prepEl.value = prepEl.value === 'ready' ? 'todo' : 'ready';
+          markDrawerSaving();
+          showToast(`已标记为: ${prepEl.value === 'ready' ? '已就绪' : '待办'}`);
           return;
         }
       }
@@ -536,7 +559,8 @@ async function performDrawerAutoSave() {
   };
 
   Object.assign(activeItem, updates);
-  document.getElementById('drawerTitle').innerText = activeItem.name;
+  const titleEl = document.getElementById('drawerTitle');
+  if (titleEl) titleEl.innerText = activeItem.name;
 
   try {
     await fetch('/api/software/update', {
@@ -567,17 +591,37 @@ function openDrawer(id) {
   activeItem = softwareList.find(s => s.id === id);
   if (!activeItem) return;
 
-  document.getElementById('drawerTitle').innerText = activeItem.name;
-  document.getElementById('drawerName').value = activeItem.name;
+  const idEl = document.getElementById('drawerId');
+  if (idEl) idEl.textContent = activeItem.id || 'SW-ITEM';
+
+  const titleEl = document.getElementById('drawerTitle');
+  if (titleEl) titleEl.innerText = activeItem.name;
+
+  document.getElementById('drawerName').value = activeItem.name || '';
   document.getElementById('drawerVersion').value = activeItem.version || '';
   document.getElementById('drawerCategory').value = activeItem.category || '开发工具';
   document.getElementById('drawerType').value = activeItem.type || 'desktop';
   document.getElementById('drawerPrepStatus').value = activeItem.prep_status || 'todo';
   document.getElementById('drawerUrl').value = activeItem.download_url || '';
-  document.getElementById('drawerIntent').value = activeItem.restore_intent || 'unreviewed';
+
+  // 触觉意愿大胶囊
+  const activeIntent = activeItem.restore_intent || 'unreviewed';
+  document.getElementById('drawerIntent').value = activeIntent;
+  document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.intent === activeIntent);
+  });
+
   document.getElementById('drawerStrategy').value = activeItem.backup_strategy || 'none';
   document.getElementById('drawerNotes').value = activeItem.config_notes || '';
-  document.getElementById('drawerAwesome').checked = !!activeItem.is_awesome;
+
+  // 渐进式精选
+  const isAwesome = !!activeItem.is_awesome;
+  const awesomeCheckbox = document.getElementById('drawerAwesome');
+  if (awesomeCheckbox) awesomeCheckbox.checked = isAwesome;
+  const awesomeExpand = document.getElementById('awesomeExpandContent');
+  if (awesomeExpand) awesomeExpand.style.display = isAwesome ? 'block' : 'none';
+  const awesomeCard = document.getElementById('awesomeCardBlock');
+  if (awesomeCard) awesomeCard.classList.toggle('active', isAwesome);
   document.getElementById('drawerAwesomeRole').value = activeItem.awesome_role || '';
 
   if (drawerSaveStatus) {
@@ -781,6 +825,61 @@ function bindEvents() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', markDrawerSaving);
   });
+
+  // 抽屉意愿触觉大胶囊
+  const drawerIntentSegmented = document.getElementById('drawerIntentSegmented');
+  if (drawerIntentSegmented) {
+    drawerIntentSegmented.addEventListener('click', e => {
+      const btn = e.target.closest('.intent-seg-btn');
+      if (!btn) return;
+      const targetIntent = btn.dataset.intent;
+      document.getElementById('drawerIntent').value = targetIntent;
+      drawerIntentSegmented.querySelectorAll('.intent-seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      markDrawerSaving();
+    });
+  }
+
+  // 渐进式精选勾选
+  const drawerAwesomeEl = document.getElementById('drawerAwesome');
+  if (drawerAwesomeEl) {
+    drawerAwesomeEl.addEventListener('change', () => {
+      const checked = drawerAwesomeEl.checked;
+      const expand = document.getElementById('awesomeExpandContent');
+      const card = document.getElementById('awesomeCardBlock');
+      if (expand) expand.style.display = checked ? 'block' : 'none';
+      if (card) card.classList.toggle('active', checked);
+      if (checked) {
+        const roleInput = document.getElementById('drawerAwesomeRole');
+        if (roleInput) roleInput.focus();
+      }
+      markDrawerSaving();
+    });
+  }
+
+  // 折叠展开机器证据
+  const evidenceHeader = document.getElementById('evidenceHeader');
+  if (evidenceHeader) {
+    evidenceHeader.addEventListener('click', () => {
+      const list = document.getElementById('drawerMachinesList');
+      const icon = document.getElementById('evidenceToggleIcon');
+      if (list) {
+        const isHidden = list.style.display === 'none';
+        list.style.display = isHidden ? 'flex' : 'none';
+        if (icon) icon.innerText = isHidden ? '▼' : '▶';
+      }
+    });
+  }
+
+  // 抽屉官网链接快速打开
+  const btnOpenUrl = document.getElementById('btnOpenUrl');
+  if (btnOpenUrl) {
+    btnOpenUrl.addEventListener('click', () => {
+      const url = document.getElementById('drawerUrl').value.trim();
+      if (url) window.open(url.startsWith('http') ? url : `https://${url}`, '_blank', 'noopener,noreferrer');
+      else showToast('暂无下载或官网链接', 'info');
+    });
+  }
 
   // 抽屉切卡按钮
   btnPrevDrawer.addEventListener('click', () => switchDrawerCard(-1));
@@ -1030,7 +1129,12 @@ async function handleDrawerLLM() {
       const sug = data.suggestion;
       if (sug.category) document.getElementById('drawerCategory').value = sug.category;
       if (sug.type) document.getElementById('drawerType').value = sug.type;
-      if (sug.restore_intent) document.getElementById('drawerIntent').value = sug.restore_intent;
+      if (sug.restore_intent) {
+        document.getElementById('drawerIntent').value = sug.restore_intent;
+        document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.intent === sug.restore_intent);
+        });
+      }
       if (sug.backup_strategy) document.getElementById('drawerStrategy').value = sug.backup_strategy;
       if (sug.download_url && !document.getElementById('drawerUrl').value) {
         document.getElementById('drawerUrl').value = sug.download_url;
@@ -1160,6 +1264,10 @@ async function openConfigModal() {
     configLlmUrl.value = cfg.llm_url || 'http://127.0.0.1:1234/v1/chat/completions';
     configLlmModel.value = cfg.llm_model || 'qwen3.5-4b';
     configLlmKey.value = cfg.llm_api_key || '';
+    const scanDirsEl = document.getElementById('configScanDirs');
+    if (scanDirsEl) {
+      scanDirsEl.value = (cfg.scan_directories || []).join('\n');
+    }
     configModal.classList.add('show');
   } catch (e) {
     showToast('读取配置失败', 'error');
@@ -1170,6 +1278,8 @@ async function saveConfigModal() {
   const llm_url = configLlmUrl.value.trim();
   const llm_model = configLlmModel.value.trim();
   const llm_api_key = configLlmKey.value.trim();
+  const scanDirsEl = document.getElementById('configScanDirs');
+  const scan_directories = scanDirsEl ? scanDirsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
   if (!llm_url) {
     showToast('请输入有效的 LLM API URL', 'warning');
     return;
@@ -1179,12 +1289,12 @@ async function saveConfigModal() {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ llm_url, llm_model, llm_api_key })
+      body: JSON.stringify({ llm_url, llm_model, llm_api_key, scan_directories })
     });
     const data = await res.json();
     if (data.success) {
       configModal.classList.remove('show');
-      showToast('LLM 服务与密钥配置已保存！', 'success');
+      showToast('中台设置已保存（包含便携扫描目录与大模型配置）！', 'success');
     }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
