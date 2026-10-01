@@ -62,10 +62,10 @@
   --accent-blue: var(--accent);
   --accent-blue-hover: var(--accent);
 
-  /* 字体族定义 */
-  --ui: "Noto Sans SC", "PingFang SC", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  /* 字体族定义 (优先系统无衬线现代字体，避免 Windows 回退宋体) */
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
   --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
-  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --mono: ui-monospace, SFMono-Regular, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
 }
 
 [data-theme="dark"] {
@@ -131,6 +131,15 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
 body {
@@ -243,7 +252,7 @@ header {
   border-radius: 6px;
 }
 
-.kbd {
+.kbd, kbd {
   display: inline-block;
   font-family: var(--mono);
   font-size: 10px;
@@ -253,10 +262,12 @@ header {
   border-radius: 4px;
   color: var(--ink-2);
   font-weight: 700;
+  vertical-align: middle;
 }
-[data-theme="dark"] .kbd {
+[data-theme="dark"] .kbd, [data-theme="dark"] kbd {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
+  color: var(--ink);
 }
 
 /* 统一轻量线性 SVG 图标系统 (借鉴 EasyRead) */
@@ -1032,8 +1043,61 @@ tr.selected td {
 
 .decision-row-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* 表单字段容器 (侧栏抽屉、卡片速审、设置弹窗通用) */
+.drawer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.drawer-field label {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: block;
+}
+
+.drawer-field input,
+.drawer-field textarea,
+.drawer-field select {
+  width: 100%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  color: var(--ink);
+  padding: 7px 11px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  outline: none;
+  font-family: inherit;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.drawer-field input:focus,
+.drawer-field textarea:focus,
+.drawer-field select:focus {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.drawer-field textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.drawer-field .hint {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  line-height: 1.4;
+  display: block;
 }
 
 /* 动作备忘与链接 (Level 2) */
@@ -1433,8 +1497,13 @@ tr.selected td {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11.5px;
   color: var(--ink-3);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule);
+  padding: 6px 18px;
+  border-radius: 999px;
 }
 
