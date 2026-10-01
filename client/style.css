@@ -1,110 +1,130 @@
 /* client/style.css */
+/* 吸收 EasyRead 的书卷感、暖色纸质与清爽排版美学 */
+
 :root {
-  /* 默认日间主题 (Clean Modern Slate Light) */
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --bg-hover: #f1f5f9;
-  --border-color: #e2e8f0;
-  --border-light: #cbd5e1;
-  --text-main: #0f172a;
-  --text-muted: #64748b;
-  --text-dim: #94a3b8;
+  /* 默认日间主题：温润纸质基底 (Paper / Cream Tone) */
+  --bg: #f6f3ec;
+  --surface: #fbfaf6;
+  --surface-2: #efebe2;
+  --ink: #23211d;
+  --ink-2: #5a554c;
+  --ink-3: #8c8579;
+  --rule: #e2dcd0;
+  --rule-2: #d3cbbb;
 
-  --accent-blue: #2563eb;
-  --accent-blue-hover: #1d4ed8;
-  --accent-indigo: #4f46e5;
+  /* 核心点缀色 (Slate Teal 墨蓝 / 陶红 / 暖琥珀 / 鼠尾草绿) */
+  --accent: #2d6173;
+  --accent-soft: rgba(45, 97, 115, 0.08);
+  --accent-soft-2: rgba(45, 97, 115, 0.15);
+  --danger: #b0472f;
+  --danger-soft: rgba(176, 71, 47, 0.10);
+  --ok: #4f7f52;
+  --ok-soft: rgba(79, 127, 82, 0.12);
+  --amber: #9c5f1c;
+  --amber-soft: rgba(156, 95, 28, 0.10);
 
-  /* Intent Colors - Light Mode */
-  --intent-must-bg: #fee2e2;
-  --intent-must-border: #ef4444;
-  --intent-must-text: #b91c1c;
+  /* 意愿胶囊状态配色 (轻柔低饱和、温和不刺眼) */
+  --intent-must-bg: rgba(176, 71, 47, 0.10);
+  --intent-must-border: #b0472f;
+  --intent-must-text: #b0472f;
 
-  --intent-should-bg: #fef3c7;
-  --intent-should-border: #f59e0b;
-  --intent-should-text: #b45309;
+  --intent-should-bg: rgba(156, 95, 28, 0.10);
+  --intent-should-border: #9c5f1c;
+  --intent-should-text: #9c5f1c;
 
-  --intent-ondemand-bg: #dbeafe;
-  --intent-ondemand-border: #3b82f6;
-  --intent-ondemand-text: #1d4ed8;
+  --intent-ondemand-bg: rgba(45, 97, 115, 0.10);
+  --intent-ondemand-border: #2d6173;
+  --intent-ondemand-text: #2d6173;
 
-  --intent-drop-bg: #f1f5f9;
-  --intent-drop-border: #94a3b8;
-  --intent-drop-text: #64748b;
+  --intent-drop-bg: rgba(140, 133, 121, 0.14);
+  --intent-drop-border: #8c8579;
+  --intent-drop-text: #5a554c;
 
-  --intent-unreviewed-bg: #f8fafc;
-  --intent-unreviewed-border: #cbd5e1;
-  --intent-unreviewed-text: #475569;
+  --intent-unreviewed-bg: rgba(226, 220, 208, 0.5);
+  --intent-unreviewed-border: #d3cbbb;
+  --intent-unreviewed-text: #8c8579;
 
-  /* Tags & Badges - Light Mode */
-  --batch-bar-bg: #ffffff;
-  --batch-bar-border: #cbd5e1;
-  --batch-bar-text: #1e293b;
-  --tag-cat-bg: #f1f5f9;
-  --tag-cat-border: #cbd5e1;
-  --tag-cat-text: #475569;
-  --tag-form-bg: #ecfdf5;
-  --tag-form-border: #a7f3d0;
-  --tag-form-text: #065f46;
-  --machine-badge-bg: #eff6ff;
-  --machine-badge-border: #bfdbfe;
-  --machine-badge-text: #1d4ed8;
-  --version-badge-bg: #f1f5f9;
-  --version-badge-border: #cbd5e1;
-  --version-badge-text: #334155;
+  /* 阴影与微光 */
+  --shadow-sm: 0 1px 3px rgba(35, 33, 29, 0.06);
+  --shadow-md: 0 4px 14px rgba(35, 33, 29, 0.08);
+  --shadow-lg: 0 8px 30px rgba(35, 33, 29, 0.14);
+
+  /* 兼容旧变量别名 */
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --bg-card: var(--surface);
+  --bg-hover: var(--surface-2);
+  --border-color: var(--rule);
+  --border-light: var(--rule-2);
+  --text-main: var(--ink);
+  --text-muted: var(--ink-2);
+  --text-dim: var(--ink-3);
+  --accent-blue: var(--accent);
+  --accent-blue-hover: var(--accent);
+
+  /* 字体族定义 */
+  --ui: "Noto Sans SC", "PingFang SC", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 }
 
 [data-theme="dark"] {
-  /* 夜间模式 (Dark Slate) */
-  --bg-primary: #0b0f19;
-  --bg-secondary: #111827;
-  --bg-card: #1f2937;
-  --bg-hover: #374151;
-  --border-color: #374151;
-  --border-light: #4b5563;
-  --text-main: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
+  /* 夜间模式：暖木炭黑 (Warm Charcoal Dark) */
+  --bg: #1a1917;
+  --surface: #22211e;
+  --surface-2: #2a2825;
+  --ink: #ddd7cb;
+  --ink-2: #b2aa9c;
+  --ink-3: #7d766b;
+  --rule: #33312d;
+  --rule-2: #45423c;
 
-  --accent-blue: #3b82f6;
-  --accent-blue-hover: #2563eb;
-  --accent-indigo: #6366f1;
+  --accent: #86b8c9;
+  --accent-soft: rgba(134, 184, 201, 0.10);
+  --accent-soft-2: rgba(134, 184, 201, 0.18);
+  --danger: #e08a72;
+  --danger-soft: rgba(224, 138, 114, 0.12);
+  --ok: #8fbf8f;
+  --ok-soft: rgba(143, 191, 143, 0.14);
+  --amber: #d8a35c;
+  --amber-soft: rgba(216, 163, 92, 0.12);
 
-  --intent-must-bg: rgba(239, 68, 68, 0.2);
-  --intent-must-border: #ef4444;
-  --intent-must-text: #fca5a5;
+  --intent-must-bg: rgba(224, 138, 114, 0.15);
+  --intent-must-border: #e08a72;
+  --intent-must-text: #f0a28d;
 
-  --intent-should-bg: rgba(245, 158, 11, 0.2);
-  --intent-should-border: #f59e0b;
-  --intent-should-text: #fcd34d;
+  --intent-should-bg: rgba(216, 163, 92, 0.15);
+  --intent-should-border: #d8a35c;
+  --intent-should-text: #ebd09c;
 
-  --intent-ondemand-bg: rgba(59, 130, 246, 0.2);
-  --intent-ondemand-border: #3b82f6;
-  --intent-ondemand-text: #93c5fd;
+  --intent-ondemand-bg: rgba(134, 184, 201, 0.15);
+  --intent-ondemand-border: #86b8c9;
+  --intent-ondemand-text: #a8d5e5;
 
-  --intent-drop-bg: rgba(107, 114, 128, 0.2);
-  --intent-drop-border: #6b7280;
-  --intent-drop-text: #9ca3af;
+  --intent-drop-bg: rgba(125, 118, 107, 0.20);
+  --intent-drop-border: #7d766b;
+  --intent-drop-text: #b2aa9c;
 
-  --intent-unreviewed-bg: rgba(156, 163, 175, 0.1);
-  --intent-unreviewed-border: #4b5563;
-  --intent-unreviewed-text: #d1d5db;
+  --intent-unreviewed-bg: rgba(51, 49, 45, 0.6);
+  --intent-unreviewed-border: #45423c;
+  --intent-unreviewed-text: #8c8579;
 
-  --batch-bar-bg: #1e293b;
-  --batch-bar-border: #475569;
-  --batch-bar-text: #f8fafc;
-  --tag-cat-bg: #1e293b;
-  --tag-cat-border: #334155;
-  --tag-cat-text: #94a3b8;
-  --tag-form-bg: #14291f;
-  --tag-form-border: #065f46;
-  --tag-form-text: #6ee7b7;
-  --machine-badge-bg: #172554;
-  --machine-badge-border: #1e40af;
-  --machine-badge-text: #93c5fd;
-  --version-badge-bg: #1e293b;
-  --version-badge-border: #334155;
-  --version-badge-text: #94a3b8;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 36px rgba(0, 0, 0, 0.65);
+
+  /* 兼容旧变量别名 (Dark Mode) */
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --bg-card: var(--surface);
+  --bg-hover: var(--surface-2);
+  --border-color: var(--rule);
+  --border-light: var(--rule-2);
+  --text-main: var(--ink);
+  --text-muted: var(--ink-2);
+  --text-dim: var(--ink-3);
+  --accent-blue: var(--accent);
+  --accent-blue-hover: var(--accent);
 }
 
 * {
@@ -114,19 +134,21 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-main);
+  font-family: var(--ui);
+  background-color: var(--bg);
+  color: var(--ink);
   height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Header */
+/* 顶栏：类似 EasyRead 的常驻顶栏与玻璃拟态 */
 header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: saturate(1.2) blur(10px);
+  border-bottom: 1px solid var(--rule);
   padding: 10px 24px;
   display: flex;
   justify-content: space-between;
@@ -148,17 +170,18 @@ header {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  color: var(--text-main);
+  color: var(--ink);
 }
 
 .badge-tag {
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--accent-indigo);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
   font-weight: 600;
+  letter-spacing: 0.2px;
 }
 
 .header-actions {
@@ -167,7 +190,7 @@ header {
   gap: 8px;
 }
 
-/* Button styles */
+/* 按钮组规范 */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -175,64 +198,71 @@ header {
   font-size: 13px;
   font-weight: 600;
   padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  border-radius: 8px;
+  border: 0;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
   white-space: nowrap;
-}
-
-.btn-primary {
-  background: var(--accent-blue);
-  color: #fff;
-}
-.btn-primary:hover {
-  background: var(--accent-blue-hover);
+  color: var(--ink-2);
 }
 
 .btn-secondary {
-  background: var(--bg-secondary);
-  color: var(--text-main);
-  border-color: var(--border-color);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
 }
 .btn-secondary:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-light);
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+:root[data-theme="dark"] .btn-primary {
+  color: #10201f;
+}
+.btn-primary:hover {
+  opacity: 0.92;
 }
 
 .btn-danger {
-  background: #dc2626;
-  color: #fff;
+  background: transparent;
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
 }
 .btn-danger:hover {
-  background: #b91c1c;
+  background: var(--danger-soft);
 }
 
 .btn-sm {
-  padding: 4px 8px;
+  padding: 4px 9px;
   font-size: 12px;
+  border-radius: 6px;
 }
 
 .kbd {
   display: inline-block;
-  font-family: monospace;
+  font-family: var(--mono);
   font-size: 10px;
-  padding: 1px 4px;
-  background: rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 3px;
-  color: inherit;
+  padding: 1px 5px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  color: var(--ink-2);
   font-weight: 700;
 }
 [data-theme="dark"] .kbd {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Stats ticker bar */
+/* 统计横条 */
 .stats-bar {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
   padding: 8px 24px;
   display: flex;
   align-items: center;
@@ -246,32 +276,35 @@ header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  padding: 4px 10px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 7px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: all 0.15s;
   white-space: nowrap;
+  color: var(--ink-2);
 }
 
 .stat-item:hover {
-  border-color: var(--accent-blue);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
 }
 
 .stat-num {
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--ink);
+  font-family: var(--mono);
 }
 
-/* Toolbar & Filters */
+/* 工具栏与筛选区 */
 .toolbar {
-  padding: 8px 24px;
-  background: var(--bg-primary);
+  padding: 10px 24px;
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
 }
 
@@ -280,33 +313,36 @@ header {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* 类似 EasyRead 的分段胶囊选择器 (.seg) */
 .machine-tabs {
-  display: flex;
-  background: var(--bg-secondary);
+  display: inline-flex;
   padding: 2px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  gap: 4px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  gap: 2px;
 }
 
 .tab-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--ink-3);
+  font-size: 12.5px;
   font-weight: 600;
   padding: 5px 12px;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.14s;
+  font-family: inherit;
 }
 
 .tab-btn.active {
-  background: var(--accent-blue);
-  color: #fff;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(35, 33, 29, 0.08);
 }
 
 .filter-group {
@@ -317,44 +353,49 @@ header {
 }
 
 .search-input {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  color: var(--ink);
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   width: 220px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: box-shadow 0.15s;
 }
 
 .search-input:focus {
-  border-color: var(--accent-blue);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 .select-filter {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  color: var(--ink);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
   outline: none;
   cursor: pointer;
+  font-family: inherit;
+}
+.select-filter:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
-/* Batch Action Bar - 底部浮动胶囊设计 */
+/* 浮动批量操作条 (优雅底部胶囊，零位移) */
 .batch-bar {
   position: fixed;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%) translateY(120px);
   z-index: 100;
-  background: var(--batch-bar-bg);
-  border: 1px solid var(--batch-bar-border);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule), var(--shadow-lg);
   border-radius: 999px;
-  padding: 7px 18px;
+  padding: 6px 18px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -372,7 +413,7 @@ header {
 .batch-info {
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent-blue);
+  color: var(--accent);
   white-space: nowrap;
 }
 
@@ -383,15 +424,15 @@ header {
   flex-wrap: nowrap;
 }
 
-/* 新添加行的高亮动效 */
+/* 新添加行高亮 */
 tr.row-newly-added td {
-  background: rgba(37, 99, 235, 0.1) !important;
+  background: var(--accent-soft) !important;
   animation: pulseHighlight 3s ease-out;
 }
 
 @keyframes pulseHighlight {
-  0% { background: rgba(37, 99, 235, 0.25) !important; }
-  100% { background: rgba(37, 99, 235, 0.1) !important; }
+  0% { background: var(--accent-soft-2) !important; }
+  100% { background: var(--accent-soft) !important; }
 }
 
 /* 准备状态胶囊 */
@@ -399,38 +440,32 @@ tr.row-newly-added td {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 11.5px;
   padding: 3px 8px;
   border-radius: 6px;
   cursor: pointer;
   user-select: none;
-  border: 1px solid transparent;
   transition: all 0.15s ease;
   font-weight: 600;
 }
 
 .prep-todo {
-  background: var(--bg-card);
-  color: var(--text-dim);
-  border-color: var(--border-color);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 .prep-todo:hover {
-  border-color: var(--accent-blue);
-  color: var(--text-main);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
 }
 
 .prep-ready {
-  background: #ecfdf5;
-  color: #059669;
-  border-color: #10b981;
-}
-[data-theme="dark"] .prep-ready {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
-  border-color: #059669;
+  background: var(--ok-soft);
+  color: var(--ok);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent);
 }
 
-/* Main Table Container */
+/* 表格独立滚动区 */
 .table-container {
   flex: 1;
   overflow-y: auto;
@@ -446,78 +481,79 @@ table {
 }
 
 th {
-  background: var(--bg-secondary);
-  color: var(--text-muted);
+  background: var(--bg);
+  color: var(--ink-3);
   font-weight: 600;
-  padding: 9px 12px;
-  border-bottom: 2px solid var(--border-color);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule-2);
   white-space: nowrap;
   position: sticky;
   top: 0;
   z-index: 10;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 td {
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--rule);
   vertical-align: middle;
 }
 
 tr:hover td {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
 }
 
 tr.selected td {
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--accent-soft);
 }
 
-/* Cell Elements */
+/* 单元格内容 */
 .software-name-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .software-title {
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--ink);
   cursor: pointer;
+  letter-spacing: -0.1px;
 }
 .software-title:hover {
-  color: var(--accent-blue);
+  color: var(--accent);
   text-decoration: underline;
 }
 
 .software-tags {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
 }
 
 .tag-cat {
-  background: var(--tag-cat-bg);
-  color: var(--tag-cat-text);
-  padding: 1px 5px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid var(--tag-cat-border);
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 .tag-form {
-  background: var(--tag-form-bg);
-  color: var(--tag-form-text);
-  padding: 1px 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid var(--tag-form-border);
 }
 
 .version-badge {
   display: inline-block;
-  background: var(--version-badge-bg);
-  color: var(--version-badge-text);
-  border: 1px solid var(--version-badge-border);
-  font-family: monospace;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  font-family: var(--mono);
   font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
@@ -525,17 +561,17 @@ tr.selected td {
 
 .machine-badge {
   display: inline-block;
-  background: var(--machine-badge-bg);
-  color: var(--machine-badge-text);
-  border: 1px solid var(--machine-badge-border);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
   font-size: 11px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   margin-right: 4px;
   margin-bottom: 2px;
 }
 
-/* Badges for Intent & Strategy */
+/* 决策下拉框胶囊 (轻柔色彩与微阴影) */
 .badge-select {
   appearance: none;
   background: transparent;
@@ -546,27 +582,28 @@ tr.selected td {
   font-weight: 600;
   cursor: pointer;
   outline: none;
-  transition: all 0.15s;
+  transition: all 0.14s;
+  font-family: inherit;
 }
 
 .intent-must {
   background: var(--intent-must-bg);
-  border-color: var(--intent-must-border);
+  border-color: color-mix(in srgb, var(--intent-must-border) 40%, transparent);
   color: var(--intent-must-text);
 }
 .intent-should {
   background: var(--intent-should-bg);
-  border-color: var(--intent-should-border);
+  border-color: color-mix(in srgb, var(--intent-should-border) 40%, transparent);
   color: var(--intent-should-text);
 }
 .intent-on_demand {
   background: var(--intent-ondemand-bg);
-  border-color: var(--intent-ondemand-border);
+  border-color: color-mix(in srgb, var(--intent-ondemand-border) 40%, transparent);
   color: var(--intent-ondemand-text);
 }
 .intent-drop {
   background: var(--intent-drop-bg);
-  border-color: var(--intent-drop-border);
+  border-color: color-mix(in srgb, var(--intent-drop-border) 40%, transparent);
   color: var(--intent-drop-text);
 }
 .intent-unreviewed {
@@ -576,51 +613,55 @@ tr.selected td {
 }
 
 .strategy-select {
-  background: var(--bg-card);
-  color: var(--text-main);
-  border: 1px solid var(--border-color);
-  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border: 0;
+  padding: 4px 7px;
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
   outline: none;
+  font-family: inherit;
 }
 
 .cell-input {
   background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-main);
+  border: 0;
+  box-shadow: none;
+  color: var(--ink);
   font-size: 12px;
   padding: 4px 6px;
   border-radius: 4px;
   width: 100%;
   outline: none;
-  transition: border-color 0.15s, background-color 0.15s;
+  transition: box-shadow 0.15s, background-color 0.15s;
 }
 
 .cell-input:focus {
-  background: var(--bg-secondary);
-  border-color: var(--accent-blue);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.2px var(--accent);
 }
 
 .awesome-star {
   font-size: 16px;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--ink-3);
   transition: color 0.15s, transform 0.15s;
   user-select: none;
 }
 
 .awesome-star.starred {
-  color: #f59e0b;
+  color: #c9a24a;
   transform: scale(1.15);
 }
 
-/* Side Drawer (加宽至 680px + 2列网格，确保一屏全显不翻页) */
+/* 侧边详情抽屉 (加宽至 680px + 2列网格，一屏全览不滚动) */
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(35, 33, 29, 0.35);
+  backdrop-filter: blur(2px);
   z-index: 50;
   display: none;
 }
@@ -636,14 +677,14 @@ tr.selected td {
   bottom: 0;
   width: 680px;
   max-width: 92vw;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
   z-index: 55;
   transform: translateX(100%);
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
-  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
 
 .drawer.show {
@@ -651,8 +692,8 @@ tr.selected td {
 }
 
 .drawer-header {
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--rule);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -668,7 +709,6 @@ tr.selected td {
   gap: 12px;
 }
 
-/* 2列紧凑网格布局 */
 .drawer-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -686,21 +726,26 @@ tr.selected td {
 }
 
 .drawer-field label {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  color: var(--ink-3);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.05em;
 }
 
 .drawer-field input, .drawer-field textarea, .drawer-field select {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  color: var(--ink);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 7px;
   font-size: 13px;
   outline: none;
+  font-family: inherit;
+}
+
+.drawer-field input:focus, .drawer-field textarea:focus, .drawer-field select:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 .drawer-field textarea {
@@ -709,11 +754,11 @@ tr.selected td {
 }
 
 .machine-item-card {
-  background: var(--bg-hover);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  background: var(--surface-2);
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--rule);
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: 11.5px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -722,8 +767,8 @@ tr.selected td {
 /* Toast 提示容器 */
 .toast-container {
   position: fixed;
-  top: 20px;
-  right: 24px;
+  top: 18px;
+  right: 22px;
   z-index: 999;
   display: flex;
   flex-direction: column;
@@ -733,12 +778,11 @@ tr.selected td {
 
 .toast {
   pointer-events: auto;
-  background: var(--bg-secondary);
-  color: var(--text-main);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--rule), var(--shadow-md);
   border-radius: 8px;
-  padding: 10px 16px;
+  padding: 9px 15px;
   font-size: 13px;
   font-weight: 600;
   display: flex;
@@ -749,13 +793,13 @@ tr.selected td {
 }
 
 .toast.toast-success {
-  border-color: #10b981;
+  border-left: 3px solid var(--ok);
 }
 .toast.toast-warning {
-  border-color: #f59e0b;
+  border-left: 3px solid var(--amber);
 }
 .toast.toast-error {
-  border-color: #ef4444;
+  border-left: 3px solid var(--danger);
 }
 
 @keyframes toastIn {
@@ -767,7 +811,8 @@ tr.selected td {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(35, 33, 29, 0.4);
+  backdrop-filter: blur(2px);
   z-index: 60;
   display: none;
   align-items: center;
@@ -780,20 +825,19 @@ tr.selected td {
 }
 
 .modal-content {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule), var(--shadow-lg);
   border-radius: 10px;
   width: 600px;
   max-width: 95vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
 }
 
 .modal-header {
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--rule);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -808,7 +852,7 @@ tr.selected td {
 
 .modal-footer {
   padding: 12px 20px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--rule);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -817,11 +861,11 @@ tr.selected td {
 /* Spinner */
 .spinner {
   display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 2px solid rgba(0,0,0,0.2);
+  width: 12px;
+  height: 12px;
+  border: 1.8px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 50%;
-  border-top-color: var(--accent-blue);
+  border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
 
