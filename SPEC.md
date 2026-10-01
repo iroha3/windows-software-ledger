@@ -31,16 +31,16 @@
 
 ```
 [阶段 1: 证据收集 (Collect)]
-  ├─ 在每台机器上运行采集（脚本已内嵌进 exe，释放到临时目录执行）
+  ├─ 机器 A / B / C 运行极简采集脚本 (PowerShell)
   │    ├─ 已安装应用 (Registry / Winget / Scoop)
   │    ├─ 扫描便携/绿色软件目录
   │    └─ 快捷方式与环境 PATH
-  └─ 采集结果写入系统临时目录，入库后立即删除，不保留 evidence/
+  └─ 输出各机器证据文件到 evidence/<machine_id>/
         │
         ▼
 [阶段 2: 数据入库 (Ingest)]
-  ├─ 解析临时目录中的结构化数据
-  └─ 归并去重后写入主数据 data/software.json
+  ├─ 读取 evidence/ 结构化数据
+  └─ 解析并初始化生成主数据 data/software.json
         │
         ▼
 [阶段 3: 表格化决策与整理 (Table Hub)]
