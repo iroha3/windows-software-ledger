@@ -7,7 +7,13 @@ let availablePaths = [];
 let selectedIds = new Set();
 let activeMachine = 'all';
 let activeItem = null;
+let machineAliases = {};
 let lastDeleteTime = 0; // 用于双击 Delete 防误触
+
+function getMachineDisplayName(id) {
+  if (!id) return '未知设备';
+  return machineAliases[id] || id;
+}
 
 // 自动保存防抖计时器与标志
 let autoSaveTimer = null;
@@ -157,6 +163,7 @@ async function fetchStatus() {
     const res = await fetch('/api/status');
     const data = await res.json();
     machinesList = data.machines || [];
+    machineAliases = data.machine_aliases || {};
     availablePaths = data.availablePaths || [];
     renderStats(data.stats);
     renderMachineTabs(data.machines);
@@ -205,7 +212,8 @@ function renderMachineTabs(machines) {
   let html = `<button class="tab-btn ${activeMachine === 'all' ? 'active' : ''}" data-machine="all">全部机器 (${softwareList.length})</button>`;
   for (const m of machines) {
     const count = softwareList.filter(s => s.machines.some(sm => sm.machine_id === m)).length;
-    html += `<button class="tab-btn ${activeMachine === m ? 'active' : ''}" data-machine="${m}">${m} (${count})</button>`;
+    const displayName = getMachineDisplayName(m);
+    html += `<button class="tab-btn ${activeMachine === m ? 'active' : ''}" data-machine="${m}" title="设备ID: ${m}">${escapeHtml(displayName)} (${count})</button>`;
   }
   machineTabs.innerHTML = html;
 }
@@ -272,8 +280,9 @@ function renderTable() {
     const isNewClass = item.is_new ? 'row-newly-added' : '';
 
     const machineBadges = item.machines.map(m => {
-      return `<span class="machine-badge" title="${m.install_location || m.path || ''}">${m.machine_id}</span>`;
-    }).join('');
+      const alias = getMachineDisplayName(m.machine_id);
+      return `<span class="badge-machine" title="设备ID: ${m.machine_id}&#10;路径: ${m.install_location || m.path || '未记录路径'}">${escapeHtml(alias)}</span>`;
+    }).join(' ');
 
     html += `
       <tr class="${isSelected ? 'selected' : ''} ${isNewClass}" data-id="${item.id}">
@@ -614,14 +623,14 @@ function openDrawer(id) {
   document.getElementById('drawerStrategy').value = activeItem.backup_strategy || 'none';
   document.getElementById('drawerNotes').value = activeItem.config_notes || '';
 
-  // 渐进式精选
+  // 紧凑精选
   const isAwesome = !!activeItem.is_awesome;
   const awesomeCheckbox = document.getElementById('drawerAwesome');
   if (awesomeCheckbox) awesomeCheckbox.checked = isAwesome;
+  const awesomePill = document.getElementById('drawerAwesomePill');
+  if (awesomePill) awesomePill.classList.toggle('active', isAwesome);
   const awesomeExpand = document.getElementById('awesomeExpandContent');
-  if (awesomeExpand) awesomeExpand.style.display = isAwesome ? 'block' : 'none';
-  const awesomeCard = document.getElementById('awesomeCardBlock');
-  if (awesomeCard) awesomeCard.classList.toggle('active', isAwesome);
+  if (awesomeExpand) awesomeExpand.style.display = isAwesome ? 'flex' : 'none';
   document.getElementById('drawerAwesomeRole').value = activeItem.awesome_role || '';
 
   if (drawerSaveStatus) {
@@ -635,7 +644,7 @@ function openDrawer(id) {
   listEl.innerHTML = activeItem.machines.map(m => `
     <div class="machine-item-card">
       <div style="font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 5px;">
-        ${ICONS.device} ${m.machine_id} (${m.form})
+        ${ICONS.device} ${escapeHtml(getMachineDisplayName(m.machine_id))} <span class="machine-raw-tag">(${m.machine_id}) · ${m.form}</span>
       </div>
       <div>路径: <code>${m.install_location || m.path || '未记录路径'}</code></div>
       ${m.version ? `<div>版本: <code>${m.version}</code></div>` : ''}
@@ -840,15 +849,17 @@ function bindEvents() {
     });
   }
 
-  // 渐进式精选勾选
+  // 紧凑精选胶囊点击切换
+  const drawerAwesomePill = document.getElementById('drawerAwesomePill');
   const drawerAwesomeEl = document.getElementById('drawerAwesome');
-  if (drawerAwesomeEl) {
-    drawerAwesomeEl.addEventListener('change', () => {
+  if (drawerAwesomePill && drawerAwesomeEl) {
+    drawerAwesomePill.addEventListener('click', (e) => {
+      e.preventDefault();
+      drawerAwesomeEl.checked = !drawerAwesomeEl.checked;
       const checked = drawerAwesomeEl.checked;
+      drawerAwesomePill.classList.toggle('active', checked);
       const expand = document.getElementById('awesomeExpandContent');
-      const card = document.getElementById('awesomeCardBlock');
-      if (expand) expand.style.display = checked ? 'block' : 'none';
-      if (card) card.classList.toggle('active', checked);
+      if (expand) expand.style.display = checked ? 'flex' : 'none';
       if (checked) {
         const roleInput = document.getElementById('drawerAwesomeRole');
         if (roleInput) roleInput.focus();
@@ -1268,6 +1279,24 @@ async function openConfigModal() {
     if (scanDirsEl) {
       scanDirsEl.value = (cfg.scan_directories || []).join('\n');
     }
+
+    // 渲染机器别名列表
+    const aliasesListEl = document.getElementById('configMachineAliasesList');
+    if (aliasesListEl) {
+      const aliases = cfg.machine_aliases || {};
+      machineAliases = aliases;
+      const allKnownMachines = Array.from(new Set([...machinesList, ...Object.keys(aliases)]));
+      if (allKnownMachines.length === 0) {
+        allKnownMachines.push('DESKTOP-HEGVCTR');
+      }
+      aliasesListEl.innerHTML = allKnownMachines.map(mid => `
+        <div class="machine-alias-row">
+          <span class="machine-alias-id">${ICONS.device} ${escapeHtml(mid)}</span>
+          <input type="text" class="machine-alias-input" data-mid="${escapeHtml(mid)}" value="${escapeHtml(aliases[mid] || '')}" placeholder="设置友好别名 (如：主力台式机 / 便携本)">
+        </div>
+      `).join('');
+    }
+
     configModal.classList.add('show');
   } catch (e) {
     showToast('读取配置失败', 'error');
@@ -1280,6 +1309,16 @@ async function saveConfigModal() {
   const llm_api_key = configLlmKey.value.trim();
   const scanDirsEl = document.getElementById('configScanDirs');
   const scan_directories = scanDirsEl ? scanDirsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  
+  const machine_aliases = {};
+  document.querySelectorAll('#configMachineAliasesList .machine-alias-input').forEach(input => {
+    const mid = input.dataset.mid;
+    const val = input.value.trim();
+    if (mid && val) {
+      machine_aliases[mid] = val;
+    }
+  });
+
   if (!llm_url) {
     showToast('请输入有效的 LLM API URL', 'warning');
     return;
@@ -1289,12 +1328,15 @@ async function saveConfigModal() {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ llm_url, llm_model, llm_api_key, scan_directories })
+      body: JSON.stringify({ llm_url, llm_model, llm_api_key, scan_directories, machine_aliases })
     });
     const data = await res.json();
     if (data.success) {
+      machineAliases = machine_aliases;
       configModal.classList.remove('show');
-      showToast('中台设置已保存（包含便携扫描目录与大模型配置）！', 'success');
+      renderTable();
+      renderMachineTabs(machinesList);
+      showToast('设置与设备别名已保存生效！', 'success');
     }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');

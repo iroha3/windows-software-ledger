@@ -5,8 +5,14 @@ let softwareList = [];
 let currentFiltered = [];
 let currentIndex = 0;
 let activeItem = null;
+let machineAliases = {};
 let autoSaveTimer = null;
 let pendingSave = false;
+
+function getMachineDisplayName(id) {
+  if (!id) return '未知设备';
+  return machineAliases[id] || id;
+}
 
 // 统一 SVG 图标库
 const ICONS = {
@@ -110,8 +116,13 @@ function applyTheme(theme) {
 
 async function loadSoftware() {
   try {
-    const res = await fetch('/api/software');
-    softwareList = await res.json();
+    const [swRes, cfgRes] = await Promise.all([
+      fetch('/api/software'),
+      fetch('/api/config')
+    ]);
+    softwareList = await swRes.json();
+    const cfg = await cfgRes.json();
+    machineAliases = cfg.machine_aliases || {};
     applyFilters();
     if (currentFiltered.length > 0) {
       loadCard(0);
@@ -199,19 +210,24 @@ function loadCard(index) {
   cardUrl.value = activeItem.download_url || '';
   cardNotes.value = activeItem.config_notes || '';
 
-  // 渐进式精选展开
+  // 紧凑精选开关
   cardAwesome.checked = !!activeItem.is_awesome;
-  cardAwesomeBlock.classList.toggle('active', !!activeItem.is_awesome);
+  const pill = document.getElementById('cardAwesomeToggle');
+  if (pill) pill.classList.toggle('active', !!activeItem.is_awesome);
   cardAwesomeExpand.style.display = activeItem.is_awesome ? 'flex' : 'none';
   cardAwesomeRole.value = activeItem.awesome_role || '';
 
-  // 机器线索
+  // 机器线索 (精美卡片式呈现，展示友好别名)
   cardMachinesList.innerHTML = (activeItem.machines || []).map(m => `
-    <div style="display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--rule-2);">
-      <span><strong>${m.machine_id}</strong> (${m.form})</span>
-      <code style="color:var(--ink-2);">${m.install_location || m.path || '未记录路径'}</code>
+    <div class="machine-item-card">
+      <div style="font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 5px;">
+        ${ICONS.device} ${escapeHtml(getMachineDisplayName(m.machine_id))} <span class="machine-raw-tag">(${m.machine_id}) · ${m.form}</span>
+      </div>
+      <div>路径: <code>${m.install_location || m.path || '未记录路径'}</code></div>
+      ${m.version ? `<div>版本: <code>${m.version}</code></div>` : ''}
+      ${m.publisher ? `<div>发布者: ${m.publisher}</div>` : ''}
     </div>
-  `).join('') || '<div style="color:var(--ink-3);">暂无机器线索</div>';
+  `).join('') || '<div style="color:var(--ink-3);">暂无关联机器信息</div>';
 
   cardSaveStatus.className = 'save-status';
   cardSaveStatus.innerHTML = `${ICONS.check} 已同步`;
@@ -411,14 +427,19 @@ function bindEvents() {
     el.addEventListener('change', markSaving);
   });
 
-  // 渐进式精选切换
-  cardAwesome.addEventListener('change', () => {
-    const checked = cardAwesome.checked;
-    cardAwesomeBlock.classList.toggle('active', checked);
-    cardAwesomeExpand.style.display = checked ? 'flex' : 'none';
-    if (checked) cardAwesomeRole.focus();
-    markSaving();
-  });
+  // 紧凑精选切换
+  const cardAwesomeToggle = document.getElementById('cardAwesomeToggle');
+  if (cardAwesomeToggle) {
+    cardAwesomeToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      cardAwesome.checked = !cardAwesome.checked;
+      const checked = cardAwesome.checked;
+      cardAwesomeToggle.classList.toggle('active', checked);
+      cardAwesomeExpand.style.display = checked ? 'flex' : 'none';
+      if (checked) cardAwesomeRole.focus();
+      markSaving();
+    });
+  }
 
   // 打开外部链接
   btnCardOpenUrl.addEventListener('click', () => {
@@ -506,6 +527,106 @@ function bindEvents() {
       showToast('导出异常: ' + e.message, 'error');
     }
   });
+
+  // 中台设置弹窗
+  const btnConfig = document.getElementById('btnConfig');
+  const btnSaveConfig = document.getElementById('btnSaveConfig');
+  if (btnConfig) btnConfig.addEventListener('click', openConfigModal);
+  if (btnSaveConfig) btnSaveConfig.addEventListener('click', saveConfigModal);
+
+  document.getElementById('presetLocal').addEventListener('click', () => {
+    document.getElementById('configLlmUrl').value = 'http://127.0.0.1:1234/v1/chat/completions';
+    document.getElementById('configLlmModel').value = 'qwen3.5-4b';
+    document.getElementById('configLlmKey').value = '';
+    showToast('已填入本地 LM Studio 预设', 'info');
+  });
+  document.getElementById('presetDeepseek').addEventListener('click', () => {
+    document.getElementById('configLlmUrl').value = 'https://api.deepseek.com/chat/completions';
+    document.getElementById('configLlmModel').value = 'deepseek-chat';
+    document.getElementById('configLlmKey').focus();
+    showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
+  });
+  document.getElementById('presetOpenai').addEventListener('click', () => {
+    document.getElementById('configLlmUrl').value = 'https://api.openai.com/v1/chat/completions';
+    document.getElementById('configLlmModel').value = 'gpt-4o-mini';
+    document.getElementById('configLlmKey').focus();
+    showToast('已填入 OpenAI 预设，请填入 API Key', 'info');
+  });
+  document.getElementById('presetSilicon').addEventListener('click', () => {
+    document.getElementById('configLlmUrl').value = 'https://api.siliconflow.cn/v1/chat/completions';
+    document.getElementById('configLlmModel').value = 'Qwen/Qwen2.5-7B-Instruct';
+    document.getElementById('configLlmKey').focus();
+    showToast('已填入硅基流动预设，请填入 API Key', 'info');
+  });
+}
+
+// 设置弹窗逻辑
+async function openConfigModal() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    document.getElementById('configLlmUrl').value = cfg.llm_url || 'http://127.0.0.1:1234/v1/chat/completions';
+    document.getElementById('configLlmModel').value = cfg.llm_model || 'qwen3.5-4b';
+    document.getElementById('configLlmKey').value = cfg.llm_api_key || '';
+    const scanDirsEl = document.getElementById('configScanDirs');
+    if (scanDirsEl) {
+      scanDirsEl.value = (cfg.scan_directories || []).join('\n');
+    }
+
+    const aliasesListEl = document.getElementById('configMachineAliasesList');
+    if (aliasesListEl) {
+      const aliases = cfg.machine_aliases || {};
+      machineAliases = aliases;
+      const allKnownMachines = Array.from(new Set([
+        ...softwareList.flatMap(s => (s.machines || []).map(m => m.machine_id)),
+        ...Object.keys(aliases)
+      ])).filter(Boolean);
+      if (allKnownMachines.length === 0) allKnownMachines.push('DESKTOP-HEGVCTR');
+
+      aliasesListEl.innerHTML = allKnownMachines.map(mid => `
+        <div class="machine-alias-row">
+          <span class="machine-alias-id">${ICONS.device} ${escapeHtml(mid)}</span>
+          <input type="text" class="machine-alias-input" data-mid="${escapeHtml(mid)}" value="${escapeHtml(aliases[mid] || '')}" placeholder="设置友好别名 (如：主力台式机 / 便携本)">
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('configModal').classList.add('show');
+  } catch (e) {
+    showToast('读取配置失败', 'error');
+  }
+}
+
+async function saveConfigModal() {
+  const llm_url = document.getElementById('configLlmUrl').value.trim();
+  const llm_model = document.getElementById('configLlmModel').value.trim();
+  const llm_api_key = document.getElementById('configLlmKey').value.trim();
+  const scanDirsEl = document.getElementById('configScanDirs');
+  const scan_directories = scanDirsEl ? scanDirsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  
+  const machine_aliases = {};
+  document.querySelectorAll('#configMachineAliasesList .machine-alias-input').forEach(input => {
+    const mid = input.dataset.mid;
+    const val = input.value.trim();
+    if (mid && val) machine_aliases[mid] = val;
+  });
+
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ llm_url, llm_model, llm_api_key, scan_directories, machine_aliases })
+    });
+    const data = await res.json();
+    if (data.success) {
+      machineAliases = machine_aliases;
+      document.getElementById('configModal').classList.remove('show');
+      if (currentFiltered.length > 0) loadCard(currentIndex);
+      showToast('设置与设备别名已保存生效！', 'success');
+    }
+  } catch (e) {
+    showToast('保存失败: ' + e.message, 'error');
+  }
 }
 
 function escapeHtml(str) {

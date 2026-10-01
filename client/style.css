@@ -153,16 +153,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 顶栏：类似 EasyRead 的常驻顶栏与玻璃拟态 */
+/* 顶栏统一规范 (全系统一致高度与内边距) */
 header {
+  height: 52px;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: saturate(1.2) blur(10px);
   border-bottom: 1px solid var(--rule);
-  padding: 10px 24px;
+  padding: 0 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .logo-section {
@@ -1117,56 +1119,68 @@ tr.selected td {
   flex-direction: column;
   gap: 8px;
   transition: all 0.2s ease;
-}
-
-.awesome-card-block.active {
-  background: rgba(201, 162, 74, 0.08);
-  box-shadow: inset 0 0 0 1px #c9a24a;
-}
-
-.awesome-toggle-label {
-  display: flex;
+/* 紧凑精选开关 (不额外占整行) 与渐进式理由输入 */
+.meta-awesome-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 12.5px;
+  gap: 4px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-3);
+  cursor: pointer;
   user-select: none;
+  transition: all 0.15s ease;
+}
+
+.meta-awesome-pill:hover {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+}
+
+.meta-awesome-pill.active {
+  background: rgba(201, 162, 74, 0.12);
+  box-shadow: inset 0 0 0 1px #c9a24a;
+  color: #a07828;
+}
+
+.meta-awesome-pill.active .awesome-star-icon {
+  color: #c9a24a;
 }
 
 .awesome-star-icon {
-  color: #c9a24a;
-  font-size: 15px;
-}
-
-.awesome-expand-content {
-  padding-top: 6px;
-  border-top: 1px dashed var(--rule-2);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.awesome-expand-content label {
-  font-size: 11.5px;
   color: var(--ink-3);
+  font-size: 13px;
+  transition: color 0.15s ease;
 }
 
-.awesome-expand-content input {
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--rule-2);
-  border: 0;
+.awesome-inline-role {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(201, 162, 74, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 74, 0.35);
   border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  color: var(--ink);
+  padding: 5px 10px;
+  animation: fadeIn 0.15s ease;
+  width: 100%;
+}
+
+.meta-role-input {
+  background: transparent;
+  border: 0;
   outline: none;
+  font-size: 12px;
+  color: var(--ink);
+  flex: 1;
   font-family: inherit;
 }
 
-.awesome-expand-content input:focus {
-  box-shadow: inset 0 0 0 1.5px #c9a24a;
+.meta-role-input:focus {
+  outline: none;
 }
 
 /* 机器来源证据 (Level 4: Collapsible / Compact) */
@@ -1213,7 +1227,32 @@ tr.selected td {
 .drawer-footer-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+/* 底部精致快捷键胶囊指示器 */
+.footer-shortcut-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+.footer-shortcut-badge .badge-sep {
+  color: var(--ink-3);
+  font-size: 10px;
+}
+
+.footer-shortcut-badge .badge-desc {
+  color: var(--ink-2);
+  font-weight: 600;
+  margin-left: 2px;
 }
 
 .machine-item-card {
@@ -1462,11 +1501,11 @@ tr.selected td {
   max-width: 190px;
 }
 
-/* 右侧主工作区：居中大卡片 */
+/* 右侧主工作区：居中大卡片 (紧凑垂直流，证据触手可及不滚动) */
 .review-stage {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1474,7 +1513,7 @@ tr.selected td {
 }
 
 .review-card-frame {
-  width: 780px;
+  width: 820px;
   max-width: 100%;
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--rule), var(--shadow-lg);
@@ -1482,28 +1521,98 @@ tr.selected td {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  margin-bottom: 30px;
+  margin-bottom: 16px;
 }
 
 .review-card-body {
-  padding: 22px 28px;
+  padding: 18px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .review-shortcuts-hint {
-  margin-top: 14px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 14px;
-  font-size: 11.5px;
+  gap: 12px;
+  font-size: 11px;
   color: var(--ink-3);
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--rule);
-  padding: 6px 18px;
+  padding: 5px 16px;
   border-radius: 999px;
+}
+
+/* 机器别名 (多设备标识与配置) */
+.machine-aliases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.machine-alias-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.machine-alias-id {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  padding: 3px 8px;
+  border-radius: 5px;
+  min-width: 145px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.machine-alias-input {
+  flex: 1;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--ink);
+  outline: none;
+  font-family: inherit;
+}
+
+.machine-alias-input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.badge-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 7px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  white-space: nowrap;
+}
+
+.machine-raw-tag {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-weight: 400;
+  margin-left: 4px;
 }
 

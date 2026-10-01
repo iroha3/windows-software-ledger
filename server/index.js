@@ -25,7 +25,10 @@ const DEFAULT_CONFIG = {
     'E:\\Software',
     'C:\\Software',
     'C:\\Portable'
-  ]
+  ],
+  machine_aliases: {
+    'DESKTOP-HEGVCTR': '台式工作站'
+  }
 };
 
 function getConfig() {
@@ -64,10 +67,21 @@ function saveSoftwareData(data) {
 }
 
 function getMachinesList() {
-  if (!fs.existsSync(EVIDENCE_DIR)) return [];
-  return fs.readdirSync(EVIDENCE_DIR, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
+  const set = new Set();
+  if (fs.existsSync(EVIDENCE_DIR)) {
+    fs.readdirSync(EVIDENCE_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .forEach(d => set.add(d.name));
+  }
+  const software = getSoftwareData();
+  for (const s of software) {
+    for (const m of s.machines || []) {
+      if (m.machine_id) set.add(m.machine_id);
+    }
+  }
+  const aliases = getConfig().machine_aliases || {};
+  Object.keys(aliases).forEach(id => set.add(id));
+  return Array.from(set);
 }
 
 const server = Bun.serve({
@@ -134,7 +148,7 @@ const server = Bun.serve({
           backupTasks: software.filter(s => s.backup_strategy === 'copy_dir' || s.backup_strategy === 'copy_config').length,
           ready: software.filter(s => s.prep_status === 'ready').length
         };
-        return Response.json({ machines, stats, availablePaths: Array.from(pathSet).sort() }, { headers });
+        return Response.json({ machines, stats, availablePaths: Array.from(pathSet).sort(), machine_aliases: getConfig().machine_aliases || {} }, { headers });
       }
 
       if (pathname === '/api/software' && req.method === 'GET') {

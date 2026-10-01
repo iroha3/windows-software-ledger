@@ -255,6 +255,17 @@
             <label>版本</label>
             <input type="text" id="drawerVersion" class="meta-input-compact" placeholder="—">
           </div>
+          <!-- 紧凑精选开关 (不额外占整行) -->
+          <label class="meta-awesome-pill" id="drawerAwesomePill" title="加入/取消个人 Awesome 精选软件资产">
+            <input type="checkbox" id="drawerAwesome" style="display: none;">
+            <span class="awesome-star-icon">★</span>
+            <span class="awesome-text">精选</span>
+          </label>
+        </div>
+        <!-- 理由输入栏 (勾选后平滑滑出) -->
+        <div class="awesome-inline-role" id="awesomeExpandContent" style="display: none;">
+          <span style="color: #c9a24a; font-size: 12px;">★</span>
+          <input type="text" id="drawerAwesomeRole" class="meta-role-input" placeholder="精选角色 / 推荐理由 (如：极速搜索，核心开发依赖)...">
         </div>
       </div>
 
@@ -321,20 +332,7 @@
         </div>
       </div>
 
-      <!-- 4. 渐进式个人 Awesome 精选 (Level 3: 打勾后才展开理由输入) -->
-      <div class="awesome-card-block" id="awesomeCardBlock">
-        <label class="awesome-toggle-label">
-          <input type="checkbox" id="drawerAwesome">
-          <span class="awesome-star-icon">★</span>
-          <span>标记为个人 Awesome 精选软件资产</span>
-        </label>
-        <div class="awesome-expand-content" id="awesomeExpandContent" style="display: none;">
-          <label>在个人工作流中扮演的角色 / 推荐理由：</label>
-          <input type="text" id="drawerAwesomeRole" placeholder="如：极速轻量文本搜索利器，命令行与编辑器核心管道...">
-        </div>
-      </div>
-
-      <!-- 5. 机器来源证据 (Level 4: 弱化折叠呈现) -->
+      <!-- 4. 机器来源证据 (Level 4: 弱化折叠呈现) -->
       <div class="evidence-block">
         <div class="evidence-header" id="evidenceHeader">
           <span>所在机器与原始路径证据</span>
@@ -346,9 +344,17 @@
 
     <!-- 底部操作区 -->
     <div class="drawer-footer">
-      <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">删除此软件</button>
+      <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">
+        <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        <span>删除软件</span>
+      </button>
       <div class="drawer-footer-right">
-        <span class="hint">快捷键 PageUp/PageDown 或 [ / ] 快速切卡</span>
+        <div class="footer-shortcut-badge">
+          <kbd>PageUp</kbd><kbd>PageDown</kbd>
+          <span class="badge-sep">或</span>
+          <kbd>[</kbd><kbd>]</kbd>
+          <span class="badge-desc">切卡</span>
+        </div>
         <button id="btnCloseDrawerBottom" class="btn btn-primary btn-sm">完成并关闭</button>
       </div>
     </div>
@@ -407,8 +413,17 @@ ffmpeg, ripgrep, jq, pandoc
         <!-- 扫描目录配置 -->
         <div class="drawer-field">
           <label>便携与绿色软件扫描路径 (每行一个目录，扫描本机时自动检测)</label>
-          <textarea id="configScanDirs" rows="4" placeholder="D:\Software&#10;E:\Tools&#10;D:\Portable" style="font-family: var(--mono); font-size: 12px;"></textarea>
+          <textarea id="configScanDirs" rows="3" placeholder="D:\Software&#10;E:\Tools&#10;D:\Portable" style="font-family: var(--mono); font-size: 12px;"></textarea>
           <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
+        </div>
+
+        <!-- 设备别名映射配置 -->
+        <div class="drawer-field">
+          <label>设备友好别名映射 (识别多机主机名，如 DESKTOP-HEGVCTR 对应 主力台式机)</label>
+          <div id="configMachineAliasesList" class="machine-aliases-list">
+            <!-- 由 JS 根据已扫描机器动态加载 -->
+          </div>
+          <span class="hint">为当前检测到的机器设置友善中文别名，将在选项卡、表格和卡片中同步展示。</span>
         </div>
 
         <div style="border-top: 1px solid var(--rule); padding-top: 10px;">

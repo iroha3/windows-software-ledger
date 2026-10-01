@@ -10,19 +10,24 @@
   <!-- Toast 提示容器 -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- 顶部精简导航栏 -->
-  <header style="padding: 8px 18px;">
+  <!-- 顶部精简导航栏 (与主页顶栏严格同高同宽) -->
+  <header>
     <div class="logo-section">
       <a href="/" class="btn btn-secondary btn-sm" title="返回常规表格视图">
         <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
         <span>返回表格</span>
       </a>
-      <div style="font-size: 14px; font-weight: 700; color: var(--ink);">
-        卡片速审工作台 <small style="font-weight: 400; color: var(--ink-3); margin-left: 6px;">Card Review Studio</small>
+      <div style="font-size: 14.5px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px;">
+        <span>软件清单与重装备份决策中台</span>
+        <span class="badge-tag">卡片速审工作台</span>
       </div>
     </div>
 
     <div class="header-actions">
+      <button id="btnConfig" class="btn btn-secondary btn-sm" title="配置设备别名、扫描目录与大模型">
+        <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>中台设置</span>
+      </button>
       <button id="btnThemeToggle" class="btn btn-secondary btn-sm" title="切换日夜间主题">
         <span id="themeIcon"></span> <span id="themeText">夜间</span>
       </button>
@@ -142,6 +147,19 @@
                 <label>版本</label>
                 <input type="text" id="cardVersion" class="meta-input-compact" placeholder="—">
               </div>
+
+              <!-- 紧凑精选开关 (不额外占整行) -->
+              <label class="meta-awesome-pill" id="cardAwesomeToggle" title="加入/取消个人 Awesome 精选软件资产">
+                <input type="checkbox" id="cardAwesome" style="display: none;">
+                <span class="awesome-star-icon">★</span>
+                <span class="awesome-text">精选</span>
+              </label>
+            </div>
+
+            <!-- 理由输入栏 (勾选后平滑滑出) -->
+            <div class="awesome-inline-role" id="cardAwesomeExpand" style="display: none;">
+              <span style="color: #c9a24a; font-size: 12px;">★</span>
+              <input type="text" id="cardAwesomeRole" class="meta-role-input" placeholder="精选角色 / 推荐理由 (如：极速搜索，核心开发依赖)...">
             </div>
           </div>
 
@@ -207,20 +225,7 @@
             </div>
           </div>
 
-          <!-- 4. 渐进式个人 Awesome 精选 (Level 3) -->
-          <div class="awesome-card-block" id="cardAwesomeBlock">
-            <label class="awesome-toggle-label">
-              <input type="checkbox" id="cardAwesome">
-              <span class="awesome-star-icon">★</span>
-              <span>标记为个人 Awesome 精选软件资产</span>
-            </label>
-            <div class="awesome-expand-content" id="cardAwesomeExpand" style="display: none;">
-              <label>在个人工作流中扮演的角色 / 推荐理由：</label>
-              <input type="text" id="cardAwesomeRole" placeholder="如：极速轻量文本搜索利器，命令行与编辑器核心管道...">
-            </div>
-          </div>
-
-          <!-- 5. 机器来源证据 (Level 4) -->
+          <!-- 4. 机器来源证据 (Level 4: 紧随执行备忘，触手可及不滚动) -->
           <div class="evidence-block">
             <div class="evidence-header" id="cardEvidenceHeader">
               <span>所在机器与原始路径证据</span>
@@ -232,8 +237,17 @@
 
         <!-- 卡片底栏 -->
         <div class="drawer-footer">
-          <button id="btnCardDelete" class="btn btn-danger btn-sm">删除此软件</button>
+          <button id="btnCardDelete" class="btn btn-danger btn-sm">
+            <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <span>删除软件</span>
+          </button>
           <div class="drawer-footer-right">
+            <div class="footer-shortcut-badge">
+              <kbd>PageUp</kbd><kbd>PageDown</kbd>
+              <span class="badge-sep">或</span>
+              <kbd>[</kbd><kbd>]</kbd>
+              <span class="badge-desc">切卡</span>
+            </div>
             <button id="btnCardNextBottom" class="btn btn-primary btn-sm">
               下一项卡片 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>
@@ -249,6 +263,63 @@
         <span>修改实时静默保存</span>
       </div>
     </main>
+  </div>
+
+  <!-- 中台综合设置弹窗 -->
+  <div class="modal-overlay" id="configModal">
+    <div class="modal-content" style="width: 550px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          中台扫描、设备与 LLM 设置
+        </h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('configModal').classList.remove('show')">
+          <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+        <!-- 扫描目录配置 -->
+        <div class="drawer-field">
+          <label>便携与绿色软件扫描路径 (每行一个目录，扫描本机时自动检测)</label>
+          <textarea id="configScanDirs" rows="3" placeholder="D:\Software&#10;E:\Tools&#10;D:\Portable" style="font-family: var(--mono); font-size: 12px;"></textarea>
+          <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
+        </div>
+
+        <!-- 设备别名映射配置 -->
+        <div class="drawer-field">
+          <label>设备友好别名映射 (识别多机主机名，如 DESKTOP-HEGVCTR 对应 主力台式机)</label>
+          <div id="configMachineAliasesList" class="machine-aliases-list"></div>
+          <span class="hint">为当前检测到的机器设置友善中文别名，将在卡片与证据中同步展示。</span>
+        </div>
+
+        <div style="border-top: 1px solid var(--rule); padding-top: 10px;">
+          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
+          <div class="preset-chips">
+            <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
+            <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-chat)</button>
+            <button type="button" class="preset-chip" id="presetOpenai">OpenAI (gpt-4o-mini)</button>
+            <button type="button" class="preset-chip" id="presetSilicon">硅基流动 (Qwen2.5-7B)</button>
+          </div>
+        </div>
+
+        <div class="drawer-field">
+          <label>Chat Completions API 地址</label>
+          <input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions">
+        </div>
+        <div class="drawer-field">
+          <label>模型标识 (Model ID)</label>
+          <input type="text" id="configLlmModel" placeholder="qwen3.5-4b">
+        </div>
+        <div class="drawer-field">
+          <label>API Key (本地模型可留空，云端模型自动发送 Bearer 令牌)</label>
+          <input type="password" id="configLlmKey" placeholder="sk-..." autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('configModal').classList.remove('show')">取消</button>
+        <button class="btn btn-primary" id="btnSaveConfig">保存设置</button>
+      </div>
+    </div>
   </div>
 
   <script src="/card_review.js"></script>
