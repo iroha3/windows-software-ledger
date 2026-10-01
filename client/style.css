@@ -1109,16 +1109,6 @@ tr.selected td {
   gap: 10px;
 }
 
-/* 渐进式个人精选 (Level 3: Progressive Disclosure) */
-.awesome-card-block {
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--rule);
-  border-radius: 8px;
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: all 0.2s ease;
 /* 紧凑精选开关 (不额外占整行) 与渐进式理由输入 */
 .meta-awesome-pill {
   display: inline-flex;
