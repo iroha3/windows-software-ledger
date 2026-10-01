@@ -34,7 +34,7 @@
       </button>
       <button id="btnAddSoftware" class="btn btn-secondary" title="批量添加多款软件名称">
         <svg class="i sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        <span>+ 批量添加</span>
+        <span>批量添加</span>
       </button>
       <button id="btnExport" class="btn btn-primary" title="生成并直接下载 Markdown 恢复清单与精选资产">
         <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -173,7 +173,7 @@
       <button class="btn btn-secondary btn-sm" id="btnBatchShould" title="快捷键: 2"><span class="kbd">2</span> <span class="status-dot dot-should"></span>建议</button>
       <button class="btn btn-secondary btn-sm" id="btnBatchOnDemand" title="快捷键: 3"><span class="kbd">3</span> <span class="status-dot dot-ondemand"></span>按需</button>
       <button class="btn btn-secondary btn-sm" id="btnBatchDrop" title="快捷键: 4"><span class="kbd">4</span> <span class="status-dot dot-drop"></span>淘汰</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchReset" title="快捷键: 5 (重置为待定/未操作)"><span class="kbd">5</span> 重置</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchReset" title="快捷键: 5 (清空决策、官网与描述，恢复默认)"><span class="kbd">5</span> 恢复默认</button>
       <button class="btn btn-secondary btn-sm" id="btnBatchReady" title="快捷键: 6"><span class="kbd">6</span> 就绪</button>
       <button class="btn btn-secondary btn-sm btn-batch-ai" id="btnBatchLLM" title="快捷键: 7 (调用 LLM 智能预判)"><span class="kbd">7</span> <svg class="i sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> AI预判</button>
       <button class="btn btn-secondary btn-sm" id="btnBatchMerge" title="快捷键: 8"><span class="kbd">8</span> <svg class="i sm" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg> 合并</button>
@@ -320,11 +320,20 @@
             </select>
           </div>
           <div class="drawer-field">
-            <label>准备就绪状态</label>
-            <select id="drawerPrepStatus">
-              <option value="todo">待办 (需备安装包 / 导出配置)</option>
-              <option value="ready">全部就绪 (已备齐 / 已验证)</option>
-            </select>
+            <label>配置状态</label>
+            <button type="button" class="prep-badge toggle-pill-btn prep-todo" id="drawerHasConfigToggle" title="点击切换：该软件是否有需要备份的个性化配置">
+              <span class="status-dot dot-unreviewed" id="drawerHasConfigDot"></span>
+              <span id="drawerHasConfigText">无配置</span>
+            </button>
+            <input type="hidden" id="drawerHasConfig" value="false">
+          </div>
+          <div class="drawer-field">
+            <label>就绪进度</label>
+            <button type="button" class="prep-badge toggle-pill-btn prep-todo" id="drawerPrepToggle" title="点击切换：待办 / 就绪 (快捷键 6)">
+              <span class="status-dot dot-unreviewed" id="drawerPrepToggleDot"></span>
+              <span id="drawerPrepToggleText">待办</span>
+            </button>
+            <input type="hidden" id="drawerPrepStatus" value="todo">
           </div>
         </div>
       </div>
@@ -359,10 +368,16 @@
 
     <!-- 底部操作区 -->
     <div class="drawer-footer">
-      <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">
-        <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-        <span>删除软件</span>
-      </button>
+      <div class="drawer-footer-left">
+        <button id="btnResetCurrent" class="btn btn-secondary btn-sm" title="清空决策状态、官网与描述，恢复为默认">
+          <svg class="i sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          <span>恢复默认</span>
+        </button>
+        <button id="btnDeleteCurrent" class="btn btn-danger btn-sm">
+          <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>删除软件</span>
+        </button>
+      </div>
       <div class="drawer-footer-right">
         <div class="footer-shortcut-badge">
           <kbd>PageUp</kbd><kbd>PageDown</kbd>
@@ -446,8 +461,6 @@ ffmpeg, ripgrep, jq, pandoc
           <div class="preset-chips">
             <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
             <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-chat)</button>
-            <button type="button" class="preset-chip" id="presetOpenai">OpenAI (gpt-4o-mini)</button>
-            <button type="button" class="preset-chip" id="presetSilicon">硅基流动 (Qwen2.5-7B)</button>
           </div>
         </div>
 

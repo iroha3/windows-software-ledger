@@ -219,6 +219,7 @@ const server = Bun.serve({
             restore_intent: restore_intent || 'must',
             backup_strategy: 'none',
             prep_status: 'todo',
+            has_config: false,
             download_url: '',
             config_notes: '',
             is_awesome: false,
@@ -252,6 +253,7 @@ const server = Bun.serve({
           }
           if (!target.version && item.version) target.version = item.version;
           if (!target.download_url && item.download_url) target.download_url = item.download_url;
+          if (item.has_config) target.has_config = true;
           if (item.config_notes) {
             target.config_notes = (target.config_notes ? target.config_notes + '; ' : '') + item.config_notes;
           }

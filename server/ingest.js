@@ -201,6 +201,8 @@ export function runIngest() {
         machines: [],
         restore_intent: 'unreviewed', // must | should | on_demand | drop | unreviewed
         backup_strategy: 'none',      // copy_dir | copy_config | redownload | sync_account | none
+        prep_status: 'todo',          // todo | ready
+        has_config: false,            // 是否存在需要备份的个性化配置
         download_url: norm.download_url || '',
         config_notes: '',
         is_awesome: false,

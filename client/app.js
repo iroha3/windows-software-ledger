@@ -330,10 +330,9 @@ function renderTable() {
           </select>
         </td>
         <td style="text-align: center;">
-          <span class="prep-badge prep-${prepStatus}" data-action="toggle-prep" data-id="${item.id}">
-            <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>
-            ${prepStatus === 'ready' ? '就绪' : '待办'}
-          </span>
+          <button type="button" class="prep-badge toggle-mini ${prepStatus === 'ready' ? 'prep-ready' : 'prep-todo'}" data-action="toggle-prep" data-id="${item.id}" title="点击切换：待办 / 就绪">
+            <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>${prepStatus === 'ready' ? '就绪' : '待办'}
+          </button>
         </td>
         <td>
           <div style="display: flex; align-items: center; gap: 6px;">
@@ -430,9 +429,10 @@ function bindKeyboardShortcuts() {
         if (e.key === '6') {
           e.preventDefault();
           const prepEl = document.getElementById('drawerPrepStatus');
-          prepEl.value = prepEl.value === 'ready' ? 'todo' : 'ready';
+          const nextPrep = prepEl.value === 'ready' ? 'todo' : 'ready';
+          renderDrawerPrepToggle(nextPrep);
           markDrawerSaving();
-          showToast(`已标记为: ${prepEl.value === 'ready' ? '已就绪' : '待办'}`);
+          showToast(`已标记为: ${nextPrep === 'ready' ? '已就绪' : '待办'}`);
           return;
         }
       }
@@ -540,6 +540,37 @@ function switchDrawerCard(delta) {
   }
 }
 
+// 抽屉状态切换按钮渲染 (配置状态 / 就绪进度)
+function renderDrawerPrepToggle(status) {
+  const isReady = status === 'ready';
+  const hidden = document.getElementById('drawerPrepStatus');
+  if (hidden) hidden.value = isReady ? 'ready' : 'todo';
+  const toggle = document.getElementById('drawerPrepToggle');
+  if (toggle) {
+    toggle.classList.toggle('prep-ready', isReady);
+    toggle.classList.toggle('prep-todo', !isReady);
+  }
+  const dot = document.getElementById('drawerPrepToggleDot');
+  if (dot) dot.className = `status-dot ${isReady ? 'dot-ready' : 'dot-unreviewed'}`;
+  const text = document.getElementById('drawerPrepToggleText');
+  if (text) text.innerText = isReady ? '就绪' : '待办';
+}
+
+function renderDrawerHasConfigToggle(hasConfig) {
+  const on = !!hasConfig;
+  const hidden = document.getElementById('drawerHasConfig');
+  if (hidden) hidden.value = on ? 'true' : 'false';
+  const toggle = document.getElementById('drawerHasConfigToggle');
+  if (toggle) {
+    toggle.classList.toggle('prep-hasconfig', on);
+    toggle.classList.toggle('prep-todo', !on);
+  }
+  const dot = document.getElementById('drawerHasConfigDot');
+  if (dot) dot.className = `status-dot ${on ? 'dot-ondemand' : 'dot-unreviewed'}`;
+  const text = document.getElementById('drawerHasConfigText');
+  if (text) text.innerText = on ? '有配置' : '无配置';
+}
+
 // 抽屉实时无感自动保存
 function markDrawerSaving() {
   pendingDrawerSave = true;
@@ -562,6 +593,7 @@ async function performDrawerAutoSave() {
     category: document.getElementById('drawerCategory').value,
     type: document.getElementById('drawerType').value,
     prep_status: document.getElementById('drawerPrepStatus').value,
+    has_config: document.getElementById('drawerHasConfig').value === 'true',
     download_url: document.getElementById('drawerUrl').value.trim(),
     restore_intent: document.getElementById('drawerIntent').value,
     backup_strategy: document.getElementById('drawerStrategy').value,
@@ -613,7 +645,8 @@ function openDrawer(id) {
   document.getElementById('drawerVersion').value = activeItem.version || '';
   document.getElementById('drawerCategory').value = activeItem.category || '开发工具';
   document.getElementById('drawerType').value = activeItem.type || 'desktop';
-  document.getElementById('drawerPrepStatus').value = activeItem.prep_status || 'todo';
+  renderDrawerPrepToggle(activeItem.prep_status || 'todo');
+  renderDrawerHasConfigToggle(activeItem.has_config);
   document.getElementById('drawerUrl').value = activeItem.download_url || '';
 
   // 触觉意愿大胶囊
@@ -681,6 +714,22 @@ async function deleteCurrentItem() {
   renderTable();
   await fetchStatus();
   showToast(`已删除软件【${name}】`, 'info');
+}
+
+// 恢复默认：清空决策状态与官网/描述等内容字段
+function resetCurrentItem() {
+  if (!activeItem) return;
+  renderDrawerPrepToggle('todo');
+  renderDrawerHasConfigToggle(false);
+  document.getElementById('drawerIntent').value = 'unreviewed';
+  document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.intent === 'unreviewed');
+  });
+  document.getElementById('drawerStrategy').value = 'none';
+  document.getElementById('drawerUrl').value = '';
+  document.getElementById('drawerNotes').value = '';
+  markDrawerSaving();
+  showToast('已恢复默认（清空决策、官网与描述）', 'info');
 }
 
 // 事件绑定
@@ -807,11 +856,8 @@ function bindEvents() {
       const id = prepBtn.dataset.id;
       const item = softwareList.find(s => s.id === id);
       if (item) {
-        const nextStatus = item.prep_status === 'ready' ? 'todo' : 'ready';
-        item.prep_status = nextStatus;
-        prepBtn.className = `prep-badge prep-${nextStatus}`;
-        prepBtn.innerHTML = `<span class="status-dot dot-${nextStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>${nextStatus === 'ready' ? '已就绪' : '待办'}`;
-        await updateItemField(id, { prep_status: nextStatus });
+        item.prep_status = item.prep_status === 'ready' ? 'todo' : 'ready';
+        await updateItemField(id, { prep_status: item.prep_status });
         await fetchStatus();
       }
       return;
@@ -848,6 +894,24 @@ function bindEvents() {
       document.getElementById('drawerIntent').value = targetIntent;
       drawerIntentSegmented.querySelectorAll('.intent-seg-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      markDrawerSaving();
+    });
+  }
+
+  // 配置状态 / 就绪进度切换按钮
+  const drawerPrepToggle = document.getElementById('drawerPrepToggle');
+  if (drawerPrepToggle) {
+    drawerPrepToggle.addEventListener('click', () => {
+      const hidden = document.getElementById('drawerPrepStatus');
+      renderDrawerPrepToggle(hidden.value === 'ready' ? 'todo' : 'ready');
+      markDrawerSaving();
+    });
+  }
+  const drawerHasConfigToggle = document.getElementById('drawerHasConfigToggle');
+  if (drawerHasConfigToggle) {
+    drawerHasConfigToggle.addEventListener('click', () => {
+      const hidden = document.getElementById('drawerHasConfig');
+      renderDrawerHasConfigToggle(hidden.value !== 'true');
       markDrawerSaving();
     });
   }
@@ -904,6 +968,8 @@ function bindEvents() {
   btnCloseDrawerBottom.addEventListener('click', closeDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
   btnDeleteCurrent.addEventListener('click', deleteCurrentItem);
+  const btnResetCurrent = document.getElementById('btnResetCurrent');
+  if (btnResetCurrent) btnResetCurrent.addEventListener('click', resetCurrentItem);
   btnDrawerLLM.addEventListener('click', handleDrawerLLM);
 
   // 批量操作按钮
@@ -957,30 +1023,36 @@ function bindEvents() {
   btnConfig.addEventListener('click', openConfigModal);
   btnSaveConfig.addEventListener('click', saveConfigModal);
 
-  document.getElementById('presetLocal').addEventListener('click', () => {
+  bindPreset('presetLocal', () => {
     configLlmUrl.value = 'http://127.0.0.1:1234/v1/chat/completions';
     configLlmModel.value = 'qwen3.5-4b';
     configLlmKey.value = '';
     showToast('已填入本地 LM Studio 预设', 'info');
   });
-  document.getElementById('presetDeepseek').addEventListener('click', () => {
+  bindPreset('presetDeepseek', () => {
     configLlmUrl.value = 'https://api.deepseek.com/chat/completions';
     configLlmModel.value = 'deepseek-chat';
     configLlmKey.focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
   });
-  document.getElementById('presetOpenai').addEventListener('click', () => {
+  bindPreset('presetOpenai', () => {
     configLlmUrl.value = 'https://api.openai.com/v1/chat/completions';
     configLlmModel.value = 'gpt-4o-mini';
     configLlmKey.focus();
     showToast('已填入 OpenAI 预设，请填入 API Key', 'info');
   });
-  document.getElementById('presetSilicon').addEventListener('click', () => {
+  bindPreset('presetSilicon', () => {
     configLlmUrl.value = 'https://api.siliconflow.cn/v1/chat/completions';
     configLlmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
     configLlmKey.focus();
     showToast('已填入硅基流动预设，请填入 API Key', 'info');
   });
+}
+
+// 安全绑定预设按钮 (元素可能不存在)
+function bindPreset(id, handler) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', handler);
 }
 
 // 单项更新
@@ -1022,12 +1094,16 @@ async function batchUpdate(updates) {
 // 恢复默认 / 重置
 function batchResetDefault() {
   if (selectedIds.size === 0) return;
+  const count = selectedIds.size;
   batchUpdate({
     restore_intent: 'unreviewed',
     backup_strategy: 'none',
-    prep_status: 'todo'
+    prep_status: 'todo',
+    has_config: false,
+    download_url: '',
+    config_notes: ''
   });
-  showToast(`已重置 ${selectedIds.size} 项为待定状态`, 'info');
+  showToast(`已重置 ${count} 项（含官网与描述已清空）`, 'info');
 }
 
 // 执行批量删除

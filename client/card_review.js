@@ -54,6 +54,13 @@ const cardIntentSegmented = document.getElementById('cardIntentSegmented');
 const cardIntent = document.getElementById('cardIntent');
 const cardStrategy = document.getElementById('cardStrategy');
 const cardPrepStatus = document.getElementById('cardPrepStatus');
+const cardPrepToggle = document.getElementById('cardPrepToggle');
+const cardPrepToggleDot = document.getElementById('cardPrepToggleDot');
+const cardPrepToggleText = document.getElementById('cardPrepToggleText');
+const cardHasConfigToggle = document.getElementById('cardHasConfigToggle');
+const cardHasConfigDot = document.getElementById('cardHasConfigDot');
+const cardHasConfigText = document.getElementById('cardHasConfigText');
+const cardHasConfig = document.getElementById('cardHasConfig');
 const cardUrl = document.getElementById('cardUrl');
 const btnCardOpenUrl = document.getElementById('btnCardOpenUrl');
 const cardNotes = document.getElementById('cardNotes');
@@ -63,11 +70,10 @@ const cardAwesome = document.getElementById('cardAwesome');
 const cardAwesomeExpand = document.getElementById('cardAwesomeExpand');
 const cardAwesomeRole = document.getElementById('cardAwesomeRole');
 
-const cardEvidenceHeader = document.getElementById('cardEvidenceHeader');
-const cardEvidenceIcon = document.getElementById('cardEvidenceIcon');
 const cardMachinesList = document.getElementById('cardMachinesList');
 
 const btnCardDelete = document.getElementById('btnCardDelete');
+const btnCardReset = document.getElementById('btnCardReset');
 const btnCardNextBottom = document.getElementById('btnCardNextBottom');
 
 // Toast 提示
@@ -206,7 +212,8 @@ function loadCard(index) {
   updateIntentButtons(currentIntent);
 
   cardStrategy.value = activeItem.backup_strategy || 'none';
-  cardPrepStatus.value = activeItem.prep_status || 'todo';
+  renderPrepToggle(activeItem.prep_status || 'todo');
+  renderHasConfigToggle(activeItem.has_config);
   cardUrl.value = activeItem.download_url || '';
   cardNotes.value = activeItem.config_notes || '';
 
@@ -245,6 +252,25 @@ function updateIntentButtons(intent) {
   });
 }
 
+// 状态切换按钮渲染 (配置状态 / 就绪进度)
+function renderPrepToggle(status) {
+  const isReady = status === 'ready';
+  cardPrepStatus.value = isReady ? 'ready' : 'todo';
+  cardPrepToggle.classList.toggle('prep-ready', isReady);
+  cardPrepToggle.classList.toggle('prep-todo', !isReady);
+  cardPrepToggleDot.className = `status-dot ${isReady ? 'dot-ready' : 'dot-unreviewed'}`;
+  cardPrepToggleText.innerText = isReady ? '就绪' : '待办';
+}
+
+function renderHasConfigToggle(hasConfig) {
+  const on = !!hasConfig;
+  cardHasConfig.value = on ? 'true' : 'false';
+  cardHasConfigToggle.classList.toggle('prep-hasconfig', on);
+  cardHasConfigToggle.classList.toggle('prep-todo', !on);
+  cardHasConfigDot.className = `status-dot ${on ? 'dot-ondemand' : 'dot-unreviewed'}`;
+  cardHasConfigText.innerText = on ? '有配置' : '无配置';
+}
+
 // 实时无感自动保存
 function markSaving() {
   pendingSave = true;
@@ -267,6 +293,7 @@ async function performAutoSave() {
     restore_intent: cardIntent.value,
     backup_strategy: cardStrategy.value,
     prep_status: cardPrepStatus.value,
+    has_config: cardHasConfig.value === 'true',
     download_url: cardUrl.value.trim(),
     config_notes: cardNotes.value.trim(),
     is_awesome: cardAwesome.checked,
@@ -300,6 +327,20 @@ async function performAutoSave() {
 
 function flushSave() {
   if (pendingSave) performAutoSave();
+}
+
+// 恢复默认：清空决策状态与官网/描述等内容字段
+function resetCard() {
+  if (!activeItem) return;
+  cardIntent.value = 'unreviewed';
+  updateIntentButtons('unreviewed');
+  cardStrategy.value = 'none';
+  cardUrl.value = '';
+  cardNotes.value = '';
+  renderPrepToggle('todo');
+  renderHasConfigToggle(false);
+  markSaving();
+  showToast('已恢复默认（清空决策、官网与描述）', 'info');
 }
 
 // 切卡导航
@@ -374,9 +415,10 @@ function bindShortcuts() {
       // 6 键切换准备状态
       if (e.key === '6') {
         e.preventDefault();
-        cardPrepStatus.value = cardPrepStatus.value === 'ready' ? 'todo' : 'ready';
+        const nextPrep = cardPrepStatus.value === 'ready' ? 'todo' : 'ready';
+        renderPrepToggle(nextPrep);
         markSaving();
-        showToast(`已标记为: ${cardPrepStatus.value === 'ready' ? '已就绪' : '待办'}`);
+        showToast(`已标记为: ${nextPrep === 'ready' ? '已就绪' : '待办'}`);
         return;
       }
     }
@@ -407,6 +449,16 @@ function bindEvents() {
   btnCardPrev.addEventListener('click', () => navigateCard(-1));
   btnCardNext.addEventListener('click', () => navigateCard(1));
   btnCardNextBottom.addEventListener('click', () => navigateCard(1));
+
+  // 配置状态 / 就绪进度切换按钮
+  cardPrepToggle.addEventListener('click', () => {
+    renderPrepToggle(cardPrepStatus.value === 'ready' ? 'todo' : 'ready');
+    markSaving();
+  });
+  cardHasConfigToggle.addEventListener('click', () => {
+    renderHasConfigToggle(cardHasConfig.value !== 'true');
+    markSaving();
+  });
 
   // 意愿大胶囊点击
   cardIntentSegmented.addEventListener('click', e => {
@@ -448,13 +500,6 @@ function bindEvents() {
     else showToast('当前尚未录入官网或下载链接', 'warning');
   });
 
-  // 折叠展开机器证据
-  cardEvidenceHeader.addEventListener('click', () => {
-    const isHidden = cardMachinesList.style.display === 'none';
-    cardMachinesList.style.display = isHidden ? 'flex' : 'none';
-    cardEvidenceIcon.innerText = isHidden ? '▼' : '▶';
-  });
-
   // AI 预填单条
   btnCardLLM.addEventListener('click', async () => {
     if (!activeItem) return;
@@ -493,6 +538,9 @@ function bindEvents() {
       btnCardLLM.innerHTML = `${ICONS.sparkles} AI预填`;
     }
   });
+
+  // 恢复默认
+  btnCardReset.addEventListener('click', resetCard);
 
   // 删除软件
   btnCardDelete.addEventListener('click', async () => {
@@ -559,25 +607,25 @@ function bindEvents() {
   if (btnConfig) btnConfig.addEventListener('click', openConfigModal);
   if (btnSaveConfig) btnSaveConfig.addEventListener('click', saveConfigModal);
 
-  document.getElementById('presetLocal').addEventListener('click', () => {
+  bindPreset('presetLocal', () => {
     document.getElementById('configLlmUrl').value = 'http://127.0.0.1:1234/v1/chat/completions';
     document.getElementById('configLlmModel').value = 'qwen3.5-4b';
     document.getElementById('configLlmKey').value = '';
     showToast('已填入本地 LM Studio 预设', 'info');
   });
-  document.getElementById('presetDeepseek').addEventListener('click', () => {
+  bindPreset('presetDeepseek', () => {
     document.getElementById('configLlmUrl').value = 'https://api.deepseek.com/chat/completions';
     document.getElementById('configLlmModel').value = 'deepseek-chat';
     document.getElementById('configLlmKey').focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
   });
-  document.getElementById('presetOpenai').addEventListener('click', () => {
+  bindPreset('presetOpenai', () => {
     document.getElementById('configLlmUrl').value = 'https://api.openai.com/v1/chat/completions';
     document.getElementById('configLlmModel').value = 'gpt-4o-mini';
     document.getElementById('configLlmKey').focus();
     showToast('已填入 OpenAI 预设，请填入 API Key', 'info');
   });
-  document.getElementById('presetSilicon').addEventListener('click', () => {
+  bindPreset('presetSilicon', () => {
     document.getElementById('configLlmUrl').value = 'https://api.siliconflow.cn/v1/chat/completions';
     document.getElementById('configLlmModel').value = 'Qwen/Qwen2.5-7B-Instruct';
     document.getElementById('configLlmKey').focus();
@@ -652,6 +700,12 @@ async function saveConfigModal() {
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
   }
+}
+
+// 安全绑定预设按钮 (元素可能不存在)
+function bindPreset(id, handler) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', handler);
 }
 
 function escapeHtml(str) {
