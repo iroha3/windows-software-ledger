@@ -17,6 +17,37 @@ bun start
 
 ---
 
+## 🖥️ 桌面版 (Tauri v2 原生 exe)
+
+项目已内置 Tauri v2 原生外壳：直接复用 `client/` 静态前端，通过 `client/tauri-shim.js` 把 `fetch('/api/...')` 透明转发到 Rust `#[tauri::command]`，无需本地 HTTP 端口。数据仍然保存在项目内的 `data/`，**连同整个项目文件夹拷贝即可跨机迁移**。
+
+### 开发运行
+
+```bash
+# 方式一：直接用 cargo 运行（无需安装 tauri CLI）
+scripts\cargo-msvc.bat run
+
+# 方式二：安装 Tauri CLI 后
+bun add -D @tauri-apps/cli
+bunx tauri dev
+```
+
+### 打包发布
+
+```bash
+scripts\cargo-msvc.bat build --release
+# 或
+bunx tauri build
+```
+
+生成的 exe 位于 `src-tauri/target/release/software-ledger.exe`（安装包位于 `src-tauri/target/release/bundle/`）。
+
+> `scripts/cargo-msvc.bat` 仅用于在 Git Bash / MSYS 环境下正确加载 MSVC 链接器；在 “x64 Native Tools Command Prompt for VS” 中可直接运行 `cargo`。
+>
+> 数据目录解析顺序：环境变量 `SOFTWARE_LEDGER_ROOT` → 从 exe 向上查找含 `data/` 或 `package.json` 的目录 → exe 同级目录。
+
+---
+
 ## ⌨️ 极速操作与快捷键
 
 表格支持多选后使用**纯键盘流**进行决策打标，杜绝页面卡顿与抖动：
