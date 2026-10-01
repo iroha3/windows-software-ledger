@@ -1,4 +1,4 @@
-# SPEC: backup-software-list-tools
+# SPEC: windows-software-ledger
 
 ## 1. 背景与核心目标
 
@@ -31,16 +31,16 @@
 
 ```
 [阶段 1: 证据收集 (Collect)]
-  ├─ 机器 A / B / C 运行极简采集脚本 (PowerShell)
+  ├─ 在每台机器上运行采集（脚本已内嵌进 exe，释放到临时目录执行）
   │    ├─ 已安装应用 (Registry / Winget / Scoop)
   │    ├─ 扫描便携/绿色软件目录
   │    └─ 快捷方式与环境 PATH
-  └─ 输出各机器证据文件到 evidence/<machine_id>/
+  └─ 采集结果写入系统临时目录，入库后立即删除，不保留 evidence/
         │
         ▼
 [阶段 2: 数据入库 (Ingest)]
-  ├─ 读取 evidence/ 结构化数据
-  └─ 解析并初始化生成主数据 data/software.json
+  ├─ 解析临时目录中的结构化数据
+  └─ 归并去重后写入主数据 data/software.json
         │
         ▼
 [阶段 3: 表格化决策与整理 (Table Hub)]
@@ -113,22 +113,28 @@
 
 ## 4. 技术栈选型与系统架构
 
-各机器均为开发机（已备好 Node.js v22、PowerShell 7、Python 3.12、现代浏览器）。
+运行环境为 Windows 10 / 11（依赖 WebView2 Runtime，Win11 自带）；采集脚本优先使用 PowerShell 7，兼容 PowerShell 5.1。
 
 ### 4.1 技术选型
-- **采集脚本 (`scripts/collect.ps1`)**：原生 PowerShell，直接读取注册表、快捷方式与目录结构，输出为各机 JSON。
-- **本地服务 (`server.js`)**：轻量 Node.js 本地服务（或原生内置模块），负责：
-  - 扫描或接收 `evidence/` 数据并自动入库。
-  - 读写更新 `data/software.json`。
-  - 生成最终 Markdown 交付文档。
-- **前端决策中台 (Web UI)**：
-  - 基于 Vite + 原生 CSS 构建的极简高性能单页表格。
+- **桌面应用框架**：Tauri v2（原生 Rust，无本地 HTTP 服务、不占用端口；前端资源内嵌进 exe）。
+- **采集脚本 (`scripts/collect.ps1`)**：原生 PowerShell，读取注册表、快捷方式与目录结构；通过 Rust 的 `include_str!` 编译进 exe，扫描时释放到系统临时目录执行（优先 `pwsh`，兼容 PowerShell 5.1）。
+- **后端核心 (Rust，`src-tauri/src/`)**：
+  - 扫描：释放内嵌脚本 → 采集 → 解析入库 → 删除临时目录（证据用完即弃，不落 `evidence/`）。
+  - 读写 `data/software.json` 与 `data/config.json`。
+  - 通过 Tauri command 暴露配置、状态、增删改、批量、合并、LLM 分析、扫描、导出等接口。
+  - 生成最终 Markdown 交付文档（直接回传前端，不落盘）。
+  - 数据根目录固定为 exe 所在目录下的 `data/`（便携 = exe + `data/` 文件夹）。
+- **前端决策中台 (`client/`)**：
+  - 纯静态 HTML / CSS / JS，无需 Vite 等构建工具，资源直接内嵌进 exe。
+  - 通过 `tauri-shim.js` 把 `fetch('/api/*')` 映射到 `invoke()`；在纯浏览器环境下自动退化为原 Bun 服务模式。
   - 核心功能：
     - 多机聚合展示与标签过滤。
     - 单元格即时编辑（名称、官网、备注等）。
     - 快速切换意愿/处置下拉状态。
     - 一键合并重复条目、一键删除无效条目。
     - 一键导出 Markdown 恢复手册。
+
+> 历史 Bun 中台版本（Node.js 本地服务 + 浏览器前端）完整保留在 `bun` 分支。
 
 ---
 
