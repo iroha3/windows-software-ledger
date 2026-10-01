@@ -1,7 +1,7 @@
 {
   "name": "backup-software-list-tools",
   "version": "1.0.0",
-  "description": "轻量、低摩擦的 3 台电脑软件迁移与重装备份台账",
+  "description": "本地优先的软件清点与重装迁移决策工具",
   "main": "server/index.js",
   "scripts": {
     "start": "bun run server/index.js",
@@ -17,5 +17,5 @@
     "portable-apps"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "AGPL-3.0"
 }

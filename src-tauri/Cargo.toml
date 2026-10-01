@@ -3,6 +3,7 @@ name = "software-ledger"
 version = "1.0.0"
 description = "软件备份台账"
 authors = ["iroha3"]
+license = "AGPL-3.0"
 edition = "2021"
 
 [lib]

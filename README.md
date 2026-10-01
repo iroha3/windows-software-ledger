@@ -1,113 +1,81 @@
-# 软件备份台账 (backup-software-list-tools)
+<div align="center">
 
-> 面向 3 台电脑重装与迁移的轻量、低摩擦软件清点与备份决策台账。
+# 软件备份台账
+
+**把电脑里的软件家底清点清楚，重装迁移时有据可依。**
+
+本地优先 · 单 exe 绿色运行 · 数据可携带
+
+[![Release](https://img.shields.io/badge/release-v1.0.0-2d6173?style=flat-square)](../../releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-2d6173?style=flat-square)](#安装)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-2d6173?style=flat-square)](https://v2.tauri.app/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-2d6173?style=flat-square)](LICENSE)
+
+</div>
+
+![软件备份台账 界面截图](docs/screenshot.png)
 
 ---
 
-## ⚡ 快速开始
+## 核心价值
 
-本项目由 **Bun** 驱动，启动耗时仅需数毫秒。
+换机、重装系统时，真正麻烦的从来不是安装软件，而是 **想不起来装过什么、更不知道哪些配置散落在哪里**。
 
-```bash
-# 启动本地备份台账服务
-bun start
+软件备份台账把这件事收敛成两条动作：**一次扫描**，把本机软件自动清点入库；**一次标注**，为每款软件决定「要不要装、怎么备份」。最终产出的不是一份冷冰冰的列表，而是一张 **可以直接照着执行的重装恢复清单**。
+
+- **本地优先** — 数据全部保存在本地 `data/` 目录，不联网、不上传、不依赖账号。
+- **绿色便携** — 一个 exe + 一个 `data/` 文件夹，拷到哪都能用，换机即迁移。
+- **面向行动** — 记下每款软件的机器分布、安装路径、官网与配置备忘，重装时照着做即可。
+
+## 功能特点
+
+- **一键扫描本机** — 自动采集注册表安装项、便携软件与快捷方式，归并去重后入库。
+- **恢复意愿分级** — 必须恢复 / 建议恢复 / 用到再装 / 淘汰弃用 / 待确认。
+- **处置方式与配置备忘** — 保留目录、导出配置、重新下载、账号同步、无需操作，并记录配置存放位置。
+- **准备进度跟踪** — 标记每一项是否已备份就绪。
+- **AI 辅助预判**（可选）— 接入本地 LM Studio 或任意 OpenAI 兼容端点（如 DeepSeek），自动补全分类、恢复意愿与配置建议。
+- **多机器视图** — 记录每款软件出现在哪台机器、安装在哪里。
+- **重复条目合并** — 将同一软件的多个条目归并为一条，自动汇总各机器路径。
+- **Markdown 导出** — 一键生成《重装恢复清单》与《精选资产库》两份落地文档。
+- **亮 / 暗主题**。
+
+## 安装
+
+1. 前往 [Releases](../../releases) 下载最新的 `software-ledger.exe`。
+2. 放进任意文件夹，双击运行。
+3. 首次运行会在 exe 同级自动创建 `data/` 目录，所有清单与设置都保存在这里。
+
+> **系统要求**：Windows 10 / 11。精简版系统若缺少 WebView2 Runtime，请先安装 [Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)。
+
+### 便携与迁移
+
+```
+软件备份台账/
+├─ software-ledger.exe
+└─ data/                 ← 清单与设置，连同文件夹一起拷走即可
 ```
 
-启动后在浏览器打开：[http://localhost:3000](http://localhost:3000)
+## 使用
 
----
+1. **扫描本机** — 点击顶部「扫描本机」，自动收集并入库当前电脑的软件。
+2. **整理与标注** — 在列表或卡片速审中，为每款软件设置恢复意愿、处置方式与配置备忘。
+3. **（可选）AI 预判** — 在「设置」中配置 LLM 端点，一键补全分类与建议。
+4. **导出清单** — 点击「导出清单」，生成重装恢复清单与精选资产库。
 
-## 🖥️ 桌面版 (Tauri v2 原生 exe)
+## 开发
 
-项目已内置 Tauri v2 原生外壳：直接复用 `client/` 静态前端，通过 `client/tauri-shim.js` 把 `fetch('/api/...')` 透明转发到 Rust `#[tauri::command]`，无需本地 HTTP 端口。数据仍然保存在项目内的 `data/`，**连同整个项目文件夹拷贝即可跨机迁移**。
+编译方式见 [BUILD.md](BUILD.md)。
 
-### 开发运行
+## 贡献
 
-```bash
-# 方式一：直接用 cargo 运行（无需安装 tauri CLI）
-scripts\cargo-msvc.bat run
+欢迎提交 Issue 与 Pull Request。
 
-# 方式二：安装 Tauri CLI 后
-bun add -D @tauri-apps/cli
-bunx tauri dev
-```
+1. 从 `master` 切出功能分支；
+2. 提交信息保持清晰，推荐 [Conventional Commits](https://www.conventionalcommits.org/)；
+3. 提交 PR 前确保 `scripts\cargo-msvc.bat test` 通过。
 
-### 打包发布
+## License
 
-```bash
-scripts\cargo-msvc.bat build --release
-# 或
-bunx tauri build
-```
+本项目基于 [GNU Affero General Public License v3.0](LICENSE) 授权。
 
-生成的 exe 位于 `src-tauri/target/release/software-ledger.exe`（安装包位于 `src-tauri/target/release/bundle/`）。
-
-> `scripts/cargo-msvc.bat` 仅用于在 Git Bash / MSYS 环境下正确加载 MSVC 链接器；在 “x64 Native Tools Command Prompt for VS” 中可直接运行 `cargo`。
->
-> 数据目录规则只有一条：**永远是 exe 所在目录下的 `data/`**。没有环境变量、不向上查找、不依赖 `package.json`。便携发布 = 一个 exe + 旁边的 `data/` 文件夹，`data/` 首次运行自动创建。
->
-> `collect.ps1` 已**编译进 exe**，运行时释放到系统临时目录执行；采集出的证据也在同一个临时目录里，`ingest` 进 `data/software.json` 后立即删除。所以：扫描不需要外部 `scripts/`，数据目录里也不会留下 `evidence/`。
->
-> （`cargo run` 调试时 exe 在 `src-tauri/target/debug/`，数据就在 `target/debug/data/`；正式使用请跑 `--release` 或直接把 exe 和 `data/` 放一起。）
-
----
-
-## ⌨️ 极速操作与快捷键
-
-表格支持多选后使用**纯键盘流**进行决策打标，杜绝页面卡顿与抖动：
-
-| 快捷键 | 功能 | 说明 |
-|---|---|---|
-| <kbd>1</kbd> | 🔴 必须恢复 | 将选中的软件标记为必须安装 |
-| <kbd>2</kbd> | 🟡 建议恢复 | 标记为建议恢复 |
-| <kbd>3</kbd> | 🔵 用到再装 | 标记为按需安装 |
-| <kbd>4</kbd> | ⚫ 淘汰弃用 | 标记为淘汰弃用 |
-| <kbd>5</kbd> | ⚪ 恢复默认 | 重置所选项为待定状态 |
-| <kbd>6</kbd> | ✅ 设为已就绪 | 标记准备进度为已就绪 |
-| <kbd>7</kbd> | 🤖 AI 智能预判 | 调用本地 LLM 自动补全分类、意愿与配置说明 |
-| <kbd>8</kbd> | 🔗 合并选中项 | 将重复条目归并为一条并汇总各机器路径 |
-| <kbd>Del</kbd> × 2 | 🗑️ 快速删除 | **2 秒内连按两次 Delete** 直接删除（无弹窗打扰） |
-| <kbd>Esc</kbd> | 取消勾选 | 一键清空当前选择 |
-
----
-
-## 🤖 本地 LLM 辅助与提示词测试
-
-系统支持调用本地模型（如 LM Studio 运行的 `qwen3.5-4b`）进行智能预填。
-
-### 1. 独立单测与提示词调优脚本
-我们提供了一个完全独立的探测脚本 [scripts/test_llm.js](file:///E:/Projects/backup-software-list-tools/scripts/test_llm.js)，方便手动调优提示词：
-
-```bash
-# 测试指定软件的 AI 预判
-bun run scripts/test_llm.js "PotPlayer" "D:\Software\PotPlayer\PotPlayer64.exe"
-
-# 指定其它局域网 IP / 端口测试
-bun run scripts/test_llm.js "Git" "C:\Program Files\Git" "http://192.168.1.100:1234/v1/chat/completions"
-```
-
-### 2. 跨机与局域网 LLM 配置
-在 Web 界面右上角点击 **「⚙️ LLM 设置」**，可直接修改 LLM API 地址。如果其它没有 GPU 的电脑访问本中台，只需填入主机的局域网 IP（例如 `http://192.168.1.100:1234/v1/chat/completions`）即可共用主机的本地模型。
-
----
-
-## 🖥️ 3 台电脑的端到端工作流
-
-### 1. 本机（已完成扫描）
-- 打开网页中台，点击顶部 **「🔄 扫描本机」** 即可一键重新抓取本机注册表、便携软件与快捷方式并自动入库。
-
-### 2. 另外两台电脑
-- 原生 app 的「扫描本机」只采集**当前这台机器**：证据在系统临时目录内即时合并进 `data/software.json` 后删除，不落盘。
-- 需要聚合多台机器时，可继续用 Bun 中台版本：在目标机器运行 `collect.bat`，把生成的 `evidence/<电脑名>/` 拷到项目 [evidence](file:///E:/Projects/backup-software-list-tools/evidence) 目录，再执行 `bun server/ingest.js` 合并（顶层机器 Tabs 会随之出现）。
-
----
-
-## 📄 产物导出
-
-在页面右上角点击 **「📄 导出 Markdown 清单」**，将即时生成并直接下载两份高价值落地文件：
-
-1. **RECOVERY_CHECKLIST.md**:
-   - ⚠️ 重装前必须备份的资产汇总表（列出所有需要打包的便携目录与配置文件路径）。
-   - 按意愿分组的重装待办清单（已就绪项自动打勾，带官网链接与配置备忘）。
-2. **AWESOME_LIST.md**:
-   - 沉淀长期个人精选工作流软件库（点亮每行开头的星标 ★ 即可收录）。
+Copyright © 2025
