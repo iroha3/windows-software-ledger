@@ -1,0 +1,21 @@
+{
+  "name": "backup-software-list-tools",
+  "version": "1.0.0",
+  "description": "轻量、低摩擦的 3 台电脑软件迁移与重装备份决策中台",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "bun run server/index.js",
+    "dev": "bun run --watch server/index.js",
+    "collect": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/collect.ps1",
+    "ingest": "bun run server/ingest.js",
+    "export": "bun run server/exporter.js"
+  },
+  "keywords": [
+    "backup",
+    "migration",
+    "software-list",
+    "portable-apps"
+  ],
+  "author": "",
+  "license": "MIT"
+}

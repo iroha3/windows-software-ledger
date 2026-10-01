@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>软件清单与迁移决策中台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Toast 提示容器 -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- 顶部导航栏 -->
+  <header>
+    <div class="logo-section">
+      <div class="logo-icon">📦</div>
+      <div>
+        <div class="logo-title">软件清单与重装备份决策中台</div>
+      </div>
+      <span class="badge-tag">3-Machine Migration</span>
+    </div>
+    <div class="header-actions">
+      <button id="btnConfig" class="btn btn-secondary" title="配置 LLM 端点 (局域网 IP / 端口)">
+        <span>⚙️</span> LLM 设置
+      </button>
+      <button id="btnThemeToggle" class="btn btn-secondary" title="切换日间/夜间模式">
+        <span id="themeIcon">🌙</span> <span id="themeText">夜间</span>
+      </button>
+      <button id="btnAddSoftware" class="btn btn-secondary">
+        <span>➕</span> 批量添加
+      </button>
+      <button id="btnScanLocal" class="btn btn-secondary">
+        <span id="scanIcon">🔄</span> 扫描本机
+      </button>
+      <button id="btnExport" class="btn btn-primary">
+        <span>📄</span> 导出 Markdown 清单
+      </button>
+    </div>
+  </header>
+
+  <!-- 统计信息横条 -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-item" data-filter-intent="all">
+      <span>总软件数</span>
+      <span class="stat-num" id="statTotal">0</span>
+    </div>
+    <div class="stat-item" data-filter-intent="must">
+      <span style="color: var(--intent-must-text)">🔴 必须恢复</span>
+      <span class="stat-num" id="statMust">0</span>
+    </div>
+    <div class="stat-item" data-filter-intent="should">
+      <span style="color: var(--intent-should-text)">🟡 建议恢复</span>
+      <span class="stat-num" id="statShould">0</span>
+    </div>
+    <div class="stat-item" data-filter-intent="on_demand">
+      <span style="color: var(--intent-ondemand-text)">🔵 用到再装</span>
+      <span class="stat-num" id="statOnDemand">0</span>
+    </div>
+    <div class="stat-item" data-filter-intent="drop">
+      <span style="color: var(--intent-drop-text)">⚫ 淘汰弃用</span>
+      <span class="stat-num" id="statDrop">0</span>
+    </div>
+    <div class="stat-item" data-filter-intent="unreviewed">
+      <span style="color: var(--intent-unreviewed-text)">⚪ 待确认</span>
+      <span class="stat-num" id="statUnreviewed">0</span>
+    </div>
+    <div class="stat-item" data-filter-strategy="backup">
+      <span style="color: #059669">📦 待备份资产</span>
+      <span class="stat-num" id="statBackup">0</span>
+    </div>
+    <div class="stat-item" data-filter-prep="ready">
+      <span style="color: #10b981">✅ 准备就绪</span>
+      <span class="stat-num" id="statReady">0</span>
+    </div>
+    <div class="stat-item" data-filter-awesome="true">
+      <span style="color: #d97706">★ 精选收录</span>
+      <span class="stat-num" id="statAwesome">0</span>
+    </div>
+  </div>
+
+  <!-- 工具栏与筛选区 -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <!-- 机器切换 Tabs -->
+      <div class="machine-tabs" id="machineTabs">
+        <button class="tab-btn active" data-machine="all">全部机器 (0)</button>
+      </div>
+
+      <!-- 搜索与下拉筛选 -->
+      <div class="filter-group">
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 搜索软件名、路径、备注...">
+
+        <select id="pathFilter" class="select-filter" title="按安装/便携目录筛选">
+          <option value="all">📂 全部安装路径</option>
+        </select>
+
+        <select id="categoryFilter" class="select-filter">
+          <option value="all">全部分类</option>
+          <option value="开发工具">开发工具</option>
+          <option value="系统工具">系统工具</option>
+          <option value="浏览器与网络">浏览器与网络</option>
+          <option value="媒体娱乐">媒体娱乐</option>
+          <option value="办公与笔记">办公与笔记</option>
+          <option value="通讯与社交">通讯与社交</option>
+        </select>
+
+        <select id="intentFilter" class="select-filter">
+          <option value="all">全部恢复意愿</option>
+          <option value="must">🔴 必须恢复</option>
+          <option value="should">🟡 建议恢复</option>
+          <option value="on_demand">🔵 用到再装</option>
+          <option value="drop">⚫ 淘汰弃用</option>
+          <option value="unreviewed">⚪ 待确认</option>
+        </select>
+
+        <select id="strategyFilter" class="select-filter">
+          <option value="all">全部处置方式</option>
+          <option value="copy_dir">📦 保留/压缩目录</option>
+          <option value="copy_config">⚙️ 导出/备份配置</option>
+          <option value="redownload">🌐 重新下载</option>
+          <option value="sync_account">☁️ 账号同步</option>
+          <option value="none">➖ 无需操作</option>
+        </select>
+
+        <select id="prepFilter" class="select-filter">
+          <option value="all">全部准备进度</option>
+          <option value="todo">⏳ 待办</option>
+          <option value="ready">✅ 已就绪</option>
+        </select>
+
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; color: var(--text-muted);">
+          <input type="checkbox" id="awesomeFilter"> ★ 仅精选
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量操作浮条 (支持快捷键 1~8 与双击 Delete，浮动在底部) -->
+  <div class="batch-bar" id="batchBar">
+    <div class="batch-info" id="batchInfo">已选 0 项</div>
+    <div class="batch-buttons">
+      <button class="btn btn-secondary btn-sm" id="btnBatchMust" title="快捷键: 1"><span class="kbd">1</span> 🔴 必须</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchShould" title="快捷键: 2"><span class="kbd">2</span> 🟡 建议</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchOnDemand" title="快捷键: 3"><span class="kbd">3</span> 🔵 按需</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchDrop" title="快捷键: 4"><span class="kbd">4</span> ⚫ 淘汰</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchReset" title="快捷键: 5 (重置为待定/未操作)"><span class="kbd">5</span> ⚪ 重置</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchReady" title="快捷键: 6"><span class="kbd">6</span> ✅ 就绪</button>
+      <button class="btn btn-primary btn-sm" id="btnBatchLLM" title="快捷键: 7 (调用本地模型智能预判)"><span class="kbd">7</span> 🤖 AI预判</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchMerge" title="快捷键: 8"><span class="kbd">8</span> 🔗 合并</button>
+      <button class="btn btn-danger btn-sm" id="btnBatchDelete" title="快捷键: 连按两次 Delete 快速删除"><span class="kbd">Del×2</span> 🗑️ 删除</button>
+    </div>
+  </div>
+
+  <!-- 主数据表格 (独立滚动区) -->
+  <main class="table-container">
+    <table id="softwareTable">
+      <thead>
+        <tr>
+          <th style="width: 32px;"><input type="checkbox" id="selectAllCheckbox"></th>
+          <th style="width: 36px; text-align: center;">★</th>
+          <th style="min-width: 200px;">软件名称与分类 (点击展开详情)</th>
+          <th style="width: 90px;">版本号</th>
+          <th style="min-width: 120px;">所在机器</th>
+          <th style="width: 135px;">恢复意愿</th>
+          <th style="width: 160px;">处置方式</th>
+          <th style="width: 105px; text-align: center;">准备进度</th>
+          <th style="min-width: 190px;">官网 / 下载链接</th>
+          <th style="min-width: 240px;">备份备忘与配置说明</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- 动态生成数据行 -->
+      </tbody>
+    </table>
+  </main>
+
+  <!-- 侧边详情抽屉 (加宽至 680px + 2列网格，一屏全览不滚动) -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <aside class="drawer" id="sideDrawer">
+    <div class="drawer-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <h3 id="drawerTitle" style="color: var(--text-main); font-size: 16px;">软件详情</h3>
+        <button id="btnDrawerLLM" class="btn btn-primary btn-sm" title="调用本地 LLM 自动补全">🤖 AI 预填</button>
+      </div>
+      <button id="btnCloseDrawer" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-grid">
+        <div class="drawer-field grid-full">
+          <label>软件正式名称</label>
+          <input type="text" id="drawerName">
+        </div>
+
+        <div class="drawer-field">
+          <label>版本号</label>
+          <input type="text" id="drawerVersion" placeholder="如：24.07, v1.93.0">
+        </div>
+
+        <div class="drawer-field">
+          <label>形态</label>
+          <select id="drawerType">
+            <option value="desktop">桌面应用 (Desktop)</option>
+            <option value="portable">便携软件 (Portable)</option>
+            <option value="cli">命令行工具 (CLI)</option>
+            <option value="runtime">运行环境/SDK (Runtime)</option>
+            <option value="shortcut">快捷方式 (Shortcut)</option>
+          </select>
+        </div>
+
+        <div class="drawer-field">
+          <label>类别</label>
+          <select id="drawerCategory">
+            <option value="开发工具">开发工具</option>
+            <option value="系统工具">系统工具</option>
+            <option value="浏览器与网络">浏览器与网络</option>
+            <option value="媒体娱乐">媒体娱乐</option>
+            <option value="办公与笔记">办公与笔记</option>
+            <option value="通讯与社交">通讯与社交</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+
+        <div class="drawer-field">
+          <label>准备进度</label>
+          <select id="drawerPrepStatus">
+            <option value="todo">⏳ 待办 (需找安装包/导配置)</option>
+            <option value="ready">✅ 全部就绪 (已备好/已导配置)</option>
+          </select>
+        </div>
+
+        <div class="drawer-field">
+          <label>恢复意愿</label>
+          <select id="drawerIntent">
+            <option value="must">🔴 必须恢复 (Must Restore)</option>
+            <option value="should">🟡 建议恢复 (Should Restore)</option>
+            <option value="on_demand">🔵 用到再装 (On Demand)</option>
+            <option value="drop">⚫ 淘汰弃用 (Drop)</option>
+            <option value="unreviewed">⚪ 待确认 (Unreviewed)</option>
+          </select>
+        </div>
+
+        <div class="drawer-field">
+          <label>处置方式</label>
+          <select id="drawerStrategy">
+            <option value="none">➖ 无需操作</option>
+            <option value="copy_dir">📦 保留/压缩整个目录</option>
+            <option value="copy_config">⚙️ 手动导出/备份配置</option>
+            <option value="redownload">🌐 官网或包管理重新下载</option>
+            <option value="sync_account">☁️ 账号登录同步</option>
+          </select>
+        </div>
+
+        <div class="drawer-field grid-full">
+          <label>官网 / 下载链接</label>
+          <input type="url" id="drawerUrl" placeholder="https://...">
+        </div>
+
+        <div class="drawer-field grid-full">
+          <label>备份备忘与配置迁移说明</label>
+          <textarea id="drawerNotes" placeholder="例如：配置路径在 %APPDATA%\Code\User，或者直接通过账号同步..."></textarea>
+        </div>
+
+        <div class="drawer-field grid-full" style="background: var(--bg-hover); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" id="drawerAwesome">
+            <span style="color: #d97706; font-weight: 700;">★ 标记为个人 Awesome 精选软件</span>
+          </label>
+          <input type="text" id="drawerAwesomeRole" placeholder="在个人工作流中扮演的角色 / 推荐理由" style="margin-top: 6px;">
+        </div>
+
+        <div class="drawer-field grid-full">
+          <label>所在机器与原始路径证据</label>
+          <div id="drawerMachinesList" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top: 8px; display: flex; gap: 10px;">
+        <button id="btnSaveDrawer" class="btn btn-primary" style="flex: 1;">保存更改</button>
+        <button id="btnDeleteCurrent" class="btn btn-danger">删除此软件</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 批量添加软件弹窗 -->
+  <div class="modal-overlay" id="batchAddModal">
+    <div class="modal-content" style="width: 520px;">
+      <div class="modal-header">
+        <h3 style="color: var(--text-main);">➕ 批量添加软件</h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('batchAddModal').classList.remove('show')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 8px; font-size: 13px; color: var(--text-muted);">
+          支持使用<b>逗号（,）、中文逗号（，）、分号或换行</b>分隔输入多个软件：
+        </p>
+        <textarea id="batchAddInput" placeholder="例如：
+ffmpeg, ripgrep, jq, pandoc
+或者每行一个软件名称..." style="width: 100%; min-height: 110px; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main); font-size: 13px; font-family: inherit; outline: none;"></textarea>
+
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+          <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">默认恢复意愿：</label>
+          <select id="batchAddIntent" class="select-filter">
+            <option value="must">🔴 必须恢复</option>
+            <option value="should">🟡 建议恢复</option>
+            <option value="on_demand">🔵 用到再装</option>
+            <option value="unreviewed">⚪ 待确认</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('batchAddModal').classList.remove('show')">取消</button>
+        <button class="btn btn-primary" id="btnConfirmBatchAdd">确认添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM 端点配置弹窗 (支持多机/局域网IP) -->
+  <div class="modal-overlay" id="configModal">
+    <div class="modal-content" style="width: 520px;">
+      <div class="modal-header">
+        <h3 style="color: var(--text-main);">⚙️ 本地 LLM 端点配置</h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('configModal').classList.remove('show')">✕</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+        <p style="font-size: 13px; color: var(--text-muted);">
+          如果从其他电脑访问本决策中台，可将 127.0.0.1 替换为承载 GPU 模型的电脑局域网 IP（例如 <code>http://192.168.1.100:1234/v1/chat/completions</code>）：
+        </p>
+        <div class="drawer-field">
+          <label>LLM Chat Completions API 地址</label>
+          <input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions">
+        </div>
+        <div class="drawer-field">
+          <label>模型标识 (Model ID)</label>
+          <input type="text" id="configLlmModel" placeholder="qwen3.5-4b">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('configModal').classList.remove('show')">取消</button>
+        <button class="btn btn-primary" id="btnSaveConfig">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导出结果弹窗 -->
+  <div class="modal-overlay" id="exportModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="color: var(--text-main);">✅ 清单导出成功</h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('exportModal').classList.remove('show')">✕</button>
+      </div>
+      <div class="modal-body" id="exportModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="document.getElementById('exportModal').classList.remove('show')">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
