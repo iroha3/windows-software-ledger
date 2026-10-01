@@ -72,6 +72,12 @@ const batchConfigLabel = document.getElementById('batchConfigLabel');
 const btnBatchMerge = document.getElementById('btnBatchMerge');
 const btnBatchDelete = document.getElementById('btnBatchDelete');
 const btnBatchLLM = document.getElementById('btnBatchLLM');
+const batchProgress = document.getElementById('batchProgress');
+const batchProgressFill = document.getElementById('batchProgressFill');
+
+// AI 批量预判的运行状态（供进度反馈与「点击停止」使用）
+let batchLlmRunning = false;
+let batchLlmAbort = false;
 
 // 顶部栏按钮
 const btnScanLocal = document.getElementById('btnScanLocal');
@@ -274,87 +280,103 @@ function getFilteredSoftware() {
 }
 
 // 渲染表格
+function buildRowHtml(item) {
+  const isSelected = selectedIds.has(item.id);
+  const intentClass = `intent-${item.restore_intent || 'unreviewed'}`;
+  const prepStatus = item.prep_status === 'ready' ? 'ready' : 'todo';
+  const isNewClass = item.is_new ? 'row-newly-added' : '';
+
+  const machineBadges = item.machines.map(m => {
+    const alias = getMachineDisplayName(m.machine_id);
+    return `<span class="badge-machine" title="设备ID: ${m.machine_id}&#10;路径: ${m.install_location || m.path || '未记录路径'}">${escapeHtml(alias)}</span>`;
+  }).join(' ');
+
+  return `
+    <tr class="${isSelected ? 'selected' : ''} ${isNewClass}" data-id="${item.id}">
+      <td>
+        <input type="checkbox" class="row-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''}>
+      </td>
+      <td style="text-align: center;">
+        <span class="awesome-star ${item.is_awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${item.id}" title="${item.is_awesome ? '取消精选' : '设为精选'}">
+          ${item.is_awesome ? ICONS.starFilled : ICONS.star}
+        </span>
+      </td>
+      <td>
+        <div class="software-name-cell">
+          <span class="software-title" data-action="open-drawer" data-id="${item.id}">${escapeHtml(item.name)}</span>
+          <div class="software-tags">
+            <span class="tag-cat">${item.category || '未分类'}</span>
+            <span class="tag-form">${item.type || 'desktop'}</span>
+            ${item.is_new ? '<span style="background:var(--accent-soft);color:var(--accent);padding:1px 5px;border-radius:4px;font-size:10.5px;">新添加</span>' : ''}
+          </div>
+        </div>
+      </td>
+      <td>
+        <input type="text" class="cell-input" data-field="version" data-id="${item.id}" value="${escapeHtml(item.version || '')}" placeholder="—" style="font-family: monospace;">
+      </td>
+      <td>${machineBadges}</td>
+      <td>
+        <select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${item.id}">
+          <option value="must" ${item.restore_intent === 'must' ? 'selected' : ''}>必须恢复</option>
+          <option value="should" ${item.restore_intent === 'should' ? 'selected' : ''}>建议恢复</option>
+          <option value="on_demand" ${item.restore_intent === 'on_demand' ? 'selected' : ''}>用到再装</option>
+          <option value="drop" ${item.restore_intent === 'drop' ? 'selected' : ''}>淘汰弃用</option>
+          <option value="unreviewed" ${(!item.restore_intent || item.restore_intent === 'unreviewed') ? 'selected' : ''}>待确认</option>
+        </select>
+      </td>
+      <td>
+        <select class="strategy-select" data-field="backup_strategy" data-id="${item.id}">
+          <option value="none" ${(!item.backup_strategy || item.backup_strategy === 'none') ? 'selected' : ''}>无需操作</option>
+          <option value="copy_dir" ${item.backup_strategy === 'copy_dir' ? 'selected' : ''}>保留/压缩目录</option>
+          <option value="copy_config" ${item.backup_strategy === 'copy_config' ? 'selected' : ''}>导出/备份配置</option>
+          <option value="redownload" ${item.backup_strategy === 'redownload' ? 'selected' : ''}>重新下载</option>
+          <option value="sync_account" ${item.backup_strategy === 'sync_account' ? 'selected' : ''}>账号同步</option>
+        </select>
+      </td>
+      <td style="text-align: center;">
+        <button type="button" class="prep-badge toggle-mini ${prepStatus === 'ready' ? 'prep-ready' : 'prep-todo'}" data-action="toggle-prep" data-id="${item.id}" title="点击切换：待办 / 就绪">
+          <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>${prepStatus === 'ready' ? '就绪' : '待办'}
+        </button>
+      </td>
+      <td>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <input type="text" class="cell-input" data-field="download_url" data-id="${item.id}" value="${escapeHtml(item.download_url || '')}" placeholder="官网或下载网址...">
+          ${item.download_url ? `<a href="${escapeHtml(item.download_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;" title="打开外链">${ICONS.externalLink}</a>` : ''}
+        </div>
+      </td>
+      <td>
+        <input type="text" class="cell-input" data-field="config_notes" data-id="${item.id}" value="${escapeHtml(item.config_notes || '')}" placeholder="配置路径、备忘或注意事项...">
+      </td>
+    </tr>
+  `;
+}
+
 function renderTable() {
   const filtered = getFilteredSoftware();
   let html = '';
-
   for (const item of filtered) {
-    const isSelected = selectedIds.has(item.id);
-    const intentClass = `intent-${item.restore_intent || 'unreviewed'}`;
-    const prepStatus = item.prep_status === 'ready' ? 'ready' : 'todo';
-    const isNewClass = item.is_new ? 'row-newly-added' : '';
-
-    const machineBadges = item.machines.map(m => {
-      const alias = getMachineDisplayName(m.machine_id);
-      return `<span class="badge-machine" title="设备ID: ${m.machine_id}&#10;路径: ${m.install_location || m.path || '未记录路径'}">${escapeHtml(alias)}</span>`;
-    }).join(' ');
-
-    html += `
-      <tr class="${isSelected ? 'selected' : ''} ${isNewClass}" data-id="${item.id}">
-        <td>
-          <input type="checkbox" class="row-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''}>
-        </td>
-        <td style="text-align: center;">
-          <span class="awesome-star ${item.is_awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${item.id}" title="${item.is_awesome ? '取消精选' : '设为精选'}">
-            ${item.is_awesome ? ICONS.starFilled : ICONS.star}
-          </span>
-        </td>
-        <td>
-          <div class="software-name-cell">
-            <span class="software-title" data-action="open-drawer" data-id="${item.id}">${escapeHtml(item.name)}</span>
-            <div class="software-tags">
-              <span class="tag-cat">${item.category || '未分类'}</span>
-              <span class="tag-form">${item.type || 'desktop'}</span>
-              ${item.is_new ? '<span style="background:var(--accent-soft);color:var(--accent);padding:1px 5px;border-radius:4px;font-size:10.5px;">新添加</span>' : ''}
-            </div>
-          </div>
-        </td>
-        <td>
-          <input type="text" class="cell-input" data-field="version" data-id="${item.id}" value="${escapeHtml(item.version || '')}" placeholder="—" style="font-family: monospace;">
-        </td>
-        <td>${machineBadges}</td>
-        <td>
-          <select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${item.id}">
-            <option value="must" ${item.restore_intent === 'must' ? 'selected' : ''}>必须恢复</option>
-            <option value="should" ${item.restore_intent === 'should' ? 'selected' : ''}>建议恢复</option>
-            <option value="on_demand" ${item.restore_intent === 'on_demand' ? 'selected' : ''}>用到再装</option>
-            <option value="drop" ${item.restore_intent === 'drop' ? 'selected' : ''}>淘汰弃用</option>
-            <option value="unreviewed" ${(!item.restore_intent || item.restore_intent === 'unreviewed') ? 'selected' : ''}>待确认</option>
-          </select>
-        </td>
-        <td>
-          <select class="strategy-select" data-field="backup_strategy" data-id="${item.id}">
-            <option value="none" ${(!item.backup_strategy || item.backup_strategy === 'none') ? 'selected' : ''}>无需操作</option>
-            <option value="copy_dir" ${item.backup_strategy === 'copy_dir' ? 'selected' : ''}>保留/压缩目录</option>
-            <option value="copy_config" ${item.backup_strategy === 'copy_config' ? 'selected' : ''}>导出/备份配置</option>
-            <option value="redownload" ${item.backup_strategy === 'redownload' ? 'selected' : ''}>重新下载</option>
-            <option value="sync_account" ${item.backup_strategy === 'sync_account' ? 'selected' : ''}>账号同步</option>
-          </select>
-        </td>
-        <td style="text-align: center;">
-          <button type="button" class="prep-badge toggle-mini ${prepStatus === 'ready' ? 'prep-ready' : 'prep-todo'}" data-action="toggle-prep" data-id="${item.id}" title="点击切换：待办 / 就绪">
-            <span class="status-dot dot-${prepStatus === 'ready' ? 'ready' : 'unreviewed'}"></span>${prepStatus === 'ready' ? '就绪' : '待办'}
-          </button>
-        </td>
-        <td>
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <input type="text" class="cell-input" data-field="download_url" data-id="${item.id}" value="${escapeHtml(item.download_url || '')}" placeholder="官网或下载网址...">
-            ${item.download_url ? `<a href="${escapeHtml(item.download_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;" title="打开外链">${ICONS.externalLink}</a>` : ''}
-          </div>
-        </td>
-        <td>
-          <input type="text" class="cell-input" data-field="config_notes" data-id="${item.id}" value="${escapeHtml(item.config_notes || '')}" placeholder="配置路径、备忘或注意事项...">
-        </td>
-      </tr>
-    `;
+    html += buildRowHtml(item);
   }
-
   tableBody.innerHTML = html || `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--ink-3);">没有匹配的软件项</td></tr>`;
   updateBatchBar();
   if (activeItem) updateDrawerNavigation();
 }
 
+// 就地刷新单个表格行（批量 AI 分析时逐条给出反馈，不整体重绘）
+function updateRowInPlace(id, flash = false) {
+  const item = softwareList.find(s => s.id === id);
+  const tr = tableBody.querySelector(`tr[data-id="${id}"]`);
+  if (!item || !tr) return;
+  const temp = document.createElement('tbody');
+  temp.innerHTML = buildRowHtml(item);
+  const newTr = temp.firstElementChild;
+  if (!newTr) return;
+  if (flash) newTr.classList.add('row-analyzed');
+  tr.replaceWith(newTr);
+}
+
 function updateBatchBar() {
+  if (batchLlmRunning) return; // 分析期间由进度逻辑接管文案与进度条
   if (selectedIds.size > 0) {
     batchBar.classList.add('show');
     batchInfo.innerText = `已选 ${selectedIds.size} 项`;
@@ -1190,20 +1212,47 @@ async function batchMerge() {
 
 // LLM 批量智能推断
 async function handleBatchLLM() {
+  // 运行中再次点击 = 请求停止
+  if (batchLlmRunning) {
+    batchLlmAbort = true;
+    return;
+  }
   if (selectedIds.size === 0) {
     showToast('请先勾选需要 AI 预判的软件', 'warning');
     return;
   }
+
   const ids = Array.from(selectedIds);
-  btnBatchLLM.disabled = true;
+  const total = ids.length;
   const originalHtml = btnBatchLLM.innerHTML;
-  btnBatchLLM.innerHTML = '<span class="spinner"></span> 思考中...';
+  const originalTitle = btnBatchLLM.title;
+
+  batchLlmRunning = true;
+  batchLlmAbort = false;
+  btnBatchLLM.classList.add('is-running');
+  btnBatchLLM.title = '点击停止 AI 预判';
+  batchProgress.hidden = false;
+  batchProgressFill.style.width = '0%';
+
+  let successCount = 0;
+  let failCount = 0;
+  let done = 0;
+
+  const renderProgress = () => {
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    batchProgressFill.style.width = `${pct}%`;
+    batchInfo.innerText = batchLlmAbort
+      ? `已停止 · ${done} / ${total}`
+      : `AI 预判中 ${done} / ${total}`;
+    btnBatchLLM.innerHTML = `<span class="spinner"></span> ${done}/${total} · ${batchLlmAbort ? '停止中' : '停止'}`;
+  };
+  renderProgress();
 
   try {
-    let successCount = 0;
     for (const id of ids) {
+      if (batchLlmAbort) break;
       const item = softwareList.find(s => s.id === id);
-      if (!item) continue;
+      if (!item) { done++; renderProgress(); continue; }
       const paths = item.machines.map(m => m.install_location || m.path).filter(Boolean).join('; ');
 
       try {
@@ -1226,19 +1275,37 @@ async function handleBatchLLM() {
           Object.assign(item, updates);
           await updateItemField(id, updates);
           successCount++;
+          updateRowInPlace(id, true);
+        } else {
+          failCount++;
         }
       } catch (err) {
         console.error(`AI analyze failed for ${item.name}:`, err);
+        failCount++;
       }
+
+      done++;
+      renderProgress();
     }
 
     selectedIds.clear();
     await fetchStatus();
     renderTable();
-    showToast(`LLM 已成功预判并更新了 ${successCount} 款软件！`, 'success');
+    if (batchLlmAbort) {
+      showToast(`已停止：更新 ${successCount} 项，失败 ${failCount} 项`, 'warning');
+    } else {
+      showToast(`AI 预判完成：更新 ${successCount} 项${failCount ? `，失败 ${failCount} 项` : ''}`, 'success');
+    }
   } finally {
+    batchLlmRunning = false;
+    batchLlmAbort = false;
+    batchProgress.hidden = true;
+    batchProgressFill.style.width = '0%';
+    btnBatchLLM.classList.remove('is-running');
     btnBatchLLM.disabled = false;
+    btnBatchLLM.title = originalTitle;
     btnBatchLLM.innerHTML = originalHtml;
+    updateBatchBar();
   }
 }
 

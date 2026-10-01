@@ -534,6 +534,31 @@ svg.i.fill {
   white-space: nowrap;
 }
 
+/* AI 批量预判的进度条（只在分析时显示） */
+.batch-progress {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.batch-progress[hidden] { display: none; }
+.batch-progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+/* 正在跑的 AI 预判按钮 */
+.btn-batch-ai.is-running {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+}
+
 .batch-bar::-webkit-scrollbar {
   display: none;
 }
@@ -554,6 +579,16 @@ tr.row-newly-added td {
 @keyframes pulseHighlight {
   0% { background: var(--accent-soft-2) !important; }
   100% { background: var(--accent-soft) !important; }
+}
+
+/* AI 刚分析完的行，闪一下 */
+tr.row-analyzed td {
+  animation: flashAnalyzed 1.6s ease-out;
+}
+
+@keyframes flashAnalyzed {
+  0% { background: var(--accent-soft-2) !important; }
+  100% { background: transparent !important; }
 }
 
 /* 准备状态胶囊 */
