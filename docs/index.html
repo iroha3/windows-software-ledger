@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>软件备份台账 · 换电脑前，先把软件家底清点清楚</title>
+<meta name="description" content="本地优先的 Windows 软件清点与重装迁移工具：一键扫描本机软件，按恢复意愿分级，记下安装路径、官网与配置位置，导出一份照着做就能重装的重装恢复清单。绿色便携，AGPL-3.0 开源。">
+<meta property="og:title" content="软件备份台账 · 换电脑前，先把软件家底清点清楚">
+<meta property="og:description" content="一键扫描本机软件，分级、标注、导出重装恢复清单。本地运行，一个 exe + 一个 data 文件夹。">
+<meta property="og:image" content="screenshot.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="logo.svg">
+<style>
+:root {
+  --bg: #f6f3ec; --surface: #fbf9f4; --ink: #22201c; --ink-2: #57524a; --ink-3: #8c867b; --rule: #e4ded2;
+  --accent: #2d6173; --accent-soft: #e3ecee; --pink: #f3cfcb;
+  --ok: #3f7d5a; --warn: #a8652a; --mute: #8c867b;
+  --serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN", "SimSun", serif;
+  --sans: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1a18; --surface: #232220; --ink: #ebe6dc; --ink-2: #bdb6a9; --ink-3: #8c867b; --rule: #34322e; --accent: #7fb3c2; --accent-soft: #24343a; --pink: #5a3531; --ok: #7fb99a; --warn: #d3a06a; color-scheme: dark; }
+  .shot img { filter: brightness(.92); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.75 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+header.top { display: flex; align-items: center; gap: 12px; padding: 20px 0; }
+header.top .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; }
+header.top .brand b { color: var(--accent); }
+header.top .grow { flex: 1; }
+header.top nav a { color: var(--ink-2); text-decoration: none; font-size: 14.5px; margin-left: 22px; }
+header.top nav a:hover { color: var(--ink); }
+
+.hero { text-align: center; padding: 56px 0 36px; }
+.hero h1 { font: 700 clamp(34px, 6vw, 56px)/1.25 var(--serif); letter-spacing: .02em; margin: 0 0 18px; }
+.hero h1 mark { background: linear-gradient(transparent 58%, var(--pink) 58%); color: inherit; padding: 0 .08em; }
+.hero p.sub { font-size: clamp(16px, 2.2vw, 19px); color: var(--ink-2); max-width: 720px; margin: 0 auto 30px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 22px; border-radius: 12px; font-size: 15.5px; font-weight: 600; text-decoration: none; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.line { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--rule); background: var(--surface); }
+.btn.line:hover { box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.hero .note { font-size: 13px; color: var(--ink-3); margin-top: 14px; }
+
+.shot { margin: 0; border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: 0 0 0 1px var(--rule), 0 18px 50px rgba(40, 30, 10, .12); }
+.shot img { display: block; width: 100%; height: auto; }
+.hero .shot { margin-top: 44px; }
+
+section { padding: 64px 0; }
+section h2 { font: 700 clamp(24px, 3.6vw, 32px)/1.35 var(--serif); margin: 0 0 10px; }
+section .lead { color: var(--ink-2); margin: 0 0 32px; max-width: 760px; }
+
+.feat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.feat div { padding: 20px 22px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--rule); }
+.feat h3 { font-size: 16.5px; margin: 0 0 6px; }
+.feat p { margin: 0; font-size: 14.5px; color: var(--ink-2); line-height: 1.7; }
+
+.row { display: grid; grid-template-columns: 1fr 1.55fr; gap: 40px; align-items: center; margin-bottom: 72px; }
+.row.flip { grid-template-columns: 1.55fr 1fr; }
+.row.flip .text { order: 2; }
+.row h3 { font: 700 22px/1.4 var(--serif); margin: 0 0 12px; }
+.row p { color: var(--ink-2); margin: 0 0 10px; }
+.row ul { color: var(--ink-2); padding-left: 1.2em; margin: 0; }
+.row li { margin: 4px 0; }
+.quote { font: 15px/1.8 var(--serif); padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; color: var(--ink); margin: 14px 0 0; }
+.quote small { display: block; font: 12.5px var(--sans); color: var(--ink-3); margin-top: 4px; }
+
+.panel { background: var(--surface); border-radius: 14px; padding: 18px 20px; box-shadow: 0 0 0 1px var(--rule), 0 18px 50px rgba(40, 30, 10, .08); }
+.panel .cap { font-size: 12.5px; color: var(--ink-3); margin: 0 0 12px; }
+.panel table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.panel th { text-align: left; font-weight: 500; font-size: 12.5px; color: var(--ink-3); padding: 0 8px 8px; border-bottom: 1px solid var(--rule); }
+.panel td { padding: 9px 8px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+.panel tr:last-child td { border-bottom: 0; }
+.panel td:first-child { color: var(--ink); font-weight: 600; }
+.pill { display: inline-block; font: 600 12px var(--sans); padding: 1px 9px; border-radius: 10px; }
+.pill.must { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.pill.should { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.pill.on { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.pill.drop { background: color-mix(in srgb, var(--mute) 18%, transparent); color: var(--mute); }
+
+table.engines { width: 100%; border-collapse: collapse; font-size: 14.5px; background: var(--surface); border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
+.engines th, .engines td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.engines th { font-size: 13px; color: var(--ink-3); font-weight: 500; }
+.engines tr:last-child td { border-bottom: 0; }
+.engines .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); margin-left: 6px; }
+.tablebox { overflow-x: auto; }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: s; }
+.steps div { counter-increment: s; padding: 22px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--rule); }
+.steps div::before { content: counter(s); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; margin-bottom: 12px; }
+.steps h3 { margin: 0 0 6px; font-size: 16.5px; }
+.steps p { margin: 0; font-size: 14.5px; color: var(--ink-2); }
+code { font: 13.5px ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
+pre { background: var(--surface); box-shadow: 0 0 0 1px var(--rule); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 10px 0 0; }
+pre code { background: none; padding: 0; }
+
+.faq details { background: var(--surface); box-shadow: 0 0 0 1px var(--rule); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq details p { color: var(--ink-2); margin: 10px 0 0; }
+
+footer { padding: 40px 0 60px; color: var(--ink-3); font-size: 13.5px; text-align: center; border-top: 1px solid var(--rule); }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 860px) {
+  .feat, .steps { grid-template-columns: 1fr; }
+  .row, .row.flip { grid-template-columns: 1fr; gap: 18px; margin-bottom: 56px; }
+  .row.flip .text { order: 0; }
+  header.top nav a:not(.gh) { display: none; }
+  section { padding: 44px 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="logo.svg" width="30" height="30" alt=""><span>软件<b>备份台账</b></span></a>
+    <span class="grow"></span>
+    <nav><a href="#features">功能</a><a href="#how">使用</a><a href="#faq">常见问题</a><a class="gh" href="https://github.com/iroha3/windows-software-ledger">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <h1>换电脑之前，<br>先把<mark>软件家底</mark>清点清楚</h1>
+    <p class="sub">一键扫描本机软件，按「必须恢复 / 建议恢复 / 用到再装 / 淘汰」分级，记下每项的安装路径、官网与配置位置，最后导出一份可以直接照着执行的重装恢复清单。本地运行，一个 exe + 一个 data 文件夹。</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/iroha3/windows-software-ledger/releases/latest">下载 Windows 版 ↓</a>
+      <a class="btn line" href="https://github.com/iroha3/windows-software-ledger">查看源码 · GitHub</a>
+    </div>
+    <p class="note">Windows 10 / 11 · 绿色便携，清单只存在你自己的电脑上 · AGPL-3.0 开源</p>
+    <figure class="shot"><img src="screenshot.png" alt="软件备份台账界面" loading="eager"></figure>
+  </div>
+</div>
+
+<section id="features"><div class="wrap">
+  <h2>不是再列一张 Excel，而是把重装这件事想清楚</h2>
+  <p class="lead">真正麻烦的从来不是装软件，而是想不起来装过什么、也不知道哪些配置散落在哪里。软件备份台账把这件事收敛成：一次扫描，一次标注。</p>
+  <div class="feat">
+    <div><h3>一键扫描本机</h3><p>自动采集注册表安装项、便携软件与开始菜单快捷方式，归并去重后入库，不用手敲。</p></div>
+    <div><h3>恢复意愿分级</h3><p>必须恢复 / 建议恢复 / 用到再装 / 淘汰弃用 / 待确认，一列下拉就能定夺。</p></div>
+    <div><h3>处置方式 + 配置备忘</h3><p>保留目录、导出配置、重新下载、账号同步、无需操作，并记下配置文件具体在哪。</p></div>
+    <div><h3>AI 辅助预判（可选）</h3><p>接入本地 LM Studio 或任意 OpenAI 兼容端点（如 DeepSeek），自动补全分类、意愿与配置建议。</p></div>
+    <div><h3>多机器视图与合并</h3><p>记录每款软件出现在哪台机器、装在哪里；重复条目一键合并，汇总各机器路径。</p></div>
+    <div><h3>Markdown 导出</h3><p>一键生成《重装恢复清单》与《精选资产库》两份落地文档，照着做就行。</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="row">
+    <div class="text">
+      <h3>它怎么知道我都装了什么</h3>
+      <p>扫描时读取三类来源，再按名称与安装路径归并去重：</p>
+      <ul>
+        <li>注册表里的已安装程序（含版本、发布者、安装位置）</li>
+        <li>便携 / 绿色软件目录的第一层</li>
+        <li>开始菜单与桌面快捷方式指向的独立工具</li>
+      </ul>
+      <p>采集脚本内置在 exe 里，扫描时才释放到临时目录执行，结果入库后立即删除——不会在你电脑上留下任何中间文件。</p>
+    </div>
+    <figure class="shot"><img src="screenshot.png" alt="扫描后的软件清单" loading="lazy"></figure>
+  </div>
+  <div class="row flip">
+    <div class="text">
+      <h3>决策留在你手里，工具只负责记住</h3>
+      <p>每款软件两个关键字段：<b>恢复意愿</b>决定重装时要不要装，<b>处置方式</b>决定怎么备份，再配一条配置备忘。标完就能看到「准备进度」，重装前一眼看清还差哪些没处理。</p>
+      <p>拿不准的交给可选的 AI 预判，但最终拍板永远是你。</p>
+    </div>
+    <div class="panel">
+      <p class="cap">清单里的每一行，长这样：</p>
+      <table>
+        <tr><th>软件</th><th>恢复意愿</th><th>处置方式</th></tr>
+        <tr><td>Visual Studio Code</td><td><span class="pill must">必须恢复</span></td><td>账号同步</td></tr>
+        <tr><td>Scoop</td><td><span class="pill should">建议恢复</span></td><td>重新下载</td></tr>
+        <tr><td>OBS Studio</td><td><span class="pill on">用到再装</span></td><td>导出配置</td></tr>
+        <tr><td>旧版 JDK 8</td><td><span class="pill drop">淘汰弃用</span></td><td>无需操作</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="row">
+    <div class="text">
+      <h3>最后拿到两份能照着做的文档</h3>
+      <p>点一下「导出清单」，直接生成两份 Markdown：</p>
+      <div class="quote">《重装恢复清单》——按优先级分组，每条带官网链接、配置导出位置与验证备忘。<small>《精选资产库》——你真正依赖的那批软件，以及它们在你的工作流里扮演的角色。</small></div>
+    </div>
+    <figure class="shot"><img src="screenshot.png" alt="导出的 Markdown 清单" loading="lazy"></figure>
+  </div>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <h2>三步用起来</h2>
+  <p class="lead">Windows 10 / 11 即可，不需要装 Python、Node 或任何运行时。</p>
+  <div class="steps">
+    <div><h3>下载并运行</h3><p>从 GitHub Releases 下载 <code>windows-software-ledger.exe</code>，放进任意文件夹双击。首次运行会在旁边自动生成 <code>data/</code>。</p></div>
+    <div><h3>扫描本机</h3><p>点顶部的「扫描本机」，几十秒内把注册表安装项、便携软件和快捷方式收进来。</p></div>
+    <div><h3>标注并导出</h3><p>为每款软件选好恢复意愿与处置方式，点「导出清单」，拿到重装恢复清单与精选资产库。</p></div>
+  </div>
+  <pre><code>软件备份台账/
+├─ windows-software-ledger.exe
+└─ data/            ← 清单与设置，连同文件夹一起拷走即可</code></pre>
+</div></section>
+
+<section class="faq"><div class="wrap">
+  <h2>常见问题</h2>
+  <details><summary>需要联网吗？会上传我的数据吗？</summary><p>扫描、整理、导出全部在本地完成，不联网。只有在你开启可选的「AI 辅助预判」时，才会把软件名称发给你自己填写的模型端点（本地 LM Studio，或 DeepSeek / OpenAI 兼容 API）。</p></details>
+  <details><summary>数据存在哪？换台电脑怎么办？</summary><p>全部在 exe 同目录的 <code>data/</code> 里，只有两个文件：<code>software.json</code> 与 <code>config.json</code>。不写注册表、不写 AppData，整个文件夹拷走就是迁移。</p></details>
+  <details><summary>要装 Python / Node / 数据库吗？</summary><p>都不用。单个 exe 绿色运行，扫描脚本已内嵌其中，系统只需 Windows 10 / 11（精简系统可能需补一个 WebView2 Runtime）。</p></details>
+  <details><summary>它和「手动记 Excel」有什么区别？</summary><p>清单自动生成、可反复扫描增量更新；每条都带机器分布、安装路径、官网链接与配置备忘，还带恢复意愿和准备进度——导出的不是一张表，而是一张能照着执行的重装清单。</p></details>
+  <details><summary>收费吗？</summary><p>免费开源，基于 AGPL-3.0 许可。觉得有用的话，给个 Star 就是最大的支持。</p></details>
+</div></section>
+
+<footer>
+  <div class="wrap">软件备份台账 · windows-software-ledger · AGPL-3.0 · <a href="https://github.com/iroha3/windows-software-ledger">GitHub</a></div>
+</footer>
+</body>
+</html>
