@@ -113,6 +113,8 @@ mod tests {
 
     #[test]
     fn resolves_portable_layout() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("SOFTWARE_LEDGER_ROOT");
         let base = std::env::temp_dir().join(format!("ledger_root_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
 
@@ -132,6 +134,14 @@ mod tests {
         let deep = nested.join("a").join("b");
         fs::create_dir_all(&deep).unwrap();
         assert_eq!(resolve_root_from(&deep), nested);
+
+        // 实际 exe 路径解析：测试二进制位于 target/debug/deps，
+        // 应回溯到仓库根目录（含 package.json / data），而非任何临时目录。
+        let real = app_root();
+        assert!(real.join("package.json").exists(), "app_root={:?}", real);
+        assert!(real.join("data").exists(), "app_root={:?}", real);
+        assert_eq!(evidence_dir(), real.join("evidence"));
+        assert_eq!(scripts_dir(), real.join("scripts"));
 
         let _ = fs::remove_dir_all(&base);
     }
