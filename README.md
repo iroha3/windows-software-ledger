@@ -6,7 +6,7 @@
 
 本地优先 · 单 exe 绿色运行 · 数据可携带
 
-[![Release](https://img.shields.io/badge/release-v1.1.0-2d6173?style=flat-square)](../../releases)
+[![Release](https://img.shields.io/badge/release-v1.2.0-2d6173?style=flat-square)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-2d6173?style=flat-square)](#安装)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-2d6173?style=flat-square)](https://v2.tauri.app/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-2d6173?style=flat-square)](LICENSE)
@@ -35,7 +35,7 @@
 - **浏览器扩展台账** — 只读采集已安装浏览器（Edge / Chrome / Brave / Firefox 等）的扩展名称、版本、来源与启用状态；扫描字段只读，另可给每条扩展加**备注**（`data/extensions.json`）与**附件归档**（`data/vault/<主机>/ext/<扩展ID>/`），独立「浏览器」页表格展示。绝不读取扩展存储数据、Cookie 或密码。
 - **配置归档保管箱** — 软件卡片与浏览器页均可手动拖入 / 选择配置文件归档到 `data/vault/<主机>/`，随台账一起拷走；删除软件时级联清理。
 - **恢复意愿分级** — 必须恢复 / 建议恢复 / 用到再装 / 淘汰弃用 / 待确认。
-- **处置方式与配置备忘** — 保留目录、导出配置、重新下载、账号同步、无需操作，并记录配置存放位置。
+- **处置方式与配置备忘** — 保留目录、重新下载、账号同步、无需操作，并记录配置存放位置。
 - **准备进度跟踪** — 标记每一项是否已备份就绪。
 - **AI 辅助预判**（可选）— 接入本地 LM Studio 或任意 OpenAI 兼容端点（如 DeepSeek），自动补全分类、恢复意愿与配置建议。
 - **多机器视图** — 记录每款软件出现在哪台机器、安装在哪里。

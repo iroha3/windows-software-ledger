@@ -418,7 +418,7 @@ function bindEvents() {
   $('btnConfig').addEventListener('click', openConfigModal);
   $('btnSaveConfig').addEventListener('click', saveConfigModal);
   $('presetLocal').addEventListener('click', () => { $('configLlmUrl').value = 'http://127.0.0.1:1234/v1/chat/completions'; $('configLlmModel').value = 'qwen3.5-4b'; });
-  $('presetDeepseek').addEventListener('click', () => { $('configLlmUrl').value = 'https://api.deepseek.com/v1/chat/completions'; $('configLlmModel').value = 'deepseek-chat'; });
+  $('presetDeepseek').addEventListener('click', () => { $('configLlmUrl').value = 'https://api.deepseek.com/chat/completions'; $('configLlmModel').value = 'deepseek-flash'; });
   $('btnAbout').addEventListener('click', () => $('aboutModal').classList.add('show'));
   $('aboutGitHub').addEventListener('click', (ev) => { ev.preventDefault(); window.openExternal(REPO_URL); });
   $('aboutHomepage').addEventListener('click', (ev) => { ev.preventDefault(); window.openExternal(HOMEPAGE_URL); });

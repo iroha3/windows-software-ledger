@@ -172,9 +172,8 @@ fn add_or_update(
 ) {
     let norm = normalize_name(raw_name);
     let key = norm.name.to_lowercase().trim().to_string();
-    // 绿色/便携软件无需推断处置方式：直接就是「保留/压缩整个目录」。
-    let is_portable = forced_type == Some("portable");
-    let default_strategy = if is_portable { "copy_dir" } else { "none" };
+    // 处置方式不在扫描时硬编码：默认「无需操作」，待用户评恢复意愿时按形态推导。
+    let default_strategy = "none";
 
     if let Some(&i) = index.get(&key) {
         let item = &mut items[i];
@@ -185,13 +184,7 @@ fn add_or_update(
                 }
             }
         }
-        // 已存在的便携项：仅当用户尚未设置（空 / none）时补成 copy_dir，不覆盖人工选择。
-        if is_portable {
-            let current = item.get("backup_strategy").and_then(|v| v.as_str()).unwrap_or("");
-            if current.is_empty() || current == "none" {
-                item["backup_strategy"] = json!("copy_dir");
-            }
-        }
+        // 已存在的条目：不再按便携形态覆盖处置方式，交由评档推导。
         update_machine(item, machine);
         if icon_path.is_empty() {
             return;
@@ -658,7 +651,7 @@ mod tests {
             Some("TEST-MACHINE")
         );
 
-        // 绿色/便携软件：形态为 portable，处置方式直接确定性为 copy_dir。
+        // 绿色/便携软件：形态为 portable，但处置方式不再硬编码，默认「无需操作」，评档时再推导。
         let portable_item = items
             .iter()
             .find(|i| i.get("name").and_then(|v| v.as_str()) == Some("图吧工具箱"))
@@ -666,7 +659,7 @@ mod tests {
         assert_eq!(portable_item.get("type").and_then(|v| v.as_str()), Some("portable"));
         assert_eq!(
             portable_item.get("backup_strategy").and_then(|v| v.as_str()),
-            Some("copy_dir")
+            Some("none")
         );
 
         let _ = fs::remove_dir_all(&root);

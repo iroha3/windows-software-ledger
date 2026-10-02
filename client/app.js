@@ -18,11 +18,17 @@ function getMachineDisplayName(id) {
   return machineAliases[id] || id;
 }
 
-// 绿色/便携软件：处置方式走确定性规则（保留/压缩目录），不让 LLM 猜测。
+// 绿色/便携软件：形态决定处置方式推导（绿色版压缩目录，安装版重新下载）。
 function isPortableItem(item) {
   if (!item) return false;
   if (item.type === 'portable') return true;
   return (item.machines || []).some(m => m.form === 'portable');
+}
+
+// 依据恢复意愿推导处置方式：必须/建议恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
+function deriveStrategy(intent, portable) {
+  if (intent === 'must' || intent === 'should') return portable ? 'copy_dir' : 'redownload';
+  return 'none';
 }
 
 // 自动保存防抖计时器与标志
@@ -160,10 +166,29 @@ async function init() {
   }) : null;
   bindEvents();
   bindKeyboardShortcuts();
+  enableWheelSelect();
   // 首次运行 / 清单为空时自动扫描本机，省去手动点一次
   if (softwareList.length === 0) {
     handleScanLocal();
   }
+}
+
+// 主页卡片（侧边抽屉）内悬浮滚轮切换处置方式：原生 <select> 在 WebView 中对滚轮无响应，
+// 抽屉聚焦单条记录、操作意图明确，这里接管滚轮逐项切换并阻止面板滚动。
+// 主页表格不做此处理：滚动时鼠标掠过下拉会误改数据且静默保存。
+function enableWheelSelect() {
+  const selector = '#drawerStrategy';
+  document.addEventListener('wheel', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const sel = e.target.closest(selector);
+    if (!sel || sel.disabled || sel.options.length === 0) return;
+    e.preventDefault();
+    const dir = e.deltaY > 0 ? 1 : -1;
+    const next = sel.selectedIndex + dir;
+    if (next < 0 || next >= sel.options.length) return;
+    sel.selectedIndex = next;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { passive: false, capture: true });
 }
 
 // 主题切换机制 (默认日间主题)
@@ -368,7 +393,6 @@ function buildRowHtml(item) {
         <select class="strategy-select" data-field="backup_strategy" data-id="${item.id}">
           <option value="none" ${(!item.backup_strategy || item.backup_strategy === 'none') ? 'selected' : ''}>无需操作</option>
           <option value="copy_dir" ${item.backup_strategy === 'copy_dir' ? 'selected' : ''}>保留/压缩目录</option>
-          <option value="copy_config" ${item.backup_strategy === 'copy_config' ? 'selected' : ''}>导出/备份配置</option>
           <option value="redownload" ${item.backup_strategy === 'redownload' ? 'selected' : ''}>重新下载</option>
           <option value="sync_account" ${item.backup_strategy === 'sync_account' ? 'selected' : ''}>账号同步</option>
         </select>
@@ -493,6 +517,7 @@ function bindKeyboardShortcuts() {
           e.preventDefault();
           const targetIntent = drawerIntentMap[e.key];
           document.getElementById('drawerIntent').value = targetIntent;
+          document.getElementById('drawerStrategy').value = deriveStrategy(targetIntent, isPortableItem(activeItem));
           document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.intent === targetIntent);
           });
@@ -885,8 +910,16 @@ function bindEvents() {
 
     if (target.dataset.field === 'restore_intent') {
       const val = target.value;
-      await updateItemField(id, { restore_intent: val });
+      const item = softwareList.find(s => s.id === id);
+      const updates = { restore_intent: val };
+      // 评档即按形态推导处置方式（绿色版压缩目录 / 安装版重新下载），并同步刷新本行下拉。
+      if (item) updates.backup_strategy = deriveStrategy(val, isPortableItem(item));
+      await updateItemField(id, updates);
       target.className = `badge-select intent-${val}`;
+      if (updates.backup_strategy) {
+        const stratSel = document.querySelector(`.strategy-select[data-id="${id}"]`);
+        if (stratSel) stratSel.value = updates.backup_strategy;
+      }
       await fetchStatus();
       return;
     }
@@ -988,6 +1021,7 @@ function bindEvents() {
       if (!btn) return;
       const targetIntent = btn.dataset.intent;
       document.getElementById('drawerIntent').value = targetIntent;
+      document.getElementById('drawerStrategy').value = deriveStrategy(targetIntent, isPortableItem(activeItem));
       drawerIntentSegmented.querySelectorAll('.intent-seg-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       markDrawerSaving();
@@ -1142,7 +1176,7 @@ function bindEvents() {
     showToast('已填入本地 LM Studio 预设', 'info');
   });
   bindPreset('presetDeepseek', () => {
-    configLlmUrl.value = 'https://api.deepseek.com';
+    configLlmUrl.value = 'https://api.deepseek.com/chat/completions';
     configLlmModel.value = 'deepseek-flash';
     configLlmKey.focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
@@ -1188,8 +1222,12 @@ async function batchUpdate(updates) {
   if (selectedIds.size === 0) return;
   const ids = Array.from(selectedIds);
 
-  for (const s of softwareList) {
-    if (selectedIds.has(s.id)) Object.assign(s, updates);
+  // 意愿变更会由后端按形态推导处置方式，本地不能只套用 updates，否则下拉会不同步。
+  const derivesStrategy = updates.restore_intent && !updates.backup_strategy;
+  if (!derivesStrategy) {
+    for (const s of softwareList) {
+      if (selectedIds.has(s.id)) Object.assign(s, updates);
+    }
   }
 
   await fetch('/api/software/batch-update', {
@@ -1197,6 +1235,8 @@ async function batchUpdate(updates) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids, updates })
   });
+
+  if (derivesStrategy) await loadSoftware();
 
   // 保留勾选，方便连续批量设置多项（按 Esc 可取消选择）
   await fetchStatus();
@@ -1330,8 +1370,11 @@ async function handleBatchLLM() {
           const updates = {};
           if (sug.category) updates.category = sug.category;
           if (sug.type) updates.type = sug.type;
-          if (sug.restore_intent) updates.restore_intent = sug.restore_intent;
-          if (sug.backup_strategy && !isPortableItem(item)) updates.backup_strategy = sug.backup_strategy;
+          if (sug.restore_intent) {
+            updates.restore_intent = sug.restore_intent;
+            // 处置方式不再由 LLM 判断，按意愿 + 形态推导。
+            updates.backup_strategy = deriveStrategy(sug.restore_intent, isPortableItem(item));
+          }
           if (sug.download_url) updates.download_url = sug.download_url;
           if (sug.config_notes) updates.config_notes = sug.config_notes;
 
@@ -1395,8 +1438,9 @@ async function handleDrawerLLM() {
         document.querySelectorAll('#drawerIntentSegmented .intent-seg-btn').forEach(btn => {
           btn.classList.toggle('active', btn.dataset.intent === sug.restore_intent);
         });
+        // 处置方式不再由 LLM 判断，按意愿 + 形态推导。
+        document.getElementById('drawerStrategy').value = deriveStrategy(sug.restore_intent, isPortableItem(activeItem));
       }
-      if (sug.backup_strategy && !isPortableItem(activeItem)) document.getElementById('drawerStrategy').value = sug.backup_strategy;
       if (sug.download_url) {
         document.getElementById('drawerUrl').value = sug.download_url;
       }
@@ -1716,8 +1760,10 @@ async function saveConfigModal() {
     }
   });
 
-  if (!llm_url) {
-    showToast('请输入有效的 LLM API URL', 'warning');
+  // LLM 为可选能力：留空即关闭 AI 预判，不应阻碍保存扫描目录 / 设备别名等设置。
+  // 仅在填了地址时做基本格式校验，避免存入明显错误的地址。
+  if (llm_url && !/^https?:\/\//i.test(llm_url)) {
+    showToast('LLM 地址需以 http:// 或 https:// 开头，或留空以关闭 AI 预判', 'warning');
     return;
   }
 

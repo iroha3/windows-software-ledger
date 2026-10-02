@@ -148,7 +148,6 @@
         <select id="strategyFilter" class="select-filter">
           <option value="all">全部处置方式</option>
           <option value="copy_dir">保留/压缩目录</option>
-          <option value="copy_config">导出/备份配置</option>
           <option value="redownload">重新下载</option>
           <option value="sync_account">账号同步</option>
           <option value="none">无需操作</option>
@@ -321,7 +320,6 @@
             <select id="drawerStrategy">
               <option value="none">无需操作 (暂无备份需求)</option>
               <option value="copy_dir">保留/压缩整个目录 (免装绿色版)</option>
-              <option value="copy_config">手动导出/备份配置文件</option>
               <option value="redownload">官网或包管理重新下载安装</option>
               <option value="sync_account">云端账号登录同步即可</option>
             </select>
@@ -486,12 +484,12 @@ ffmpeg, ripgrep, jq, pandoc
           <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
           <div class="preset-chips">
             <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
-            <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-chat)</button>
+            <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-flash)</button>
           </div>
         </div>
 
         <div class="drawer-field">
-          <label>Chat Completions API 地址</label>
+          <label>Chat Completions API 地址（留空则不启用 AI 预判）</label>
           <input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions">
         </div>
         <div class="drawer-field">
@@ -571,7 +569,7 @@ ffmpeg, ripgrep, jq, pandoc
             <svg class="i lg" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
           </div>
           <div class="about-name">软件备份台账</div>
-          <div class="about-version">v1.1.0</div>
+          <div class="about-version">v1.2.0</div>
           <div class="about-tagline">本地优先的软件清点与备份决策工具</div>
         </div>
         <p class="about-desc">扫描本机软件、归并去重、标注恢复意愿与处置方式，并导出重装恢复清单与精选资产库。</p>

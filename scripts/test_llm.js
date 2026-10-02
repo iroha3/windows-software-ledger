@@ -6,8 +6,8 @@
 const args = process.argv.slice(2);
 const softwareName = args[0] || 'PotPlayer';
 const softwarePath = args[1] || 'D:\\Software\\PotPlayer\\PotPlayer64.exe';
-const llmUrl = args[2] || process.env.LLM_URL || 'http://127.0.0.1:1234/v1/chat/completions';
-const modelName = process.env.LLM_MODEL || args[3] || 'qwen3.5-4b';
+const llmUrl = args[2] || process.env.LLM_URL || 'https://api.deepseek.com/chat/completions';
+const modelName = process.env.LLM_MODEL || args[3] || 'deepseek-flash';
 const apiKey = process.env.LLM_API_KEY || args[4] || '';
 
 console.log('==================================================');
@@ -28,7 +28,6 @@ const prompt = `你是一个 Windows 软件与系统重装迁移专家。请根�
   "category": "媒体娱乐",
   "type": "desktop",
   "restore_intent": "must",
-  "backup_strategy": "copy_dir",
   "download_url": "https://potplayer.daum.net/",
   "config_notes": "若为便携版通常配置在同级 PotPlayerMini64.ini，安装版可能在注册表 HKCU\\\\Software\\\\Daum\\\\PotPlayer64"
 }
@@ -37,7 +36,6 @@ const prompt = `你是一个 Windows 软件与系统重装迁移专家。请根�
 - category: 必须从 [开发工具, 系统工具, 浏览器与网络, 媒体娱乐, 办公与笔记, 通讯与社交, 其他] 中选一个
 - type: 必须从 [desktop, portable, cli, runtime] 中选一个
 - restore_intent: 必须从 [must, should, on_demand, drop] 中选一个
-- backup_strategy: 必须从 [copy_dir, copy_config, redownload, sync_account, none] 中选一个
 - download_url: 软件官网或可靠下载页
 - config_notes: 简要说明配置文件通常存放在何处（如 AppData、~/.config 或安装目录），或者是否依赖云同步
 `;
@@ -50,14 +48,23 @@ async function main() {
       fetchHeaders['Authorization'] = `Bearer ${apiKey.trim()}`;
     }
 
+    const requestBody = {
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1
+    };
+    // DeepSeek 默认开启思考模式；此处显式关闭，仅对 DeepSeek 端点下发，
+    // 避免 OpenAI / 本地 LM Studio 因未知参数报错。
+    if (llmUrl.includes('api.deepseek.com')) {
+      requestBody.thinking = { type: 'disabled' };
+    }
+
+    console.log(` 思考模式: ${requestBody.thinking ? '已关闭 (thinking.disabled)' : '未指定'}`);
+
     const res = await fetch(llmUrl, {
       method: 'POST',
       headers: fetchHeaders,
-      body: JSON.stringify({
-        model: modelName,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(20000)
     });
 
@@ -88,7 +95,7 @@ async function main() {
     }
   } catch (err) {
     console.error('❌ 请求失败:', err.message);
-    console.error('💡 提示: 确保 1234 端口 LLM 服务已启动，且已加载 qwen3.5-4b 模型。');
+    console.error('💡 提示: DeepSeek 请确认 API Key 与网络；本地端点请确认服务已启动且模型名正确。');
   }
 }
 

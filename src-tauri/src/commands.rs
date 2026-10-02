@@ -13,6 +13,47 @@ fn as_str(v: &Value, key: &str) -> String {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
 }
 
+/// 绿色/便携判定：类型为 portable，或任一机器分布标记为 portable。
+fn item_is_portable(item: &Value) -> bool {
+    if as_str(item, "type") == "portable" {
+        return true;
+    }
+    item.get("machines")
+        .and_then(|m| m.as_array())
+        .map(|arr| arr.iter().any(|m| as_str(m, "form") == "portable"))
+        .unwrap_or(false)
+}
+
+/// 依据恢复意愿 + 形态推导处置方式：
+/// 必须/建议恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
+fn derive_strategy(intent: &str, portable: bool) -> &'static str {
+    match intent {
+        "must" | "should" => {
+            if portable {
+                "copy_dir"
+            } else {
+                "redownload"
+            }
+        }
+        _ => "none",
+    }
+}
+
+/// 本次更新若改了恢复意愿、且未同时显式指定处置方式，则按意愿自动推导处置方式。
+fn apply_derived_strategy(item: &mut Value, updates: &Value) {
+    if updates.get("restore_intent").is_none() || updates.get("backup_strategy").is_some() {
+        return;
+    }
+    let intent = as_str(item, "restore_intent");
+    let portable = item_is_portable(item);
+    if let Some(obj) = item.as_object_mut() {
+        obj.insert(
+            "backup_strategy".to_string(),
+            json!(derive_strategy(&intent, portable)),
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
@@ -444,6 +485,7 @@ pub fn update_software(payload: Value) -> Value {
             item.insert(k.clone(), v.clone());
         }
     }
+    apply_derived_strategy(&mut software[idx], &updates);
     let item = software[idx].clone();
     store::write_software(&software);
     json!({ "success": true, "item": item })
@@ -462,11 +504,12 @@ pub fn batch_update(payload: Value) -> Value {
     let mut count = 0;
     for item in software.iter_mut() {
         if ids.contains(&as_str(item, "id")) {
-            if let (Value::Object(obj), Value::Object(upd)) = (item, &updates) {
+            if let (Value::Object(obj), Value::Object(upd)) = (&mut *item, &updates) {
                 for (k, v) in upd {
                     obj.insert(k.clone(), v.clone());
                 }
             }
+            apply_derived_strategy(item, &updates);
             count += 1;
         }
     }
@@ -714,7 +757,6 @@ pub async fn llm_analyze(payload: Value) -> Value {
   "category": "开发工具",
   "type": "desktop",
   "restore_intent": "must",
-  "backup_strategy": "redownload",
   "download_url": "https://...",
   "config_notes": "配置位置说明与迁移备忘"
 }}
@@ -723,7 +765,6 @@ pub async fn llm_analyze(payload: Value) -> Value {
 - category: 必须从 [开发工具, 系统工具, 浏览器与网络, 媒体娱乐, 办公与笔记, 通讯与社交, 其他] 中选一个
 - type: 必须从 [desktop, portable, cli, runtime] 中选一个
 - restore_intent: 必须从 [must, should, on_demand, drop] 中选一个
-- backup_strategy: 必须从 [copy_dir, copy_config, redownload, sync_account, none] 中选一个
 - download_url: 软件官网或可靠下载页
 - config_notes: 简要说明配置文件通常存放在何处（如 AppData、~/.config 或安装目录），或者是否依赖云同步
 "#
@@ -737,11 +778,18 @@ pub async fn llm_analyze(payload: Value) -> Value {
         Err(e) => return json!({ "success": false, "error": e.to_string() }),
     };
 
-    let mut req = client.post(&endpoint).json(&json!({
+    let mut body = json!({
         "model": model,
         "messages": [{ "role": "user", "content": prompt }],
         "temperature": 0.1
-    }));
+    });
+    // DeepSeek 默认开启思考模式；AI 预判只需结构化 JSON，显式关闭以降延迟与费用。
+    // 仅对 DeepSeek 端点下发，避免 OpenAI / 本地 LM Studio 因未知参数报错。
+    if endpoint.contains("api.deepseek.com") {
+        body["thinking"] = json!({ "type": "disabled" });
+    }
+
+    let mut req = client.post(&endpoint).json(&body);
     if !key.is_empty() {
         req = req.bearer_auth(&key);
     }
@@ -753,10 +801,20 @@ pub async fn llm_analyze(payload: Value) -> Value {
         }
     };
     let status = resp.status();
+    let body_text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => return json!({ "success": false, "error": e.to_string() }),
+    };
     if !status.is_success() {
-        return json!({ "success": false, "error": format!("LLM 服务返回状态码: {}", status.as_u16()) });
+        let detail = body_text.trim();
+        let detail = if detail.is_empty() {
+            String::new()
+        } else {
+            format!(" - {}", detail)
+        };
+        return json!({ "success": false, "error": format!("LLM 服务返回状态码: {}{}", status.as_u16(), detail) });
     }
-    let body: Value = match resp.json().await {
+    let body: Value = match serde_json::from_str(&body_text) {
         Ok(v) => v,
         Err(e) => return json!({ "success": false, "error": e.to_string() }),
     };

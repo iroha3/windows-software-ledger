@@ -162,7 +162,7 @@ pub fn export_checklists() -> Value {
     let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
 
     let backup_table = if backup_tasks.is_empty() {
-        "*暂无标记为需要打包目录或导出配置的软件。在软件备份台账中将处置方式标记为「保留/压缩目录」或「导出配置」后将在此列出。*".to_string()
+        "*暂无标记为需要打包目录的软件。在软件备份台账中将处置方式标记为「保留/压缩目录」后将在此列出。*".to_string()
     } else {
         let rows: Vec<String> = backup_tasks
             .iter()

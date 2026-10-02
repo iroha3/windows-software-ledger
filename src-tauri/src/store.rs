@@ -112,9 +112,25 @@ pub fn write_json(path: &Path, value: &Value) {
     }
 }
 
+/// 旧数据兼容：处置方式 `copy_config`（导出/备份配置）已下线，
+/// 读取时归并为 `copy_dir`（保留/压缩目录），使历史台账照常参与打包与导出。
+fn normalize_strategy(item: &mut Value) {
+    if let Some(obj) = item.as_object_mut() {
+        if obj.get("backup_strategy").and_then(|v| v.as_str()) == Some("copy_config") {
+            obj.insert("backup_strategy".to_string(), json!("copy_dir"));
+        }
+    }
+}
+
 pub fn read_software() -> Vec<Value> {
     match read_json(&software_file()) {
-        Value::Array(items) => items,
+        Value::Array(items) => items
+            .into_iter()
+            .map(|mut item| {
+                normalize_strategy(&mut item);
+                item
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }

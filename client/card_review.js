@@ -18,11 +18,17 @@ function getMachineDisplayName(id) {
   return machineAliases[id] || id;
 }
 
-// 绿色/便携软件：处置方式走确定性规则，不让 LLM 猜测。
+// 绿色/便携软件：形态决定处置方式推导（绿色版压缩目录，安装版重新下载）。
 function isPortableItem(item) {
   if (!item) return false;
   if (item.type === 'portable') return true;
   return (item.machines || []).some(m => m.form === 'portable');
+}
+
+// 依据恢复意愿推导处置方式：必须/建议恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
+function deriveStrategy(intent, portable) {
+  if (intent === 'must' || intent === 'should') return portable ? 'copy_dir' : 'redownload';
+  return 'none';
 }
 
 // 统一 SVG 图标库
@@ -120,6 +126,7 @@ async function init() {
   await loadSoftware();
   bindEvents();
   bindShortcuts();
+  enableWheelSelect();
   scanLocalIfEmpty();
 }
 
@@ -148,6 +155,24 @@ async function scanLocalIfEmpty() {
   } catch (e) {
     showToast('扫描请求异常: ' + e.message, 'error');
   }
+}
+
+// 卡片内悬浮滚轮切换处置方式：原生 <select> 在 WebView 中对滚轮无响应，
+// 卡片聚焦单条记录、操作意图明确，这里接管滚轮逐项切换并阻止页面滚动。
+// 主页表格不做此处理：滚动时鼠标掠过下拉会误改数据且静默保存。
+function enableWheelSelect() {
+  const selector = '#cardStrategy';
+  document.addEventListener('wheel', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const sel = e.target.closest(selector);
+    if (!sel || sel.disabled || sel.options.length === 0) return;
+    e.preventDefault();
+    const dir = e.deltaY > 0 ? 1 : -1;
+    const next = sel.selectedIndex + dir;
+    if (next < 0 || next >= sel.options.length) return;
+    sel.selectedIndex = next;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { passive: false, capture: true });
 }
 
 function initTheme() {
@@ -498,6 +523,7 @@ function bindShortcuts() {
         e.preventDefault();
         const nextIntent = intentMap[e.key];
         cardIntent.value = nextIntent;
+        cardStrategy.value = deriveStrategy(nextIntent, isPortableItem(activeItem));
         updateIntentButtons(nextIntent);
         markSaving();
         return;
@@ -555,6 +581,8 @@ function bindEvents() {
     if (!btn) return;
     const chosen = btn.dataset.intent;
     cardIntent.value = chosen;
+    // 评档即按形态推导处置方式（绿色版压缩目录 / 安装版重新下载）。
+    cardStrategy.value = deriveStrategy(chosen, isPortableItem(activeItem));
     updateIntentButtons(chosen);
     markSaving();
   });
@@ -610,8 +638,9 @@ function bindEvents() {
         if (sug.restore_intent) {
           cardIntent.value = sug.restore_intent;
           updateIntentButtons(sug.restore_intent);
+          // 处置方式不再由 LLM 判断，按意愿 + 形态推导。
+          cardStrategy.value = deriveStrategy(sug.restore_intent, isPortableItem(activeItem));
         }
-        if (sug.backup_strategy && !isPortableItem(activeItem)) cardStrategy.value = sug.backup_strategy;
         if (sug.download_url && !cardUrl.value) cardUrl.value = sug.download_url;
         if (sug.config_notes && !cardNotes.value) cardNotes.value = sug.config_notes;
 
@@ -700,7 +729,7 @@ function bindEvents() {
     showToast('已填入本地 LM Studio 预设', 'info');
   });
   bindPreset('presetDeepseek', () => {
-    document.getElementById('configLlmUrl').value = 'https://api.deepseek.com';
+    document.getElementById('configLlmUrl').value = 'https://api.deepseek.com/chat/completions';
     document.getElementById('configLlmModel').value = 'deepseek-flash';
     document.getElementById('configLlmKey').focus();
     showToast('已填入 DeepSeek 预设，请填入 API Key', 'info');
