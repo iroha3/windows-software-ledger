@@ -7,7 +7,7 @@
 <meta name="description" content="本地优先的 Windows 软件清点与重装迁移工具：一键扫描本机软件，按恢复意愿分级，记下安装路径、官网与配置位置，导出一份照着做就能重装的重装恢复清单。绿色便携，AGPL-3.0 开源。">
 <meta property="og:title" content="软件备份台账 · 换电脑前，先把软件家底清点清楚">
 <meta property="og:description" content="一键扫描本机软件，分级、标注、导出重装恢复清单。本地运行，一个 exe + 一个 data 文件夹。">
-<meta property="og:image" content="screenshot.png">
+<meta property="og:image" content="home.png">
 <meta property="og:type" content="website">
 <link rel="icon" href="logo.svg">
 <style>
@@ -126,11 +126,11 @@ footer a { color: var(--ink-2); }
     <h1>换电脑之前，<br>先把<mark>软件家底</mark>清点清楚</h1>
     <p class="sub">一键扫描本机软件，按「必须恢复 / 建议恢复 / 用到再装 / 淘汰」分级，记下每项的安装路径、官网与配置位置，最后导出一份可以直接照着执行的重装恢复清单。本地运行，一个 exe + 一个 data 文件夹。</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/iroha3/windows-software-ledger/releases/latest">下载 Windows 版 ↓</a>
+      <a class="btn primary" href="https://github.com/iroha3/windows-software-ledger/releases/latest/download/windows-software-ledger-windows-x64.zip">下载 Windows 版 ↓</a>
       <a class="btn line" href="https://github.com/iroha3/windows-software-ledger">查看源码 · GitHub</a>
     </div>
     <p class="note">Windows 10 / 11 · 绿色便携，清单只存在你自己的电脑上 · AGPL-3.0 开源</p>
-    <figure class="shot"><img src="screenshot.png" alt="软件备份台账界面" loading="eager"></figure>
+    <figure class="shot"><img src="home.png" alt="软件备份台账主页：顶部统计、机器分栏与逐行软件清单" loading="eager"></figure>
   </div>
 </div>
 
@@ -141,8 +141,11 @@ footer a { color: var(--ink-2); }
     <div><h3>一键扫描本机</h3><p>自动采集注册表安装项、便携软件与开始菜单快捷方式，归并去重后入库，不用手敲。</p></div>
     <div><h3>恢复意愿分级</h3><p>必须恢复 / 建议恢复 / 用到再装 / 淘汰弃用 / 待确认，一列下拉就能定夺。</p></div>
     <div><h3>处置方式 + 配置备忘</h3><p>保留目录、导出配置、重新下载、账号同步、无需操作，并记下配置文件具体在哪。</p></div>
+    <div><h3>卡片速审</h3><p>一次只问一条。键盘 1–5 定恢复意愿，翻页键切下一条，两百条也能一口气标完。</p></div>
     <div><h3>AI 辅助预判（可选）</h3><p>接入本地 LM Studio 或任意 OpenAI 兼容端点（如 DeepSeek），自动补全分类、意愿与配置建议。</p></div>
     <div><h3>多机器视图与合并</h3><p>记录每款软件出现在哪台机器、装在哪里；重复条目一键合并，汇总各机器路径。</p></div>
+    <div><h3>浏览器扩展台账</h3><p>扩展单独一页：装了什么、在哪个浏览器、还启不启用，一眼看全；不读你的 Cookie 和密码。</p></div>
+    <div><h3>开发环境复现</h3><p>pip、npm、Rust、VS Code 扩展、Go、.NET 都按设备列好，换电脑时照着敲一遍就装回来。</p></div>
     <div><h3>Markdown 导出</h3><p>一键生成《重装恢复清单》与《精选资产库》两份落地文档，照着做就行。</p></div>
   </div>
 </div></section>
@@ -157,9 +160,9 @@ footer a { color: var(--ink-2); }
         <li>便携 / 绿色软件目录的第一层</li>
         <li>开始菜单与桌面快捷方式指向的独立工具</li>
       </ul>
-      <p>采集脚本内置在 exe 里，扫描时才释放到临时目录执行，结果入库后立即删除——不会在你电脑上留下任何中间文件。</p>
+      <p>扫完就结束，不在你电脑上留下中间文件。</p>
     </div>
-    <figure class="shot"><img src="screenshot.png" alt="扫描后的软件清单" loading="lazy"></figure>
+    <figure class="shot"><img src="home-drawer.png" alt="点开任意一行：右侧抽屉展示该软件的所在机器、原始安装路径与发布者证据" loading="lazy"></figure>
   </div>
   <div class="row flip">
     <div class="text">
@@ -180,11 +183,47 @@ footer a { color: var(--ink-2); }
   </div>
   <div class="row">
     <div class="text">
+      <h3>一条一条过，像翻牌一样</h3>
+      <p>清单长了就懒得改。卡片速审把每款软件摊成一张卡：左边是待办列表和进度，右边一次只问一条。</p>
+      <p>键盘 <code>1–5</code> 切换恢复意愿，<code>PageUp / PageDown</code> 或 <code>[ ]</code> 切下一条，标完自动进下一张。</p>
+    </div>
+    <figure class="shot"><img src="card-review.png" alt="卡片速审模式：左侧待办列表与进度，右侧逐条翻卡标注恢复意愿" loading="lazy"></figure>
+  </div>
+  <div class="row flip">
+    <div class="text">
+      <h3>扩展也单独记一页</h3>
+      <p>按设备列出每个扩展的版本、状态和商店链接，保留意愿照样能逐条标注。换电脑时照着这张表装，常用的那几个不会漏。</p>
+      <p>不读你的 Cookie、密码，也不读扩展自己存的数据。</p>
+    </div>
+    <figure class="shot"><img src="browsers.png" alt="浏览器扩展台账：总扩展数、启用与停用统计，以及逐条扩展列表" loading="lazy"></figure>
+  </div>
+  <div class="row">
+    <div class="text">
+      <h3>换台机器，把开发环境装回来</h3>
+      <p>pip、npm 的全局包，Rust 工具链，VS Code 扩展，Go、.NET，按设备列成一张清单，换电脑时照着敲一遍就回来了。</p>
+      <p>只跑几条只读命令，不读环境变量、SSH 私钥和 git 凭据。这一页只是证据，不会动你的软件清单。</p>
+    </div>
+    <figure class="shot"><img src="dev-env.png" alt="开发环境复现：按设备分组的 pip 包、工具链与扩展清单" loading="lazy"></figure>
+  </div>
+  <div class="row flip">
+    <div class="text">
       <h3>最后拿到两份能照着做的文档</h3>
       <p>点一下「导出清单」，直接生成两份 Markdown：</p>
       <div class="quote">《重装恢复清单》——按优先级分组，每条带官网链接、配置导出位置与验证备忘。<small>《精选资产库》——你真正依赖的那批软件，以及它们在你的工作流里扮演的角色。</small></div>
     </div>
-    <figure class="shot"><img src="screenshot.png" alt="导出的 Markdown 清单" loading="lazy"></figure>
+    <div class="panel">
+      <p class="cap">《重装恢复清单》节选：</p>
+      <pre><code>## 必须恢复
+- **Visual Studio Code** — 账号同步
+  官网：https://code.visualstudio.com/
+  配置：设置与插件通过 GitHub 账号同步
+  验证：登录后确认扩展列表与 Remote-SSH 可连
+
+## 建议恢复
+- **Git** — 重新下载
+  官网：https://git-scm.com/
+  配置：.gitconfig 手动导出；SSH 密钥重新生成</code></pre>
+    </div>
   </div>
 </div></section>
 
@@ -192,7 +231,7 @@ footer a { color: var(--ink-2); }
   <h2>三步用起来</h2>
   <p class="lead">Windows 10 / 11 即可，不需要装 Python、Node 或任何运行时。</p>
   <div class="steps">
-    <div><h3>下载并运行</h3><p>从 GitHub Releases 下载 <code>windows-software-ledger-v<版本>-windows-x64.zip</code>，解压后把 <code>windows-software-ledger.exe</code> 放进任意文件夹双击。首次运行会在旁边自动生成 <code>data/</code>。</p></div>
+    <div><h3>下载并运行</h3><p><a href="https://github.com/iroha3/windows-software-ledger/releases/latest/download/windows-software-ledger-windows-x64.zip">直接下载 zip</a> → 解压 → 双击 exe。首次运行会在 exe 旁边自动生成 <code>data/</code>。</p></div>
     <div><h3>扫描本机</h3><p>点顶部的「扫描本机」，几十秒内把注册表安装项、便携软件和快捷方式收进来。</p></div>
     <div><h3>标注并导出</h3><p>为每款软件选好恢复意愿与处置方式，点「导出清单」，拿到重装恢复清单与精选资产库。</p></div>
   </div>
@@ -205,7 +244,7 @@ footer a { color: var(--ink-2); }
   <h2>常见问题</h2>
   <details><summary>需要联网吗？会上传我的数据吗？</summary><p>扫描、整理、导出全部在本地完成，不联网。只有在你开启可选的「AI 辅助预判」时，才会把软件名称发给你自己填写的模型端点（本地 LM Studio，或 DeepSeek / OpenAI 兼容 API）。</p></details>
   <details><summary>数据存在哪？换台电脑怎么办？</summary><p>全部在 exe 同目录的 <code>data/</code> 里，只有两个文件：<code>software.json</code> 与 <code>config.json</code>。不写注册表、不写 AppData，整个文件夹拷走就是迁移。</p></details>
-  <details><summary>要装 Python / Node / 数据库吗？</summary><p>都不用。单个 exe 绿色运行，扫描脚本已内嵌其中，系统只需 Windows 10 / 11（精简系统可能需补一个 WebView2 Runtime）。</p></details>
+  <details><summary>要装 Python / Node / 数据库吗？</summary><p>都不用。单个 exe 绿色运行，系统只需 Windows 10 / 11（精简系统可能需补一个 WebView2 Runtime）。</p></details>
   <details><summary>它和「手动记 Excel」有什么区别？</summary><p>清单自动生成、可反复扫描增量更新；每条都带机器分布、安装路径、官网链接与配置备忘，还带恢复意愿和准备进度——导出的不是一张表，而是一张能照着执行的重装清单。</p></details>
   <details><summary>收费吗？</summary><p>免费开源，基于 AGPL-3.0 许可。觉得有用的话，给个 Star 就是最大的支持。</p></details>
 </div></section>
