@@ -22,6 +22,32 @@
 
   if (typeof invoke !== 'function') return;
 
+  // 原生文件对话框（tauri-plugin-dialog，通过 plugin 命令直接调用）
+  window.dialogOpen = function (options) {
+    return invoke('plugin:dialog|open', { options: options || {} }).catch((err) => {
+      console.error('dialog open failed:', err);
+      return null;
+    });
+  };
+  window.dialogSave = function (options) {
+    return invoke('plugin:dialog|save', { options: options || {} }).catch((err) => {
+      console.error('dialog save failed:', err);
+      return null;
+    });
+  };
+
+  // 原生拖入文件：返回绝对路径数组（WebView2 不支持拖出，只能拖入）
+  window.onFileDrop = function (cb) {
+    const ev = window.__TAURI__ && window.__TAURI__.event;
+    if (!ev || typeof ev.listen !== 'function') return function () {};
+    let unlisten = null;
+    ev.listen('tauri://drag-drop', (e) => {
+      const paths = (e && e.payload && e.payload.paths) || [];
+      if (paths.length) cb(paths);
+    }).then((u) => { unlisten = u; });
+    return function () { if (unlisten) unlisten(); };
+  };
+
   const originalFetch = window.fetch.bind(window);
 
   // path -> (method, body) => invoke(name, args) | null
@@ -35,6 +61,18 @@
         return invoke('get_software');
       case '/api/dev-env':
         return invoke('get_dev_env');
+      case '/api/browser-extensions':
+        return invoke('get_browser_extensions');
+      case '/api/extension/update':
+        return invoke('update_extension', { id: body.id, fields: body.fields || {} });
+      case '/api/vault/list':
+        return invoke('vault_list', { kind: body.kind, id: body.id });
+      case '/api/vault/add':
+        return invoke('vault_add', { kind: body.kind, id: body.id, paths: body.paths });
+      case '/api/vault/delete':
+        return invoke('vault_delete', { kind: body.kind, id: body.id, name: body.name });
+      case '/api/vault/export':
+        return invoke('vault_export', { kind: body.kind, id: body.id, name: body.name, dest: body.dest });
       case '/api/software/update':
         return invoke('update_software', { payload: body });
       case '/api/software/batch-update':
@@ -53,6 +91,8 @@
         return invoke('scan_commit', { payload: body });
       case '/api/export':
         return invoke('export_markdown');
+      case '/api/export/save':
+        return invoke('export_save', { which: body.which, dest: body.dest });
       default:
         return null;
     }

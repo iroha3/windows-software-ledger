@@ -1,0 +1,170 @@
+// client/vault.js
+// 通用文件保管箱前端组件：可复用于软件卡片（kind=soft, id=SW-xxx）、
+// 浏览器页（kind=browser, id=edge）、扩展附件（kind=ext, id=<扩展ID>）。
+// 设计原则：
+//   - 只搬运用户手动放入的文件，绝不自动采集敏感内容
+//   - 默认收起，点 pill 就地展开；也可无 pill，由外部调 expand()
+//   - 保存 / 删除用与全站一致的线性图标，文件名完整显示不截断
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const ICONS = {
+    save: '<svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+    del: '<svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
+  };
+
+  async function api(path, payload) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    return res.json();
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function toast(msg) {
+    if (typeof window.showToast === 'function') window.showToast(msg, 'info');
+  }
+
+  function mount(opts) {
+    const pill = opts.pill ? $(opts.pill) : null;
+    const panel = $(opts.panel);
+    const list = $(opts.list);
+    const addBtn = $(opts.add);
+    const countEl = opts.count ? $(opts.count) : null;
+    const subEl = opts.sub ? $(opts.sub) : null;
+    if (!panel || !list || !addBtn) return null;
+
+    const kind = opts.kind;
+    let id = opts.id || null;
+    let files = [];
+    let machine = '';
+    let dropOff = null;
+
+    function setExpanded(expanded) {
+      panel.hidden = !expanded;
+      if (pill) pill.classList.toggle('active', expanded);
+      // 仅在展开时监听拖入，收起即解除，避免多个保管箱同时抢事件
+      if (expanded && !dropOff && typeof window.onFileDrop === 'function') {
+        dropOff = window.onFileDrop((paths) => { addFiles(paths); });
+      } else if (!expanded && dropOff) {
+        dropOff();
+        dropOff = null;
+      }
+    }
+
+    function renderSub() {
+      if (!subEl) return;
+      subEl.textContent = machine
+        ? `data/vault/${machine}/${kind}/${id || ''}/`
+        : '';
+    }
+
+    function render() {
+      if (countEl) {
+        countEl.hidden = files.length === 0;
+        countEl.textContent = String(files.length);
+      }
+      if (pill) pill.classList.toggle('has-files', files.length > 0);
+      renderSub();
+      if (!files.length) {
+        list.innerHTML = '<li class="vault-empty">暂无归档文件</li>';
+        return;
+      }
+      list.innerHTML = files.map((f) => `
+        <li class="vault-file">
+          <span class="vault-file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+          <button type="button" class="vault-file-btn vault-file-save" data-name="${esc(f.name)}" title="保存到…">${ICONS.save}</button>
+          <button type="button" class="vault-file-btn vault-file-del" data-name="${esc(f.name)}" title="删除此归档文件">${ICONS.del}</button>
+        </li>`).join('');
+    }
+
+    async function refresh() {
+      if (!id) { files = []; render(); return; }
+      try {
+        const res = await api('/api/vault/list', { kind, id });
+        files = (res && res.files) || [];
+        machine = (res && res.machine) || machine;
+      } catch (e) {
+        files = [];
+      }
+      render();
+    }
+
+    async function addFiles(paths) {
+      if (!id || !paths || !paths.length) return;
+      try {
+        const res = await api('/api/vault/add', { kind, id, paths });
+        if (res && res.success) {
+          const n = res.added || 0;
+          toast(n ? `已归档 ${n} 个文件` : '没有可归档的文件');
+        } else {
+          toast((res && res.error) || '归档失败');
+        }
+      } catch (e) {
+        toast('归档失败: ' + e.message);
+      }
+      await refresh();
+    }
+
+    async function pickFiles() {
+      if (!id) return;
+      if (typeof window.dialogOpen !== 'function') { toast('当前环境不支持文件选择'); return; }
+      const picked = await window.dialogOpen({ multiple: true, title: '选择要归档的配置文件' });
+      if (!picked) return;
+      await addFiles(typeof picked === 'string' ? [picked] : picked);
+    }
+
+    async function saveFile(name) {
+      if (typeof window.dialogSave !== 'function') { toast('当前环境不支持另存为'); return; }
+      const dest = await window.dialogSave({ defaultPath: name, title: '保存归档文件到…' });
+      if (!dest) return;
+      try {
+        const res = await api('/api/vault/export', { kind, id, name, dest });
+        toast(res && res.success ? '已保存' : ((res && res.error) || '保存失败'));
+      } catch (e) {
+        toast('保存失败: ' + e.message);
+      }
+    }
+
+    async function deleteFile(name) {
+      try {
+        const res = await api('/api/vault/delete', { kind, id, name });
+        toast(res && res.success ? '已删除' : ((res && res.error) || '删除失败'));
+      } catch (e) {
+        toast('删除失败: ' + e.message);
+      }
+      await refresh();
+    }
+
+    if (pill) pill.addEventListener('click', () => setExpanded(panel.hidden));
+    addBtn.addEventListener('click', pickFiles);
+    list.addEventListener('click', (e) => {
+      const del = e.target.closest('.vault-file-del');
+      if (del) { deleteFile(del.getAttribute('data-name')); return; }
+      const save = e.target.closest('.vault-file-save');
+      if (save) { saveFile(save.getAttribute('data-name')); }
+    });
+
+    render();
+
+    return {
+      async setTarget(newId) {
+        id = newId || null;
+        setExpanded(false);
+        await refresh();
+      },
+      expand() { setExpanded(true); },
+      collapse() { setExpanded(false); },
+      refresh,
+    };
+  }
+
+  window.Vault = { mount };
+})();

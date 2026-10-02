@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "frontendDist": "../client",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "bun scripts/dev-server.mjs"
+  }
+}

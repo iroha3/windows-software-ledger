@@ -8,7 +8,10 @@ let selectedIds = new Set();
 let activeMachine = 'all';
 let activeItem = null;
 let machineAliases = {};
-let lastDeleteTime = 0; // 用于双击 Delete 防误触
+let drawerVault = null; // 抽屉的配置归档组件实例
+
+const REPO_URL = 'https://github.com/iroha3/windows-software-ledger';
+const HOMEPAGE_URL = 'https://iroha3.github.io/windows-software-ledger/';
 
 function getMachineDisplayName(id) {
   if (!id) return '未知设备';
@@ -145,6 +148,16 @@ async function init() {
   initTheme();
   await fetchStatus();
   await loadSoftware();
+  drawerVault = window.Vault ? window.Vault.mount({
+    pill: 'drawerVaultToggle',
+    panel: 'drawerVaultPanel',
+    list: 'drawerVaultList',
+    add: 'drawerVaultAdd',
+    count: 'drawerVaultCount',
+    sub: 'drawerVaultSub',
+    kind: 'soft',
+    id: null,
+  }) : null;
   bindEvents();
   bindKeyboardShortcuts();
   // 首次运行 / 清单为空时自动扫描本机，省去手动点一次
@@ -311,7 +324,7 @@ function buildRowHtml(item) {
 
   return `
     <tr class="${isSelected ? 'selected' : ''} ${isNewClass}" data-id="${item.id}">
-      <td>
+      <td style="text-align: center;">
         <input type="checkbox" class="row-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''}>
       </td>
       <td style="text-align: center;">
@@ -458,6 +471,13 @@ function bindKeyboardShortcuts() {
           return;
         }
 
+        // Delete / Backspace：与底部删除按钮共享 armed 态
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          if (window.DeleteConfirm) window.DeleteConfirm.trigger(btnDeleteCurrent);
+          return;
+        }
+
         // 数字键 1~5 快速切换当前卡片意愿
         const drawerIntentMap = { '1': 'must', '2': 'should', '3': 'on_demand', '4': 'drop', '5': 'unreviewed' };
         if (drawerIntentMap[e.key]) {
@@ -548,14 +568,8 @@ function bindKeyboardShortcuts() {
       showToast('已取消选择');
     } else if (key === 'Delete' || key === 'Backspace' || code === 'Delete') {
       e.preventDefault();
-      const now = Date.now();
-      if (now - lastDeleteTime < 2000) {
-        lastDeleteTime = 0;
-        executeBatchDelete();
-      } else {
-        lastDeleteTime = now;
-        showToast('2秒内再次按 Delete 确认删除', 'warning', 2000);
-      }
+      // 表格选中项删除，与批量栏删除按钮共享同一个 armed 态
+      if (window.DeleteConfirm) window.DeleteConfirm.trigger(btnBatchDelete);
     }
   });
 }
@@ -696,6 +710,8 @@ function openDrawer(id) {
   document.getElementById('drawerType').value = activeItem.type || 'desktop';
   renderDrawerPrepToggle(activeItem.prep_status || 'todo');
   renderDrawerHasConfigToggle(activeItem.has_config);
+  if (drawerVault) drawerVault.setTarget(activeItem.id);
+  if (window.DeleteConfirm) window.DeleteConfirm.disarmAll();
   document.getElementById('drawerUrl').value = activeItem.download_url || '';
 
   // 触觉意愿大胶囊
@@ -1036,7 +1052,7 @@ function bindEvents() {
   btnCloseDrawer.addEventListener('click', closeDrawer);
   btnCloseDrawerBottom.addEventListener('click', closeDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
-  btnDeleteCurrent.addEventListener('click', deleteCurrentItem);
+  if (window.DeleteConfirm) window.DeleteConfirm.register(btnDeleteCurrent, deleteCurrentItem);
   const btnResetCurrent = document.getElementById('btnResetCurrent');
   if (btnResetCurrent) btnResetCurrent.addEventListener('click', resetCurrentItem);
   btnDrawerLLM.addEventListener('click', handleDrawerLLM);
@@ -1066,16 +1082,7 @@ function bindEvents() {
     showToast('已标记为已就绪', 'success');
   });
   btnBatchConfig.addEventListener('click', batchConfigToggle);
-  btnBatchDelete.addEventListener('click', () => {
-    const now = Date.now();
-    if (now - lastDeleteTime < 2000) {
-      lastDeleteTime = 0;
-      executeBatchDelete();
-    } else {
-      lastDeleteTime = now;
-      showToast('2秒内再次点击删除确认', 'warning', 2000);
-    }
-  });
+  if (window.DeleteConfirm) window.DeleteConfirm.register(btnBatchDelete, executeBatchDelete);
   btnBatchMerge.addEventListener('click', batchMerge);
   btnBatchLLM.addEventListener('click', handleBatchLLM);
 
@@ -1112,6 +1119,10 @@ function bindEvents() {
   // 关于弹窗
   const btnAbout = document.getElementById('btnAbout');
   if (btnAbout) btnAbout.addEventListener('click', openAboutModal);
+  const aboutGitHub = document.getElementById('aboutGitHub');
+  if (aboutGitHub) aboutGitHub.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(REPO_URL); });
+  const aboutHomepage = document.getElementById('aboutHomepage');
+  if (aboutHomepage) aboutHomepage.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(HOMEPAGE_URL); });
 
   bindPreset('presetLocal', () => {
     configLlmUrl.value = 'http://127.0.0.1:1234/v1/chat/completions';
@@ -1414,9 +1425,10 @@ async function handleScanLocal() {
       return;
     }
 
-    // 首次运行 / 清单为空：直接导入全部新增，无需弹窗
-    if (softwareList.length === 0) {
-      const keys = candidates.filter(c => c.kind === 'new').map(c => c.key);
+    // 首次运行 / 清单为空：视为全量重建，直接导入全部候选（含“之前已删除”），无需弹窗
+    const wasEmpty = data.was_empty !== undefined ? data.was_empty : softwareList.length === 0;
+    if (wasEmpty) {
+      const keys = candidates.map(c => c.key);
       await commitImport(keys);
       return;
     }
@@ -1505,27 +1517,37 @@ async function commitImport(keys) {
   }
 }
 
-function downloadMarkdownFile(content, filename) {
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast('已下载到 下载\\' + filename, 'success');
+async function saveExportFile(which) {
+  if (!window.__lastExportData) return;
+  const isChecklist = which === 'checklist';
+  const filename = isChecklist
+    ? (window.__lastExportData.checklistFilename || 'RECOVERY_CHECKLIST.md')
+    : (window.__lastExportData.awesomeFilename || 'AWESOME_LIST.md');
+  if (typeof window.dialogSave !== 'function') {
+    showToast('当前环境不支持另存为', 'warning');
+    return;
+  }
+  const dest = await window.dialogSave({
+    defaultPath: filename,
+    title: '保存清单到…',
+    filters: [{ name: 'Markdown', extensions: ['md'] }]
+  });
+  if (!dest) return;
+  try {
+    const res = await fetch('/api/export/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ which, dest })
+    });
+    const data = await res.json();
+    if (data.success) showToast('已保存: ' + dest, 'success');
+    else showToast('保存失败: ' + (data.error || ''), 'error');
+  } catch (e) {
+    showToast('保存异常: ' + e.message, 'error');
+  }
 }
 
-window.downloadExportFile = function(type) {
-  if (!window.__lastExportData) return;
-  if (type === 'checklist') {
-    downloadMarkdownFile(window.__lastExportData.checklistContent || '', window.__lastExportData.checklistFilename || 'RECOVERY_CHECKLIST.md');
-  } else if (type === 'awesome') {
-    downloadMarkdownFile(window.__lastExportData.awesomeContent || '', window.__lastExportData.awesomeFilename || 'AWESOME_LIST.md');
-  }
-};
+window.saveExportFile = saveExportFile;
 
 // 导出 Markdown
 async function handleExport() {
@@ -1538,20 +1560,10 @@ async function handleExport() {
     if (data.success) {
       window.__lastExportData = data;
 
-      // 自动触发浏览器直接下载
-      if (data.checklistContent) {
-        downloadMarkdownFile(data.checklistContent, data.checklistFilename || 'RECOVERY_CHECKLIST.md');
-      }
-      if (data.awesomeContent) {
-        setTimeout(() => {
-          downloadMarkdownFile(data.awesomeContent, data.awesomeFilename || 'AWESOME_LIST.md');
-        }, 300);
-      }
-
       const modalBody = document.getElementById('exportModalBody');
       modalBody.innerHTML = `
         <p style="margin-bottom: 12px; color: var(--ink-2);">
-          两份清单文档已<strong>自动下载</strong>至浏览器下载目录：
+          两份清单已生成，点击右侧按钮<strong>选择保存路径</strong>：
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
           <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
@@ -1559,8 +1571,8 @@ async function handleExport() {
               <div style="font-weight: 600; color: var(--ink);">📋 重装恢复备忘清单</div>
               <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">${escapeHtml(data.checklistFilename || 'RECOVERY_CHECKLIST.md')}</div>
             </div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadExportFile('checklist')">
-              <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> 重新下载
+            <button class="btn btn-secondary btn-sm" onclick="saveExportFile('checklist')">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 另存为…
             </button>
           </div>
           <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
@@ -1568,12 +1580,11 @@ async function handleExport() {
               <div style="font-weight: 600; color: var(--ink);">⭐ 个人精选资产库</div>
               <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">${escapeHtml(data.awesomeFilename || 'AWESOME_LIST.md')}</div>
             </div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadExportFile('awesome')">
-              <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> 重新下载
+            <button class="btn btn-secondary btn-sm" onclick="saveExportFile('awesome')">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 另存为…
             </button>
           </div>
         </div>
-        <p style="font-size: 12px; color: var(--ink-3);">如果浏览器拦截了自动弹出下载，可点击上方按钮重新下载。</p>
       `;
       document.getElementById('exportModal').classList.add('show');
     } else {
@@ -1641,20 +1652,8 @@ async function handleConfirmBatchAdd() {
 }
 
 // 关于弹窗
-async function openAboutModal() {
-  const endpointEl = document.getElementById('aboutLlmEndpoint');
-  if (endpointEl) endpointEl.innerText = '读取中...';
+function openAboutModal() {
   document.getElementById('aboutModal').classList.add('show');
-  if (endpointEl) {
-    try {
-      const res = await fetch('/api/config');
-      const cfg = await res.json();
-      const keyState = cfg.llm_api_key ? '已配置 Key' : '无 Key';
-      endpointEl.innerText = `${cfg.llm_url || '未设置'}  ·  ${cfg.llm_model || '未设置'}  (${keyState})`;
-    } catch (e) {
-      endpointEl.innerText = '读取失败';
-    }
-  }
 }
 
 // 配置弹窗管理

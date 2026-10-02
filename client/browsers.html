@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>浏览器扩展台账 · 软件备份台账</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232c6e64%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22/><line x1=%2211%22 y1=%2211%22 x2=%2216.65%22 y2=%2216.65%22/><path d=%22M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z%22/></svg>">
+  <style>
+    svg { fill: none; }
+    svg.i { width: 15px; height: 15px; stroke: currentColor; fill: none; vertical-align: middle; }
+    svg.i.lg { width: 22px; height: 22px; }
+    svg.i.sm { width: 13px; height: 13px; }
+    body { background-color: #fcfbf9; }
+  </style>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <header>
+    <div class="logo-section">
+      <a href="/" class="btn btn-secondary" title="返回主表格视图">
+        <svg class="i sm" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        <span>返回表格</span>
+      </a>
+      <div class="logo-title" style="margin-left: 6px; display: inline-flex; align-items: center; gap: 6px;">
+        <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+        浏览器扩展台账
+      </div>
+      <div class="logo-actions">
+        <button id="btnThemeToggle" class="icon-btn" title="切换日间/夜间模式"><span id="themeIcon"></span><span id="themeText" style="display:none"></span></button>
+        <button id="btnConfig" class="icon-btn" title="设置：扫描目录、设备别名与大模型"><svg class="i sm" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></button>
+        <button id="btnAbout" class="icon-btn" title="关于 / 快捷键速查"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btnExtRefresh" class="btn btn-secondary" title="重新读取已采集的浏览器扩展清单">
+        <svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        <span>刷新</span>
+      </button>
+      <div class="header-divider"></div>
+      <a href="/card_review.html" class="btn btn-secondary" title="切换到全屏卡片速审模式"><svg class="i sm" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg><span>卡片速审</span></a>
+      <a href="/dev_env.html" class="btn btn-secondary" title="查看开发环境清单"><svg class="i sm" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg><span>开发环境</span></a>
+    </div>
+  </header>
+
+  <!-- 统计信息横条 -->
+  <div class="stats-bar" id="extStatsBar">
+    <div class="stat-item" data-filter-intent="all"><span>总扩展数</span><span class="stat-num" id="extStatTotal">0</span></div>
+    <div class="stat-item" data-filter-enabled="true"><span class="status-dot dot-ready"></span><span>启用</span><span class="stat-num" id="extStatOn">0</span></div>
+    <div class="stat-item" data-filter-enabled="false"><span class="status-dot dot-unreviewed"></span><span>停用</span><span class="stat-num" id="extStatOff">0</span></div>
+    <div class="stat-item" data-filter-intent="must"><span class="status-dot dot-must"></span><span>必须恢复</span><span class="stat-num" id="extStatMust">0</span></div>
+    <div class="stat-item" data-filter-intent="should"><span class="status-dot dot-should"></span><span>建议恢复</span><span class="stat-num" id="extStatShould">0</span></div>
+    <div class="stat-item" data-filter-intent="on_demand"><span class="status-dot dot-ondemand"></span><span>用到再装</span><span class="stat-num" id="extStatOnDemand">0</span></div>
+    <div class="stat-item" data-filter-intent="drop"><span class="status-dot dot-drop"></span><span>淘汰弃用</span><span class="stat-num" id="extStatDrop">0</span></div>
+    <div class="stat-item" data-filter-intent="unreviewed"><span class="status-dot dot-unreviewed"></span><span>待确认</span><span class="stat-num" id="extStatUnreviewed">0</span></div>
+    <div class="stat-item" data-filter-attach="true"><svg class="i sm" viewBox="0 0 24 24" style="color: var(--accent);"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg><span>有附件</span><span class="stat-num" id="extStatAttach">0</span></div>
+  </div>
+
+  <!-- 工具栏与筛选区 -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <div class="machine-tabs" id="extMachineTabs">
+        <button class="tab-btn active" data-machine="all">全部设备 (0)</button>
+      </div>
+      <div class="filter-group">
+        <div class="search-wrap">
+          <svg class="i sm search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="extSearch" class="search-input" placeholder="搜索扩展名称、ID、备注...">
+          <kbd class="search-kbd">/</kbd>
+        </div>
+        <select id="extBrowserFilter" class="select-filter"><option value="all">全部浏览器</option></select>
+        <select id="extIntentFilter" class="select-filter">
+          <option value="all">全部保留意愿</option>
+          <option value="must">必须恢复</option>
+          <option value="should">建议恢复</option>
+          <option value="on_demand">用到再装</option>
+          <option value="drop">淘汰弃用</option>
+          <option value="unreviewed">待确认</option>
+        </select>
+        <select id="extPrepFilter" class="select-filter">
+          <option value="all">全部准备进度</option>
+          <option value="todo">待办</option>
+          <option value="ready">就绪</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;color:var(--ink-2);"><input type="checkbox" id="extAwesomeFilter"> 仅精选</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;color:var(--ink-2);"><input type="checkbox" id="extAttachFilter"> 仅有附件</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量操作浮条 -->
+  <div class="batch-bar" id="extBatchBar">
+    <div class="batch-info" id="extBatchInfo">已选 0 项</div>
+    <div class="batch-buttons">
+      <button class="btn btn-secondary btn-sm" data-batch-intent="must"><span class="status-dot dot-must"></span>必须</button>
+      <button class="btn btn-secondary btn-sm" data-batch-intent="should"><span class="status-dot dot-should"></span>建议</button>
+      <button class="btn btn-secondary btn-sm" data-batch-intent="on_demand"><span class="status-dot dot-ondemand"></span>按需</button>
+      <button class="btn btn-secondary btn-sm" data-batch-intent="drop"><span class="status-dot dot-drop"></span>淘汰</button>
+      <button class="btn btn-secondary btn-sm" data-batch-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
+      <button class="btn btn-secondary btn-sm" id="btnExtBatchReady"><span class="status-dot dot-ready"></span>设为就绪</button>
+      <button class="btn btn-secondary btn-sm" id="btnExtBatchReset">恢复默认</button>
+      <button class="btn btn-secondary btn-sm" id="btnExtBatchClear">清空勾选</button>
+    </div>
+  </div>
+
+  <!-- 主数据表格 -->
+  <main class="table-container">
+    <table id="extTable">
+      <thead>
+        <tr>
+          <th style="width: 32px; text-align: center;"><input type="checkbox" id="selectAllExt"></th>
+          <th style="width: 36px; text-align: center;"><svg class="i sm fill" viewBox="0 0 24 24" style="color:#c9a24a;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></th>
+          <th style="min-width: 260px;">扩展名称</th>
+          <th style="width: 90px;">版本</th>
+          <th style="width: 80px;">状态</th>
+          <th style="min-width: 120px;">所在设备</th>
+          <th style="width: 135px;">保留意愿</th>
+          <th style="width: 105px; text-align: center;">准备进度</th>
+          <th style="min-width: 240px;">商店链接</th>
+          <th style="min-width: 220px;">备注</th>
+          <th style="width: 70px; text-align: center;">附件</th>
+        </tr>
+      </thead>
+      <tbody id="extTableBody"></tbody>
+    </table>
+  </main>
+
+  <!-- 侧边详情抽屉 -->
+  <div class="drawer-overlay" id="extDrawerOverlay"></div>
+  <aside class="drawer" id="extDrawer">
+    <div class="drawer-header">
+      <div class="drawer-header-left">
+        <span class="card-chip" id="extDrawerChip">EXT</span>
+        <span id="extDrawerSaveStatus" class="save-status"><svg class="i sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 已同步</span>
+      </div>
+      <div class="drawer-header-right">
+        <button id="extDrawerClose" class="btn btn-secondary btn-sm" title="关闭 (Esc)"><svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <div class="card-hero-block">
+        <input type="text" id="extDrawerName" class="card-big-title-input" readonly title="名称来自浏览器，只读">
+        <div class="card-meta-line">
+          <div class="meta-tag-item"><label>浏览器</label><input type="text" id="extDrawerBrowser" class="meta-input-compact" readonly></div>
+          <div class="meta-tag-item"><label>配置</label><input type="text" id="extDrawerProfile" class="meta-input-compact" readonly></div>
+          <div class="meta-tag-item"><label>版本</label><input type="text" id="extDrawerVersion" class="meta-input-compact" readonly></div>
+          <div class="meta-tag-item"><label>状态</label><input type="text" id="extDrawerEnabled" class="meta-input-compact" readonly></div>
+          <label class="meta-awesome-pill" id="extDrawerAwesomePill" title="加入/取消个人精选扩展">
+            <input type="checkbox" id="extDrawerAwesome" style="display:none;">
+            <span class="awesome-star-icon">★</span><span class="awesome-text">精选</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="decision-panel">
+        <div class="decision-section-title"><span>重装保留意愿</span><span class="decision-hint">快捷键 1~5 切换</span></div>
+        <div class="intent-segmented" id="extDrawerIntentSegmented">
+          <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
+          <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
+          <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
+          <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
+          <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
+        </div>
+      </div>
+
+      <div class="action-panel">
+        <div class="drawer-field">
+          <label>准备进度</label>
+          <button type="button" class="prep-badge toggle-pill-btn prep-todo" id="extDrawerPrepToggle" title="点击切换：待办 / 就绪">
+            <span class="status-dot dot-unreviewed" id="extDrawerPrepDot"></span><span id="extDrawerPrepText">待办</span>
+          </button>
+        </div>
+        <div class="drawer-field">
+          <label>备注 (为什么留它 / 登录账号 / 配置要点)</label>
+          <textarea id="extDrawerNotes" rows="3" placeholder="例如：广告拦截，装完必开；配置在扩展设置里，需手动导出..."></textarea>
+        </div>
+        <div class="drawer-field">
+          <label>附件归档 (手动放入的文件，随台账一起拷走)</label>
+          <div class="config-status-row">
+            <button type="button" class="vault-icon-btn" id="extDrawerVaultPill" title="归档该扩展的配置文件（可拖入或选择文件）">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+              <span class="vault-count" id="extDrawerVaultCount" hidden>0</span>
+            </button>
+          </div>
+          <div class="vault-panel" id="extDrawerVaultPanel" hidden>
+            <div class="vault-panel-head">
+              <span class="vault-panel-title">附件归档 <span class="vault-panel-sub" id="extDrawerVaultSub"></span></span>
+              <span class="vault-panel-hint">拖入文件，或</span>
+              <button type="button" class="vault-add-btn" id="extDrawerVaultAdd">选择文件</button>
+            </div>
+            <ul class="vault-file-list" id="extDrawerVaultList"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="evidence-block">
+        <div class="evidence-header"><span>来源与原始证据</span></div>
+        <div class="evidence-list">
+          <div class="evidence-row"><span class="evidence-key">扩展 ID</span><span class="evidence-val" id="extDrawerFullId">—</span></div>
+          <div class="evidence-row"><span class="evidence-key">所在设备</span><span class="evidence-val" id="extDrawerMachine">—</span></div>
+          <div class="evidence-row" id="extDrawerSourceRow"><span class="evidence-key">商店来源</span><a href="#" class="evidence-val" id="extDrawerSource">—</a></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-footer">
+      <div class="drawer-footer-left">
+        <button id="btnExtReset" class="btn btn-secondary btn-sm" title="清空该扩展的意愿、就绪、精选与备注">
+          <svg class="i sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg><span>恢复默认</span>
+        </button>
+      </div>
+      <div class="footer-shortcut-badge"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd><span class="badge-desc">切换意愿</span><span class="badge-sep">·</span><kbd>Esc</kbd><span class="badge-desc">关闭</span></div>
+      <div class="drawer-footer-right">
+        <button id="btnExtDrawerDone" class="btn btn-primary btn-sm">完成并关闭</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 设置弹窗 -->
+  <div class="modal-overlay" id="configModal">
+    <div class="modal-content" style="width: 550px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+          中台扫描与 LLM 设置
+        </h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('configModal').classList.remove('show')"><svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="drawer-field">
+          <label>便携与绿色软件扫描路径</label>
+          <textarea id="configScanDirs" rows="3" style="font-family: var(--mono); font-size: 12px;"></textarea>
+          <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
+        </div>
+        <div class="drawer-field">
+          <label>设备友好别名映射</label>
+          <div id="configMachineAliasesList" class="machine-aliases-list"></div>
+          <span class="hint">为当前检测到的机器设置友善中文别名，将在选项卡、表格和卡片中同步展示。</span>
+        </div>
+        <div style="border-top: 1px solid var(--rule); padding-top: 10px;">
+          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
+          <div class="preset-chips">
+            <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
+            <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-chat)</button>
+          </div>
+        </div>
+        <div class="drawer-field"><label>Chat Completions API 地址</label><input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions"></div>
+        <div class="drawer-field"><label>模型标识 (Model ID)</label><input type="text" id="configLlmModel" placeholder="qwen3.5-4b"></div>
+        <div class="drawer-field"><label>API Key (本地模型可留空)</label><input type="password" id="configLlmKey" placeholder="sk-..." autocomplete="off"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('configModal').classList.remove('show')">取消</button>
+        <button class="btn btn-primary" id="btnSaveConfig">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关于弹窗 -->
+  <div class="modal-overlay" id="aboutModal">
+    <div class="modal-content" style="width: 540px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          关于
+        </h3>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('aboutModal').classList.remove('show')"><svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="about-hero">
+          <div class="about-logo"><svg class="i lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></div>
+          <div class="about-name">浏览器扩展台账</div>
+          <div class="about-version">v1.0.1</div>
+          <div class="about-tagline">只读采集扩展，用户层自由标注</div>
+        </div>
+        <p class="about-desc">扫描字段（名称 / 版本 / ID / 状态 / 来源）只读；保留意愿、准备进度、精选、备注与附件是你的层，重扫不丢。绝不读取扩展存储数据、Cookie 或密码。</p>
+        <div class="about-links">
+          <a href="#" class="about-link" id="aboutGitHub"><svg class="i sm fill" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>GitHub 仓库</a>
+          <a href="#" class="about-link" id="aboutHomepage"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>项目主页</a>
+        </div>
+        <blockquote class="about-quote">欢迎到 GitHub 点个 ⭐ Star！</blockquote>
+        <hr class="about-divider">
+        <div class="about-section">
+          <h4>数据位置</h4>
+          <div class="about-keys">
+            <div class="about-key-row"><span class="keys"><kbd>证据</kbd></span><span class="desc">data/evidence/&lt;设备&gt;/browser-extensions.json（只读扫描结果）</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>用户层</kbd></span><span class="desc">data/extensions.json（意愿 / 就绪 / 精选 / 备注）</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>附件</kbd></span><span class="desc">data/vault/&lt;本机&gt;/ext/&lt;扩展ID&gt;/</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/tauri-shim.js"></script>
+  <script src="/vault.js"></script>
+  <script src="/browsers.js"></script>
+</body>
+</html>

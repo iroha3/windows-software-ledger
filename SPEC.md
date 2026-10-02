@@ -26,7 +26,7 @@
   - **高价值文档导出**：
     1. `RECOVERY_CHECKLIST.md`：按优先级分组的重装恢复检查清单（含下载链接、配置导出位置与验证备忘）。
     2. `AWESOME_LIST.md`：个人精选工作流软件清单。
-  - **开发环境复现**：扫描时用只读命令白名单采集 Python / Rust / VS Code 扩展 / Git / Node / Go / .NET 的全局包、工具链与全局配置，生成可一键复制的恢复命令；作为独立页面按设备折叠展示，不写入软件清单。
+  - **开发环境复现**：扫描时用只读命令白名单采集 Python / Rust / VS Code 扩展 / Git / Node / Go / .NET 的全局包、工具链、源/镜像配置与全局配置；包列表与配置原文落到 `evidence/<设备>/dev-env/`，页面给出引用这些文件的短恢复命令（避免逐包罗列）；作为独立页面按设备折叠展示，不写入软件清单。
 
 ---
 
@@ -112,6 +112,24 @@
   - `sync_account` (依赖云端/账号登录同步)
   - `none` (无需任何操作)
 
+#### 证据文件（`data/evidence/<主机名>/`）
+
+采集脚本产出的原始证据，可随便携目录拷走，**与 `software.json` 解耦**：
+
+- `registry-apps.json` / `portable-apps.json` / `shortcuts.json` / `winget-apps.json` / `scoop-apps.json` / `cli-tools.json` / `machine-info.json`：软件候选来源。
+- `dev-env.json` + `dev-env/`：开发环境声明式清单与包列表 / 配置原文（见 BUILD.md）。
+- `browser-extensions.json`：已安装浏览器的扩展只读元数据（见 BUILD.md）。
+- `timings.json`：仅在 `-Timing` 时产出，记录各步骤耗时。
+- `screenshots/`：供用户手动存放参考截图，重扫不清除。
+
+#### 配置归档（`data/vault/<主机名>/`）
+
+用户**手动**放入的配置文件保管箱，路径为 `vault/<主机名>/soft/<SW-ID>/`、`vault/<主机名>/browser/<浏览器ID>/` 或 `vault/<主机名>/ext/<扩展ID>/`。默认收起，不自动采集；删除软件时级联清理 `soft/<ID>`。浏览器扩展的**备注**存 `data/extensions.json`（按扩展 ID，重扫不丢）。
+
+#### 首次扫描与增量导入
+
+`scan_preview` 只解析候选，`scan_commit` 只写入勾选项。若导入前台账为空（首次全量扫描），导入的条目**不标记 `is_new`**；台账非空时，勾选导入的条目 `is_new = true`。删除的条目写入 `data/ignored.json` 作墓志铭，重扫默认不勾选，手动再勾选可复活。
+
 ---
 
 ## 4. 技术栈选型与系统架构
@@ -136,7 +154,7 @@
     - 快速切换意愿/处置下拉状态。
     - 一键合并重复条目、一键删除无效条目。
     - 一键导出 Markdown 恢复手册。
-    - 开发环境复现页（`dev_env.html`）：按设备折叠展示采集到的开发环境声明式清单与恢复命令，只读、不改动软件清单。
+    - 开发环境复现页（`dev_env.html`）：按设备折叠展示开发环境声明式清单（含落盘文件列表）与引用这些文件的短恢复命令，只读、不改动软件清单。
 
 > 历史 Bun 中台版本（Node.js 本地服务 + 浏览器前端）完整保留在 `bun` 分支。
 

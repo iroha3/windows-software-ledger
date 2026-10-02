@@ -61,6 +61,31 @@ pub fn evidence_dir() -> PathBuf {
     data_dir().join("evidence")
 }
 
+/// 浏览器扩展的用户层标注（备注等）。与采集证据分离，重扫不会覆盖。
+pub fn extensions_file() -> PathBuf {
+    data_dir().join("extensions.json")
+}
+
+/// 读取扩展标注：始终返回对象（键 = 扩展 ID）。
+pub fn read_extensions() -> Value {
+    let v = read_json(&extensions_file());
+    if v.is_object() {
+        v
+    } else {
+        json!({})
+    }
+}
+
+pub fn write_extensions(value: &Value) {
+    write_json(&extensions_file(), value);
+}
+
+/// 通用文件保管箱：`data/vault/<主机名>/<kind>/<id>/`。
+/// 与扫描证据解耦，删除软件时可级联清理。
+pub fn vault_dir() -> PathBuf {
+    data_dir().join("vault")
+}
+
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
 pub fn read_json(path: &Path) -> Value {
     match fs::read_to_string(path) {

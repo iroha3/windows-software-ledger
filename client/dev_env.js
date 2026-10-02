@@ -110,13 +110,22 @@ function renderMachineFilter() {
   }
 }
 
-function renderProvider(p) {
+function renderProvider(p, evidenceBase) {
   const items = p.items || [];
-  const cmds = p.restore_commands || [];
+  const files = p.files || [];
+  const cmds = (p.restore_commands || []).map(c => String(c).replace(/\{\{EVIDENCE\}\}/g, evidenceBase));
   const disabled = p.available ? '' : ' provider-card-disabled';
   const badge = p.available
     ? `<span class="provider-badge">${items.length} 项</span>`
     : `<span class="provider-badge provider-badge-off">未检测到</span>`;
+
+  const filesHtml = files.length
+    ? `<div class="provider-files">${files.map(f => {
+        const rel = `${evidenceBase}/dev-env/${f.name}`;
+        const count = (f.count === undefined || f.count === null) ? '' : ` · ${f.count} 行`;
+        return `<span class="provider-file" title="${escapeHtml(rel)}">${escapeHtml(f.name)}${count}</span>`;
+      }).join('')}</div>`
+    : '';
 
   const itemsHtml = items.length
     ? `<div class="provider-items">${items.map(it => `
@@ -151,6 +160,7 @@ function renderProvider(p) {
         ${ICONS.chevron}
       </summary>
       <div class="provider-body">
+        ${filesHtml}
         ${itemsHtml}
         ${cmdHtml}
       </div>
@@ -175,9 +185,10 @@ function render() {
   const blocks = visible.map(m => {
     const providers = m.providers || [];
     availableCount += providers.filter(p => p.available).length;
+    const evidenceBase = `data/evidence/${m.dir || m.machine_id}`;
     const time = m.collected_at ? `<span class="dev-machine-time">采集于 ${escapeHtml(formatTime(m.collected_at))}</span>` : '';
     const list = providers.length
-      ? `<div class="provider-list">${providers.map(renderProvider).join('')}</div>`
+      ? `<div class="provider-list">${providers.map(p => renderProvider(p, evidenceBase)).join('')}</div>`
       : '<div class="dev-empty-inline">该设备未采集到开发环境信息</div>';
     return `
       <section class="dev-machine-block">

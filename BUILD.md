@@ -36,9 +36,29 @@ cargo build --release --manifest-path src-tauri\Cargo.toml
 
 ### 开发运行
 
+**方式一：热重载（推荐，改前端不用重编）**
+
 ```bat
-scripts\cargo-msvc.bat run
+scripts\dev.bat
 ```
+
+`dev.bat` 先加载 MSVC 环境，再跑 `tauri dev`：
+
+- `scripts/dev-server.mjs`（Bun）把 `client/` 跑在 `http://127.0.0.1:1420`；dev 专属配置在 `src-tauri/tauri.dev.conf.json`（用 `tauri dev --config` 合并），主配置 `tauri.conf.json` 保持干净；
+- 改动 `client/` 下任何文件 → 窗口**自动刷新**，**不触发 Rust 重编**；
+- 只有改 Rust 代码时才增量重编并重启。
+
+首次会通过 `bunx @tauri-apps/cli` 拉取 Tauri CLI（无需 `cargo install`）。
+
+**方式二：自包含构建（前端改动需重新编译）**
+
+```bat
+scripts\cargo-msvc.bat build --release
+```
+
+产物在 `src-tauri\target\release\windows-software-ledger.exe`，`client/` 内嵌其中。
+
+> 注意：不要把 `devUrl` 写进主 `tauri.conf.json`。本地是用 `cargo` 直接构建、没有启用 `custom-protocol` feature，此时 `dev == true`，主配置里的 `devUrl` 会让 release exe 也去加载 `localhost:1420`。所以 dev 用 `--config` 合并到临时配置里。
 
 ### 测试
 
@@ -64,33 +84,88 @@ scripts\cargo-msvc.bat test
 - 证据保留在 `data\evidence\`，可随便携目录一起拷走；
 - 临时脚本文件带 UTF-8 BOM 写出，兼容 PowerShell 5.1（存在 `pwsh` 时优先使用）。
 
-### 开发环境清单（`dev-env.json`）
+### 开发环境清单（`dev-env.json` + `dev-env/`）
 
-扫描第 7 步额外产出 `data\evidence\<主机名>\dev-env.json`，由 7 个 provider 组成（Python / Rust / VS Code 扩展 / Git / Node / Go / .NET）：
+扫描第 7 步额外产出两样东西（都在 `data\evidence\<主机名>\` 下）：
+
+- `dev-env/` 目录：包列表 / 配置原文，UTF-8 **无 BOM**，供 pip / npm / cargo 直接读取。
+- `dev-env.json`：7 个 provider 的摘要（Python / Rust / VS Code 扩展 / Git / Node / Go / .NET）。
+
+包多时不再逐行罗列命令，而是写文件 + 短命令。命令里的 `{{EVIDENCE}}` 占位符由前端替换为 `data/evidence/<设备目录>`，例如：
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "machine_id": "...",
-  "collected_at": "...",
+  "files_dir": "dev-env",
   "providers": [
     {
-      "id": "rust",
-      "label": "Rust",
+      "id": "python",
+      "label": "Python",
       "available": true,
-      "summary": "3 个工具链",
-      "items": [ { "name": "toolchain", "version": "stable-x86_64-pc-windows-msvc" } ],
-      "restore_commands": [ "rustup toolchain install stable-x86_64-pc-windows-msvc" ]
+      "summary": "204 个 pip 包",
+      "items": [ { "name": "numpy", "version": "2.1.0" } ],
+      "files": [ { "name": "python-requirements.txt", "count": 204 } ],
+      "restore_commands": [ "pip install -r \"{{EVIDENCE}}/dev-env/python-requirements.txt\"" ]
     }
   ]
 }
 ```
 
-前端「开发环境」页（`client/dev_env.html`）通过 `get_dev_env` 命令聚合所有 `dev-env.json`，按设备折叠展示，命令块可一键复制。它只是只读证据，**不进入 `software.json`，也不参与导入流程**。
+采集的清单文件：`python-requirements.txt` / `python-pipx.txt` / `rust-toolchains.txt` / `rust-components.txt` / `rust-crates.txt` / `vscode-extensions.txt` / `node-globals.txt` / `dotnet-tools.txt`。
 
-**安全红线**：provider 只调白名单只读命令，**绝不读取环境变量块、`~/.ssh`、`.git-credentials`、`.npmrc` token、`.aws/`、`.env` 或任何凭据**；Git 只取白名单键（用户名/邮箱/编辑器/别名等），仓库 remote 不在采集范围。
+**源 / 镜像配置**也会另存一份（同样脱敏）：`pip-config.txt`（`pip config list`）、`cargo-config.toml`（`~/.cargo/config.toml`）、`git-config.txt`（`~/.gitconfig`），npm registry 与 Go `GOPROXY` 作为 item 展示。
 
-**扩展（欢迎 PR）**：新增一个工具链只需在 `collect.ps1` 第 7 步加一个 provider 对象（`id` / `label` / `items` / `restore_commands`），前端无需改动。欢迎补充 PowerShell 模块、WSL、JetBrains 插件等。
+前端「开发环境」页（`client/dev_env.html`）通过 `get_dev_env` 命令聚合所有 `dev-env.json`（并带上证据目录名 `dir`），按设备折叠展示文件清单与命令块，命令可一键复制。它只是只读证据，**不进入 `software.json`，也不参与导入流程**。
+
+**安全红线**：provider 只调白名单只读命令，**绝不读取环境变量块、`~/.ssh`、`.git-credentials`、`.npmrc` token、`.aws/`、`.env` 或任何凭据**；Git 只取白名单键（用户名/邮箱/编辑器/别名等），仓库 remote 不在采集范围。另存的配置文件会先经 `Protect-Secret` 脱敏：`scheme://user:pass@` 与含 `token/password/secret/_auth/api[-_]key` 的取值一律掩码为 `***`。
+
+**扩展（欢迎 PR）**：新增一个工具链只需在 `collect.ps1` 第 7 步加一个 provider 对象（`id` / `label` / `items` / `files` / `restore_commands`），前端无需改动。欢迎补充 PowerShell 模块、WSL、JetBrains 插件等。
+
+### 浏览器扩展（`browser-extensions.json`）
+
+扫描第 8 步采集**已安装浏览器**的扩展只读元数据，产出 `data\evidence\<主机名>\browser-extensions.json`：
+
+- Chromium 系（Edge / Chrome / Brave / Vivaldi / Chromium / Helium / Opera / Opera GX）用**数据驱动的候选根目录**，存在才扫，不在就跳过；逐个 profile 读 `Extensions\<扩展ID>\<版本>\manifest.json`，`__MSG_xxx__` 名称会从 `_locales` 解析。
+- Firefox 读 `%APPDATA%\Mozilla\Firefox\Profiles\<profile>\extensions.json`，只取 `location == "app-profile"` 且 `type == "extension"` 的项，名称优先 `defaultLocale.name`，并带上 `active` 与 AMO `sourceURI`。
+- 结构：`{ schema_version, machine_id, collected_at, browsers: [ { id, label, profiles: [ { profile, extensions: [ { id, name, version, enabled, type, store_url } ] } ] } ] }`。
+
+Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env`），并合并用户层标注，前端 `client\browsers.html` **复刻主页台账外壳**（统计横条 / 设备选项卡 / 筛选 / 批量条 / 侧边抽屉 / 设置弹窗），可按设备 / 浏览器 / 意愿 / 进度过滤与搜索。表格列为：勾选 / 精选 / 扩展名称（下方标签显示浏览器与配置）/ 版本 / 状态 / 保留意愿 / 准备进度 / **商店链接** / 设备 / 备注 / 附件。
+
+**商店链接**：扫描时自动录入（Firefox 取 AMO `sourceURI`，Chromium 有可靠商店归属才填），列为可编辑文本框，值按扩展 ID 存 `data\extensions.json`，右边按钮一键在浏览器打开。
+
+**Firefox 配置名**：证据里的 profile 形如 `xc8zepzv.default-release`（前缀是随机串），展示时由 `cleanProfile()` 剥掉前缀，只显示 `default-release`。
+
+**浏览器品牌图标**：`client/browser-icons/` 内置 Chrome / Chromium / Edge / Firefox / Brave / Vivaldi / Opera / Opera GX 的 SVG（取自 `alrra/browser-logos`，纯静态资源），表格“扩展名称”下方的浏览器标签里按 `browserId` 显示，未收录的（如 Helium）回退通用图标。“所在设备”列与主页一致，用 `badge-machine` 胶囊。
+
+**用户层（扫描字段只读，用户层可增）**：把主页那套交互原样搬来，扫描字段（名称 / 版本 / 扩展 ID / 状态 / 来源 / 设备 / 配置）一律**只读**，用户可增：
+
+- **保留意愿**（必须 / 建议 / 按需 / 淘汰 / 待确认，快捷键 1~5）、**准备进度**（待办 / 就绪）、**精选星标**：与软件台账同一套值域与 UI；
+- **备注**：内联可编辑，按扩展 ID 存 `data\extensions.json`（重扫不丢）；
+- **附件归档**：每条扩展可手动放入文件（拖入或选择），存 `data\vault\<主机名>\ext\<扩展ID>\`，行尾回形针按钮带数量角标；
+- 用户层字段统一按**扩展 ID** 存入 `data\extensions.json`（单个扩展可跨设备 / 配置复用同一份标注）；
+- 浏览器页另有**整份浏览器配置归档**（`browser\<ID>`）。
+
+**安全红线**：只读 `manifest.json` / `extensions.json` 元数据，**绝不读取扩展的 `storage.local`（LevelDB）、`Preferences` 敏感键、Cookie 或密码**。本页同样**不进入 `software.json`，不参与导入**。
+
+### 耗时统计（`timings.json`）
+
+`collect.ps1 -Timing` 会在同一证据目录额外写 `timings.json`（`schema_version` / `machine_id` / `collected_at` / `total_seconds` / `laps`），记录各步骤与第 7 步各 provider 的耗时，方便定位扫描慢在哪。平时扫描不加该开关，不产生额外文件。
+
+实测（264 包 / 63 扩展的机器）总耗时约 **7s**，大头是注册表枚举与开发环境采集。为了让开发环境这一段不拖后腿，已用几个快速路径替代重命令（均有回退）：
+
+- Python 包列表：`importlib.metadata`（~0.6s）代替 `pip list`（~2.2s）；`pip config list`（~1.1s）只在确有 pip 配置文件 / `PIP_*` 环境变量时才调。
+- Node 全局包：读 `npm root -g` 下的 `package.json`（~0.8s）代替 `npm ls -g`（~1.7s）；npm registry 直接读 `.npmrc` / 环境变量，不再起 npm 进程。
+- Go：一次 `go env GOPATH GOPROXY` 代替两次调用。
+
+### 配置归档（`data\vault\<主机名>\`）
+
+与扫描解耦的**手动保管箱**，用来把个性化配置文件随台账一起带走：
+
+- 路径：`data\vault\<主机名>\soft\<SW-ID>\`（软件卡片）、`data\vault\<主机名>\browser\<浏览器ID>\`（浏览器整份配置）与 `data\vault\<主机名>\ext\<扩展ID>\`（扩展附件）。
+- 只能由用户**手动拖入或点「选择文件」**添加（`vault_add`），保存用 `vault_export`（另存为），删除用 `vault_delete`。**绝不自动采集**。
+- 点「无配置」只是收起面板，**归档文件一律不动**；删除归档只能靠单个 × 或删除软件时的**级联清理**（`delete_software` 会一并删掉 `soft\<ID>`）。
+- Windows 路径不能含 `:`，所以 target 落成 `soft` / `browser` 两层目录，而不是 `soft:SW-001`。
 
 ## 图标
 

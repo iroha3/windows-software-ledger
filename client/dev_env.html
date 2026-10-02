@@ -29,16 +29,15 @@
         <svg class="i sm" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
         开发环境复现
       </div>
+      <div class="logo-actions">
+        <button id="btnThemeToggle" class="icon-btn" title="切换日间/夜间模式"><span id="themeIcon"></span><span id="themeText" style="display:none"></span></button>
+      </div>
     </div>
 
     <div class="header-actions">
       <button id="btnDevRefresh" class="btn btn-secondary" title="重新读取本机采集到的开发环境清单">
         <svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
         <span>刷新</span>
-      </button>
-      <div class="header-divider"></div>
-      <button id="btnThemeToggle" class="btn btn-secondary" title="切换日夜间主题">
-        <span id="themeIcon"></span> <span id="themeText">夜间</span>
       </button>
     </div>
   </header>
@@ -49,7 +48,8 @@
       <p>
         扫描本机时一并采集的声明式清单：包管理器全局包、编辑器扩展、工具链与全局配置。
         <strong>只跑只读命令白名单——不读取环境变量块、SSH key、git 凭据或任何敏感文件。</strong>
-        按设备分组，展开即可复制恢复命令；本页只是证据，不会改动软件清单。
+        按设备分组，展开即可复制恢复命令；命令中的路径相对于应用根目录，清单原文在
+        <code>data/evidence/&lt;设备&gt;/dev-env/</code> 下。本页只是证据，不会改动软件清单。
       </p>
     </div>
 

@@ -461,12 +461,15 @@ pub struct ApplyResult {
     pub revived_keys: Vec<String>,
 }
 
-/// 只应用勾选的候选：清空旧 is_new，把勾选项追加到最前并置 is_new。
+/// 只应用勾选的候选：清空旧 is_new，把勾选项追加到最前。
+/// `mark_new` 为 true 时导入项置 `is_new`（增量导入）；
+/// 空台账的全量重建传 false，不把整机扫描当成“新增”。
 /// 已有条目的任何其他字段都不改动。
 pub fn apply_selected(
     software: &mut Vec<Value>,
     candidates: &[Value],
     selected_keys: &[String],
+    mark_new: bool,
 ) -> ApplyResult {
     for item in software.iter_mut() {
         if let Some(obj) = item.as_object_mut() {
@@ -495,7 +498,7 @@ pub fn apply_selected(
         let mut item = cand.clone();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("id".to_string(), json!(format!("SW-{:03}", max_id)));
-            obj.insert("is_new".to_string(), json!(true));
+            obj.insert("is_new".to_string(), json!(mark_new));
             obj.remove("key");
             obj.remove("kind");
         }
@@ -543,7 +546,7 @@ mod tests {
             .filter_map(|c| c.get("key").and_then(|v| v.as_str()).map(String::from))
             .collect();
         let mut software: Vec<Value> = Vec::new();
-        let res = apply_selected(&mut software, &candidates, &keys);
+        let res = apply_selected(&mut software, &candidates, &keys, true);
         assert_eq!(res.added, candidates.len());
         store::write_software(&software);
 
@@ -675,6 +678,7 @@ mod tests {
             &mut software,
             &candidates,
             &["new one".to_string(), "revived".to_string()],
+            true,
         );
         assert_eq!(res.added, 2);
         assert_eq!(res.revived_keys, vec!["revived".to_string()]);
@@ -691,5 +695,16 @@ mod tests {
         assert_eq!(n["is_new"], true);
         assert!(n.get("key").is_none() && n.get("kind").is_none());
         assert_eq!(n["id"], "SW-002");
+
+        // 空台账（首次全量扫描）：导入的条目不标 is_new
+        let mut fresh: Vec<Value> = Vec::new();
+        apply_selected(
+            &mut fresh,
+            &candidates,
+            &["new one".to_string()],
+            false,
+        );
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0]["is_new"], false);
     }
 }

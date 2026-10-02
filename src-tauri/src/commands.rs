@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -153,14 +154,16 @@ pub fn get_dev_env() -> Value {
             }
             let data = store::read_json(&file);
             let providers = data.get("providers").cloned().unwrap_or(json!([]));
+            let dir_name = entry.file_name().to_string_lossy().to_string();
             let machine_id = as_str(&data, "machine_id");
             let machine_id = if machine_id.is_empty() {
-                entry.file_name().to_string_lossy().to_string()
+                dir_name.clone()
             } else {
                 machine_id
             };
             machines.push(json!({
                 "machine_id": machine_id,
+                "dir": dir_name,
                 "collected_at": as_str(&data, "collected_at"),
                 "providers": providers,
             }));
@@ -168,6 +171,230 @@ pub fn get_dev_env() -> Value {
     }
     machines.sort_by(|a, b| as_str(a, "machine_id").cmp(&as_str(b, "machine_id")));
     json!({ "success": true, "machines": machines })
+}
+
+// ---------------------------------------------------------------------------
+// 浏览器扩展（只读元数据聚合）
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_browser_extensions() -> Value {
+    let root = store::evidence_dir();
+    let user_map = store::read_extensions();
+    let mut machines: Vec<Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let file = path.join("browser-extensions.json");
+            if !file.exists() {
+                continue;
+            }
+            let data = store::read_json(&file);
+            let mut browsers = data.get("browsers").cloned().unwrap_or(json!([]));
+            // 注入用户层字段（备注 / 保留意愿 / 就绪 / 精选，按扩展 ID），重扫不丢失
+            if let (Value::Array(bs), Value::Object(users)) = (&mut browsers, &user_map) {
+                for b in bs.iter_mut() {
+                    if let Some(profiles) = b.get_mut("profiles").and_then(|p| p.as_array_mut()) {
+                        for p in profiles.iter_mut() {
+                            if let Some(exts) = p.get_mut("extensions").and_then(|e| e.as_array_mut()) {
+                                for ext in exts.iter_mut() {
+                                    if let Some(obj) = ext.as_object_mut() {
+                                        let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                        if let Some(user) = users.get(&id).and_then(|v| v.as_object()) {
+                                            for (k, v) in user {
+                                                if k != "updated_at" {
+                                                    obj.insert(k.clone(), v.clone());
+                                                }
+                                            }
+                                        }
+                                        obj.insert("vault_count".to_string(), json!(vault_file_count("ext", &id)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let machine_id = as_str(&data, "machine_id");
+            let machine_id = if machine_id.is_empty() {
+                dir_name.clone()
+            } else {
+                machine_id
+            };
+            machines.push(json!({
+                "machine_id": machine_id,
+                "dir": dir_name,
+                "collected_at": as_str(&data, "collected_at"),
+                "browsers": browsers,
+            }));
+        }
+    }
+    machines.sort_by(|a, b| as_str(a, "machine_id").cmp(&as_str(b, "machine_id")));
+    json!({ "success": true, "machines": machines, "vault_machine": current_machine() })
+}
+
+// ---------------------------------------------------------------------------
+// 通用文件保管箱：data/vault/<机器>/<kind>/<id>/
+// 只存用户手动放入的文件，绝不自动采集。
+// ---------------------------------------------------------------------------
+
+fn current_machine() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "UNKNOWN".to_string())
+}
+
+/// 把任意字符串收敛成安全的单层路径片段（去掉路径分隔符）。
+fn safe_component(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '_',
+            _ => c,
+        })
+        .collect();
+    let t = cleaned.trim();
+    if t.is_empty() || t == "." || t == ".." {
+        "_".to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+fn vault_target_dir(kind: &str, id: &str) -> PathBuf {
+    store::vault_dir()
+        .join(current_machine())
+        .join(safe_component(kind))
+        .join(safe_component(id))
+}
+
+/// 统计某保管箱目录下的文件数量（用于表格上的附件角标）。
+fn vault_file_count(kind: &str, id: &str) -> u64 {
+    std::fs::read_dir(vault_target_dir(kind, id))
+        .map(|rd| rd.flatten().filter(|e| e.path().is_file()).count() as u64)
+        .unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn vault_list(kind: String, id: String) -> Value {
+    let dir = vault_target_dir(&kind, &id);
+    let mut files: Vec<Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let meta = entry.metadata().ok();
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .map(|t| chrono::DateTime::<chrono::Local>::from(t).to_rfc3339())
+                .unwrap_or_default();
+            files.push(json!({
+                "name": entry.file_name().to_string_lossy().to_string(),
+                "size": size,
+                "modified": modified,
+            }));
+        }
+    }
+    files.sort_by(|a, b| as_str(a, "name").cmp(&as_str(b, "name")));
+    let machine = current_machine();
+    json!({ "success": true, "machine": machine, "files": files })
+}
+
+/// 保存某条扩展的用户层字段（data/extensions.json，按扩展 ID 持久化）。
+/// 传入的字段会与已有字段合并（不覆盖未提及的键）。
+#[tauri::command]
+pub fn update_extension(id: String, fields: Value) -> Value {
+    if id.is_empty() {
+        return json!({ "success": false, "error": "缺少扩展 ID" });
+    }
+    let Value::Object(incoming) = fields else {
+        return json!({ "success": false, "error": "字段格式错误" });
+    };
+    let mut map = store::read_extensions();
+    let now = chrono::DateTime::<chrono::Local>::from(std::time::SystemTime::now()).to_rfc3339();
+    {
+        let Some(root) = map.as_object_mut() else {
+            return json!({ "success": false, "error": "标注存储损坏" });
+        };
+        let entry = root.entry(id).or_insert_with(|| json!({}));
+        let Some(eobj) = entry.as_object_mut() else {
+            return json!({ "success": false, "error": "标注存储损坏" });
+        };
+        for (k, v) in incoming {
+            if k != "updated_at" {
+                eobj.insert(k, v);
+            }
+        }
+        eobj.insert("updated_at".to_string(), json!(now));
+    }
+    store::write_extensions(&map);
+    json!({ "success": true })
+}
+
+#[tauri::command]
+pub fn vault_add(kind: String, id: String, paths: Vec<String>) -> Value {
+    let dir = vault_target_dir(&kind, &id);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return json!({ "success": false, "error": format!("无法创建归档目录: {}", e) });
+    }
+    let mut added = 0;
+    let mut skipped = 0;
+    for raw in &paths {
+        let src = std::path::Path::new(raw);
+        if !src.is_file() {
+            skipped += 1;
+            continue;
+        }
+        let Some(fname) = src.file_name().and_then(|n| n.to_str()) else {
+            skipped += 1;
+            continue;
+        };
+        let fname = safe_component(fname);
+        if std::fs::copy(src, dir.join(&fname)).is_ok() {
+            added += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    json!({ "success": true, "added": added, "skipped": skipped })
+}
+
+#[tauri::command]
+pub fn vault_delete(kind: String, id: String, name: String) -> Value {
+    let dir = vault_target_dir(&kind, &id);
+    let name = safe_component(&name);
+    let target = dir.join(&name);
+    if !target.starts_with(&dir) {
+        return json!({ "success": false, "error": "非法文件名" });
+    }
+    match std::fs::remove_file(&target) {
+        Ok(_) => json!({ "success": true }),
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+#[tauri::command]
+pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Value {
+    let dir = vault_target_dir(&kind, &id);
+    let name = safe_component(&name);
+    let src = dir.join(&name);
+    if !src.is_file() {
+        return json!({ "success": false, "error": "归档文件不存在" });
+    }
+    let dest_path = PathBuf::from(&dest);
+    let target = if dest_path.is_dir() { dest_path.join(&name) } else { dest_path };
+    match std::fs::copy(&src, &target) {
+        Ok(_) => json!({ "success": true, "path": target.to_string_lossy().to_string() }),
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
 }
 
 #[tauri::command]
@@ -265,6 +492,10 @@ pub fn delete_software(payload: Value) -> Value {
     }
 
     software.retain(|s| !ids.contains(&as_str(s, "id")));
+    // 级联清理该软件的配置归档，不留孤儿文件
+    for id in &ids {
+        let _ = std::fs::remove_dir_all(vault_target_dir("soft", id));
+    }
     store::write_software(&software);
     store::write_ignored(&ignored);
     json!({ "success": true, "remaining": software.len() })
@@ -586,6 +817,9 @@ fn collect_evidence() -> Result<String, String> {
         "scoop-apps.json",
         "cli-tools.json",
         "machine-info.json",
+        "dev-env.json",
+        "browser-extensions.json",
+        "timings.json",
     ] {
         let _ = std::fs::remove_file(evidence_dir.join(name));
     }
@@ -647,7 +881,13 @@ fn scan_preview_blocking() -> Value {
         "candidates": candidates,
     });
     store::write_json(&pending_scan_file(), &pending);
-    json!({ "success": true, "machine": machine, "summary": summary, "candidates": candidates })
+    json!({
+        "success": true,
+        "machine": machine,
+        "summary": summary,
+        "was_empty": existing.is_empty(),
+        "candidates": candidates
+    })
 }
 
 #[tauri::command]
@@ -682,7 +922,8 @@ pub fn scan_commit(payload: Value) -> Value {
         .unwrap_or_default();
 
     let mut software = store::read_software();
-    let result = apply_selected(&mut software, &candidates, &selected_keys);
+    let was_empty = software.is_empty();
+    let result = apply_selected(&mut software, &candidates, &selected_keys, !was_empty);
     store::write_software(&software);
 
     if !result.revived_keys.is_empty() {
@@ -698,6 +939,33 @@ pub fn scan_commit(payload: Value) -> Value {
 #[tauri::command]
 pub fn export_markdown() -> Value {
     export_checklists()
+}
+
+/// 把导出清单写到用户选定的路径（原生另存为对话框返回的 dest）。
+#[tauri::command]
+pub fn export_save(which: String, dest: String) -> Value {
+    let data = export_checklists();
+    if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
+        let msg = data.get("message").and_then(|v| v.as_str()).unwrap_or("导出数据生成失败");
+        return json!({ "success": false, "error": msg });
+    }
+    let content = match which.as_str() {
+        "checklist" => data.get("checklistContent").and_then(|v| v.as_str()).unwrap_or(""),
+        "awesome" => data.get("awesomeContent").and_then(|v| v.as_str()).unwrap_or(""),
+        _ => return json!({ "success": false, "error": "未知的导出类型" }),
+    }
+    .to_string();
+    if let Some(parent) = std::path::Path::new(&dest).parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return json!({ "success": false, "error": format!("创建目录失败: {}", e) });
+            }
+        }
+    }
+    match std::fs::write(&dest, content) {
+        Ok(_) => json!({ "success": true, "path": dest }),
+        Err(e) => json!({ "success": false, "error": format!("写入失败: {}", e) }),
+    }
 }
 
 /// 用系统默认程序打开外链。
@@ -862,10 +1130,82 @@ mod tests {
         let machines = res.get("machines").and_then(|v| v.as_array()).unwrap();
         assert_eq!(machines.len(), 1);
         assert_eq!(machines[0].get("machine_id").and_then(|v| v.as_str()), Some("M-A"));
+        assert_eq!(machines[0].get("dir").and_then(|v| v.as_str()), Some("M-A"));
         assert_eq!(
             machines[0].get("providers").and_then(|v| v.as_array()).map(|a| a.len()),
             Some(1)
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn vault_roundtrip_add_list_export_delete() {
+        let root = std::env::temp_dir().join(format!("ledger_vault_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let src = root.join("bookmarks_2026-08-19.html");
+        fs::write(&src, "hello").unwrap();
+
+        let added = vault_add(
+            "soft".into(),
+            "SW-001".into(),
+            vec![src.to_string_lossy().to_string()],
+        );
+        assert_eq!(added["success"], true);
+        assert_eq!(added["added"].as_u64(), Some(1));
+
+        let listed = vault_list("soft".into(), "SW-001".into());
+        let files = listed["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0]["name"], "bookmarks_2026-08-19.html");
+
+        let dest = root.join("out.html");
+        let exported = vault_export(
+            "soft".into(),
+            "SW-001".into(),
+            "bookmarks_2026-08-19.html".into(),
+            dest.to_string_lossy().to_string(),
+        );
+        assert_eq!(exported["success"], true);
+        assert!(dest.exists());
+
+        let deleted = vault_delete(
+            "soft".into(),
+            "SW-001".into(),
+            "bookmarks_2026-08-19.html".into(),
+        );
+        assert_eq!(deleted["success"], true);
+        assert_eq!(
+            vault_list("soft".into(), "SW-001".into())["files"].as_array().unwrap().len(),
+            0
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn extension_notes_roundtrip_and_machine_in_vault_list() {
+        let root = std::env::temp_dir().join(format!("ledger_ext_notes_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let saved = update_extension(
+            "uBlock0@raymondhill.net".into(),
+            json!({ "notes": "广告拦截，装完必开", "restore_intent": "must" }),
+        );
+        assert_eq!(saved["success"], true);
+
+        let stored = crate::store::read_extensions();
+        assert_eq!(stored["uBlock0@raymondhill.net"]["notes"].as_str(), Some("广告拦截，装完必开"));
+        assert_eq!(stored["uBlock0@raymondhill.net"]["restore_intent"].as_str(), Some("must"));
+
+        // vault_list 必须返回真实机器名，前端才能在面板里显示 data/vault/<机器>/...
+        let listed = vault_list("ext".into(), "uBlock0@raymondhill.net".into());
+        assert!(listed["machine"].as_str().map(|m| !m.is_empty()).unwrap_or(false));
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -8,7 +8,10 @@ let activeItem = null;
 let machineAliases = {};
 let autoSaveTimer = null;
 let pendingSave = false;
-let lastDeleteTime = 0; // Backspace / 删除按钮的二次确认窗口
+let cardVault = null; // 配置归档组件实例（每张卡片切换 target）
+
+const REPO_URL = 'https://github.com/iroha3/windows-software-ledger';
+const HOMEPAGE_URL = 'https://iroha3.github.io/windows-software-ledger/';
 
 function getMachineDisplayName(id) {
   if (!id) return '未知设备';
@@ -49,8 +52,6 @@ const reviewProgressText = document.getElementById('reviewProgressText');
 
 const cardSoftwareId = document.getElementById('cardSoftwareId');
 const cardSaveStatus = document.getElementById('cardSaveStatus');
-const btnCardPrev = document.getElementById('btnCardPrev');
-const btnCardNext = document.getElementById('btnCardNext');
 const cardIndexBadge = document.getElementById('cardIndexBadge');
 const btnCardLLM = document.getElementById('btnCardLLM');
 
@@ -105,6 +106,16 @@ function showToast(message, type = 'info', duration = 2200) {
 // 初始载入
 async function init() {
   initTheme();
+  cardVault = window.Vault ? window.Vault.mount({
+    pill: 'cardVaultPill',
+    panel: 'cardVaultPanel',
+    list: 'cardVaultList',
+    add: 'cardVaultAdd',
+    count: 'cardVaultCount',
+    sub: 'cardVaultSub',
+    kind: 'soft',
+    id: null,
+  }) : null;
   await loadSoftware();
   bindEvents();
   bindShortcuts();
@@ -122,7 +133,8 @@ async function scanLocalIfEmpty() {
       showToast('扫描执行失败: ' + data.error, 'error');
       return;
     }
-    const keys = (data.candidates || []).filter(c => c.kind === 'new').map(c => c.key);
+    // 清单为空 => 全量重建，导入全部候选（含墓碑项）
+    const keys = (data.candidates || []).map(c => c.key);
     if (keys.length > 0) {
       await fetch('/api/scan/commit', {
         method: 'POST',
@@ -233,8 +245,8 @@ function loadCard(index) {
 
   cardSoftwareId.innerText = activeItem.id;
   cardIndexBadge.innerText = `${currentIndex + 1} / ${currentFiltered.length}`;
-  btnCardPrev.disabled = currentIndex <= 0;
-  btnCardNext.disabled = currentIndex >= currentFiltered.length - 1;
+  if (cardVault) cardVault.setTarget(activeItem.id);
+  if (window.DeleteConfirm) window.DeleteConfirm.disarmAll();
 
   cardName.value = activeItem.name;
   cardCategory.value = activeItem.category || '开发工具';
@@ -378,19 +390,8 @@ function resetCard() {
   showToast('已恢复默认（清空决策、官网与描述）', 'info');
 }
 
-// 删除当前卡片：2 秒内再按一次 Backspace / 再点一次删除确认（替换原生 confirm）
-async function requestDeleteCurrent() {
-  if (!activeItem) return;
-  const now = Date.now();
-  if (now - lastDeleteTime < 2000) {
-    lastDeleteTime = 0;
-    await performDeleteCurrent();
-  } else {
-    lastDeleteTime = now;
-    showToast('2 秒内再按一次 Backspace 或再点一次删除以确认', 'warning', 2000);
-  }
-}
-
+// 删除当前卡片：首点进入 armed 态（垃圾桶图标变 ?），再点或再按 Backspace 才真删。
+// armed 态在 2.5 秒、切卡、按 Esc 时自动还原。
 async function performDeleteCurrent() {
   if (!activeItem) return;
   const name = activeItem.name;
@@ -469,10 +470,16 @@ function bindShortcuts() {
         return;
       }
 
-      // Backspace / Delete：删除当前卡片（二次确认后自动前进）
+      // Esc：退出删除 armed 态
+      if (e.key === 'Escape') {
+        if (window.DeleteConfirm) window.DeleteConfirm.disarmAll();
+        return;
+      }
+
+      // Backspace / Delete：与按钮共享 armed 态，首按进入，再按真删
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
-        requestDeleteCurrent();
+        if (window.DeleteConfirm) window.DeleteConfirm.trigger(btnCardDelete);
         return;
       }
 
@@ -520,9 +527,7 @@ function bindEvents() {
     if (!isNaN(idx)) loadCard(idx);
   });
 
-  // 切卡按钮
-  btnCardPrev.addEventListener('click', () => navigateCard(-1));
-  btnCardNext.addEventListener('click', () => navigateCard(1));
+  // 切卡按钮（顶栏左右切换已移除，仅保留底部下一项）
   btnCardNextBottom.addEventListener('click', () => navigateCard(1));
 
   // 配置状态 / 就绪进度切换按钮
@@ -617,38 +622,44 @@ function bindEvents() {
   // 恢复默认
   btnCardReset.addEventListener('click', resetCard);
 
-  // 删除软件
-  btnCardDelete.addEventListener('click', requestDeleteCurrent);
-  const btnCardDeleteTop = document.getElementById('btnCardDeleteTop');
-  if (btnCardDeleteTop) btnCardDeleteTop.addEventListener('click', requestDeleteCurrent);
+  // 删除软件：首点 arm，再点确认
+  if (window.DeleteConfirm) window.DeleteConfirm.register(btnCardDelete, performDeleteCurrent);
 
-  function downloadMarkdownFile(content, filename) {
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast('已下载到 下载\\' + filename, 'success');
+  async function saveExportFile(which, filename) {
+    if (typeof window.dialogSave !== 'function') {
+      showToast('当前环境不支持另存为', 'warning');
+      return;
+    }
+    const dest = await window.dialogSave({
+      defaultPath: filename,
+      title: '保存清单到…',
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    });
+    if (!dest) return;
+    try {
+      const res = await fetch('/api/export/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ which, dest })
+      });
+      const data = await res.json();
+      if (data.success) showToast('已保存: ' + dest, 'success');
+      else showToast('保存失败: ' + (data.error || ''), 'error');
+    } catch (e) {
+      showToast('保存异常: ' + e.message, 'error');
+    }
   }
 
-  // 导出 Markdown 清单
+  // 导出 Markdown 清单（选择保存路径）
   btnExport.addEventListener('click', async () => {
     btnExport.disabled = true;
     try {
       const res = await fetch('/api/export', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        if (data.checklistContent) {
-          downloadMarkdownFile(data.checklistContent, data.checklistFilename || 'RECOVERY_CHECKLIST.md');
-        }
-        if (data.awesomeContent) {
-          setTimeout(() => {
-            downloadMarkdownFile(data.awesomeContent, data.awesomeFilename || 'AWESOME_LIST.md');
-          }, 300);
+        await saveExportFile('checklist', data.checklistFilename || 'RECOVERY_CHECKLIST.md');
+        if (data.stats && data.stats.awesome > 0) {
+          await saveExportFile('awesome', data.awesomeFilename || 'AWESOME_LIST.md');
         }
       } else {
         showToast('导出失败: ' + (data.error || data.message), 'error');
@@ -668,6 +679,10 @@ function bindEvents() {
 
   const btnAbout = document.getElementById('btnAbout');
   if (btnAbout) btnAbout.addEventListener('click', openAboutModal);
+  const aboutGitHub = document.getElementById('aboutGitHub');
+  if (aboutGitHub) aboutGitHub.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(REPO_URL); });
+  const aboutHomepage = document.getElementById('aboutHomepage');
+  if (aboutHomepage) aboutHomepage.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(HOMEPAGE_URL); });
 
   bindPreset('presetLocal', () => {
     document.getElementById('configLlmUrl').value = 'http://127.0.0.1:1234/v1/chat/completions';
@@ -696,20 +711,8 @@ function bindEvents() {
 }
 
 // 关于弹窗
-async function openAboutModal() {
-  const endpointEl = document.getElementById('aboutLlmEndpoint');
-  if (endpointEl) endpointEl.innerText = '读取中...';
+function openAboutModal() {
   document.getElementById('aboutModal').classList.add('show');
-  if (endpointEl) {
-    try {
-      const res = await fetch('/api/config');
-      const cfg = await res.json();
-      const keyState = cfg.llm_api_key ? '已配置 Key' : '无 Key';
-      endpointEl.innerText = `${cfg.llm_url || '未设置'}  ·  ${cfg.llm_model || '未设置'}  (${keyState})`;
-    } catch (e) {
-      endpointEl.innerText = '读取失败';
-    }
-  }
 }
 
 // 设置弹窗逻辑
