@@ -15,6 +15,13 @@ function getMachineDisplayName(id) {
   return machineAliases[id] || id;
 }
 
+// 绿色/便携软件：处置方式走确定性规则（保留/压缩目录），不让 LLM 猜测。
+function isPortableItem(item) {
+  if (!item) return false;
+  if (item.type === 'portable') return true;
+  return (item.machines || []).some(m => m.form === 'portable');
+}
+
 // 自动保存防抖计时器与标志
 let autoSaveTimer = null;
 let pendingDrawerSave = false;
@@ -140,6 +147,10 @@ async function init() {
   await loadSoftware();
   bindEvents();
   bindKeyboardShortcuts();
+  // 首次运行 / 清单为空时自动扫描本机，省去手动点一次
+  if (softwareList.length === 0) {
+    handleScanLocal();
+  }
 }
 
 // 主题切换机制 (默认日间主题)
@@ -286,9 +297,16 @@ function buildRowHtml(item) {
   const prepStatus = item.prep_status === 'ready' ? 'ready' : 'todo';
   const isNewClass = item.is_new ? 'row-newly-added' : '';
 
-  const machineBadges = item.machines.map(m => {
-    const alias = getMachineDisplayName(m.machine_id);
-    return `<span class="badge-machine" title="设备ID: ${m.machine_id}&#10;路径: ${m.install_location || m.path || '未记录路径'}">${escapeHtml(alias)}</span>`;
+  const machinesById = new Map();
+  for (const m of item.machines) {
+    const mid = m.machine_id || '';
+    if (!machinesById.has(mid)) machinesById.set(mid, []);
+    machinesById.get(mid).push(m.install_location || m.path || '未记录路径');
+  }
+  const machineBadges = Array.from(machinesById.entries()).map(([mid, paths]) => {
+    const alias = getMachineDisplayName(mid);
+    const title = [`设备ID: ${escapeHtml(mid)}`, ...paths.map(p => `路径: ${escapeHtml(p)}`)].join('&#10;');
+    return `<span class="badge-machine" title="${title}">${escapeHtml(alias)}</span>`;
   }).join(' ');
 
   return `
@@ -1061,6 +1079,22 @@ function bindEvents() {
   btnBatchMerge.addEventListener('click', batchMerge);
   btnBatchLLM.addEventListener('click', handleBatchLLM);
 
+  // 扫描导入弹窗
+  const btnImportConfirm = document.getElementById('btnImportConfirm');
+  if (btnImportConfirm) btnImportConfirm.addEventListener('click', () => commitImport(getImportCheckedKeys()));
+  const btnImportSelectAll = document.getElementById('btnImportSelectAll');
+  if (btnImportSelectAll) btnImportSelectAll.addEventListener('click', () => {
+    document.querySelectorAll('#importModalBody .import-check').forEach(el => { el.checked = true; });
+    updateImportConfirm();
+  });
+  const btnImportSelectNone = document.getElementById('btnImportSelectNone');
+  if (btnImportSelectNone) btnImportSelectNone.addEventListener('click', () => {
+    document.querySelectorAll('#importModalBody .import-check').forEach(el => { el.checked = false; });
+    updateImportConfirm();
+  });
+  const importModalBody = document.getElementById('importModalBody');
+  if (importModalBody) importModalBody.addEventListener('change', updateImportConfirm);
+
   // 顶部操作
   btnScanLocal.addEventListener('click', handleScanLocal);
   btnExport.addEventListener('click', handleExport);
@@ -1275,7 +1309,7 @@ async function handleBatchLLM() {
           if (sug.category) updates.category = sug.category;
           if (sug.type) updates.type = sug.type;
           if (sug.restore_intent) updates.restore_intent = sug.restore_intent;
-          if (sug.backup_strategy) updates.backup_strategy = sug.backup_strategy;
+          if (sug.backup_strategy && !isPortableItem(item)) updates.backup_strategy = sug.backup_strategy;
           if (sug.download_url) updates.download_url = sug.download_url;
           if (sug.config_notes) updates.config_notes = sug.config_notes;
 
@@ -1340,7 +1374,7 @@ async function handleDrawerLLM() {
           btn.classList.toggle('active', btn.dataset.intent === sug.restore_intent);
         });
       }
-      if (sug.backup_strategy) document.getElementById('drawerStrategy').value = sug.backup_strategy;
+      if (sug.backup_strategy && !isPortableItem(activeItem)) document.getElementById('drawerStrategy').value = sug.backup_strategy;
       if (sug.download_url) {
         document.getElementById('drawerUrl').value = sug.download_url;
       }
@@ -1360,27 +1394,114 @@ async function handleDrawerLLM() {
   }
 }
 
-// 本机扫描
+// 本机扫描：采集 -> 预览候选 -> 勾选导入
 async function handleScanLocal() {
   btnScanLocal.disabled = true;
   scanIcon.innerHTML = '<span class="spinner"></span>';
   showToast('正在启动 Windows 采集脚本扫描本机...', 'info');
 
   try {
-    const res = await fetch('/api/scan', { method: 'POST' });
+    const res = await fetch('/api/scan/preview', { method: 'POST' });
     const data = await res.json();
-    if (data.success) {
-      await loadSoftware();
-      await fetchStatus();
-      showToast(`本机扫描完成！已归一化 ${data.ingestRes?.totalIngested || 0} 个软件条目`, 'success');
-    } else {
+    if (!data.success) {
       showToast('扫描执行失败: ' + data.error, 'error');
+      return;
     }
+    const candidates = data.candidates || [];
+    if (candidates.length === 0) {
+      await fetchStatus();
+      showToast('本机没有发现新的软件条目', 'info');
+      return;
+    }
+
+    // 首次运行 / 清单为空：直接导入全部新增，无需弹窗
+    if (softwareList.length === 0) {
+      const keys = candidates.filter(c => c.kind === 'new').map(c => c.key);
+      await commitImport(keys);
+      return;
+    }
+
+    openImportModal(data);
   } catch (e) {
     showToast('扫描请求异常: ' + e.message, 'error');
   } finally {
     btnScanLocal.disabled = false;
     scanIcon.innerHTML = ICONS.refresh;
+  }
+}
+
+// 扫描导入弹窗
+function importReasonLabel(kind) {
+  if (kind === 'deleted_before') return { text: '之前已删除', cls: 'import-badge-deleted' };
+  return { text: '新发现', cls: 'import-badge-new' };
+}
+
+function openImportModal(data) {
+  const candidates = data.candidates || [];
+  const s = data.summary || {};
+  const body = document.getElementById('importModalBody');
+  const rows = candidates.map(c => {
+    const reason = importReasonLabel(c.kind);
+    const paths = (c.machines || []).map(m => m.install_location || m.path || '').filter(Boolean).join('  ·  ');
+    const checked = c.kind === 'new' ? 'checked' : '';
+    return `
+      <label class="import-row">
+        <input type="checkbox" class="import-check" data-key="${escapeHtml(c.key)}" data-kind="${escapeHtml(c.kind)}" ${checked}>
+        <div class="import-row-main">
+          <div class="import-row-title">
+            <strong>${escapeHtml(c.name)}</strong>
+            <span class="tag-cat">${escapeHtml(c.category || '未分类')}</span>
+            <span class="tag-form">${escapeHtml(c.type || 'desktop')}</span>
+            <span class="import-badge ${reason.cls}">${reason.text}</span>
+          </div>
+          ${paths ? `<div class="import-row-paths" title="${escapeHtml(paths)}">${escapeHtml(paths)}</div>` : ''}
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <p style="font-size: 12.5px; color: var(--ink-2);">
+      共发现 <strong>${s.total || candidates.length}</strong> 项：新增 <strong>${s.new || 0}</strong>、之前已删除 <strong>${s.deleted_before || 0}</strong>。
+      <span style="color: var(--ink-3);">已存在的条目不会被改动。</span>
+    </p>
+    <div class="import-list">${rows}</div>
+  `;
+  document.getElementById('importModal').classList.add('show');
+  updateImportConfirm();
+}
+
+function getImportCheckedKeys() {
+  return Array.from(document.querySelectorAll('#importModalBody .import-check:checked')).map(el => el.dataset.key);
+}
+
+function updateImportConfirm() {
+  const n = getImportCheckedKeys().length;
+  const btn = document.getElementById('btnImportConfirm');
+  if (btn) {
+    btn.disabled = n === 0;
+    btn.innerText = `导入选中 (${n})`;
+  }
+}
+
+async function commitImport(keys) {
+  try {
+    const res = await fetch('/api/scan/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selectedKeys: keys })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      showToast('导入失败: ' + data.error, 'error');
+      return;
+    }
+    document.getElementById('importModal').classList.remove('show');
+    await loadSoftware();
+    await fetchStatus();
+    showToast(`已导入 ${data.added} 项${data.revived ? `，复活 ${data.revived} 项` : ''}`, 'success');
+  } catch (e) {
+    showToast('导入异常: ' + e.message, 'error');
   }
 }
 
@@ -1541,8 +1662,8 @@ async function openConfigModal() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
-    configLlmUrl.value = cfg.llm_url || 'http://127.0.0.1:1234/v1/chat/completions';
-    configLlmModel.value = cfg.llm_model || 'qwen3.5-4b';
+    configLlmUrl.value = cfg.llm_url || '';
+    configLlmModel.value = cfg.llm_model || '';
     configLlmKey.value = cfg.llm_api_key || '';
     const scanDirsEl = document.getElementById('configScanDirs');
     if (scanDirsEl) {
@@ -1555,9 +1676,6 @@ async function openConfigModal() {
       const aliases = cfg.machine_aliases || {};
       machineAliases = aliases;
       const allKnownMachines = Array.from(new Set([...machinesList, ...Object.keys(aliases)]));
-      if (allKnownMachines.length === 0) {
-        allKnownMachines.push('DESKTOP-HEGVCTR');
-      }
       aliasesListEl.innerHTML = allKnownMachines.map(mid => `
         <div class="machine-alias-row">
           <span class="machine-alias-id">${ICONS.device} ${escapeHtml(mid)}</span>

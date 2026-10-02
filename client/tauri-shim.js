@@ -33,6 +33,8 @@
         return invoke('get_status');
       case '/api/software':
         return invoke('get_software');
+      case '/api/dev-env':
+        return invoke('get_dev_env');
       case '/api/software/update':
         return invoke('update_software', { payload: body });
       case '/api/software/batch-update':
@@ -45,8 +47,10 @@
         return invoke('merge_software', { payload: body });
       case '/api/llm/analyze':
         return invoke('llm_analyze', { payload: body });
-      case '/api/scan':
-        return invoke('scan_local');
+      case '/api/scan/preview':
+        return invoke('scan_preview');
+      case '/api/scan/commit':
+        return invoke('scan_commit', { payload: body });
       case '/api/export':
         return invoke('export_markdown');
       default:

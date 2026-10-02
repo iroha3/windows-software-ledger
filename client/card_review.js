@@ -8,10 +8,18 @@ let activeItem = null;
 let machineAliases = {};
 let autoSaveTimer = null;
 let pendingSave = false;
+let lastDeleteTime = 0; // Backspace / 删除按钮的二次确认窗口
 
 function getMachineDisplayName(id) {
   if (!id) return '未知设备';
   return machineAliases[id] || id;
+}
+
+// 绿色/便携软件：处置方式走确定性规则，不让 LLM 猜测。
+function isPortableItem(item) {
+  if (!item) return false;
+  if (item.type === 'portable') return true;
+  return (item.machines || []).some(m => m.form === 'portable');
 }
 
 // 统一 SVG 图标库
@@ -100,6 +108,33 @@ async function init() {
   await loadSoftware();
   bindEvents();
   bindShortcuts();
+  scanLocalIfEmpty();
+}
+
+// 首次进入 / 清单为空时自动扫描本机（直接导入全部新增，无需弹窗）
+async function scanLocalIfEmpty() {
+  if (softwareList.length > 0) return;
+  showToast('清单为空，正在自动扫描本机...', 'info');
+  try {
+    const res = await fetch('/api/scan/preview', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) {
+      showToast('扫描执行失败: ' + data.error, 'error');
+      return;
+    }
+    const keys = (data.candidates || []).filter(c => c.kind === 'new').map(c => c.key);
+    if (keys.length > 0) {
+      await fetch('/api/scan/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedKeys: keys })
+      });
+    }
+    await loadSoftware();
+    showToast(`本机扫描完成，已导入 ${keys.length} 个软件条目`, 'success');
+  } catch (e) {
+    showToast('扫描请求异常: ' + e.message, 'error');
+  }
 }
 
 function initTheme() {
@@ -343,6 +378,39 @@ function resetCard() {
   showToast('已恢复默认（清空决策、官网与描述）', 'info');
 }
 
+// 删除当前卡片：2 秒内再按一次 Backspace / 再点一次删除确认（替换原生 confirm）
+async function requestDeleteCurrent() {
+  if (!activeItem) return;
+  const now = Date.now();
+  if (now - lastDeleteTime < 2000) {
+    lastDeleteTime = 0;
+    await performDeleteCurrent();
+  } else {
+    lastDeleteTime = now;
+    showToast('2 秒内再按一次 Backspace 或再点一次删除以确认', 'warning', 2000);
+  }
+}
+
+async function performDeleteCurrent() {
+  if (!activeItem) return;
+  const name = activeItem.name;
+  const id = activeItem.id;
+  softwareList = softwareList.filter(s => s.id !== id);
+  await fetch('/api/software/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [id] })
+  });
+  showToast(`已删除软件【${name}】`, 'info');
+  applyFilters();
+  if (currentFiltered.length > 0) {
+    // 删除后停在原索引，即自动前进到下一张（配合 ] 浏览）
+    loadCard(Math.min(currentIndex, currentFiltered.length - 1));
+  } else {
+    activeItem = null;
+  }
+}
+
 // 切卡导航
 function navigateCard(delta) {
   const target = currentIndex + delta;
@@ -398,6 +466,13 @@ function bindShortcuts() {
       if (e.key === ']' || e.key === 'BracketRight') {
         e.preventDefault();
         navigateCard(1);
+        return;
+      }
+
+      // Backspace / Delete：删除当前卡片（二次确认后自动前进）
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        requestDeleteCurrent();
         return;
       }
 
@@ -522,7 +597,7 @@ function bindEvents() {
           cardIntent.value = sug.restore_intent;
           updateIntentButtons(sug.restore_intent);
         }
-        if (sug.backup_strategy) cardStrategy.value = sug.backup_strategy;
+        if (sug.backup_strategy && !isPortableItem(activeItem)) cardStrategy.value = sug.backup_strategy;
         if (sug.download_url && !cardUrl.value) cardUrl.value = sug.download_url;
         if (sug.config_notes && !cardNotes.value) cardNotes.value = sug.config_notes;
 
@@ -543,25 +618,9 @@ function bindEvents() {
   btnCardReset.addEventListener('click', resetCard);
 
   // 删除软件
-  btnCardDelete.addEventListener('click', async () => {
-    if (!activeItem) return;
-    const name = activeItem.name;
-    const id = activeItem.id;
-    if (!confirm(`确定要从清单中彻底删除【${name}】吗？`)) return;
-
-    softwareList = softwareList.filter(s => s.id !== id);
-    await fetch('/api/software/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: [id] })
-    });
-
-    showToast(`已删除软件【${name}】`, 'info');
-    applyFilters();
-    if (currentFiltered.length > 0) {
-      loadCard(Math.min(currentIndex, currentFiltered.length - 1));
-    }
-  });
+  btnCardDelete.addEventListener('click', requestDeleteCurrent);
+  const btnCardDeleteTop = document.getElementById('btnCardDeleteTop');
+  if (btnCardDeleteTop) btnCardDeleteTop.addEventListener('click', requestDeleteCurrent);
 
   function downloadMarkdownFile(content, filename) {
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
@@ -658,8 +717,8 @@ async function openConfigModal() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
-    document.getElementById('configLlmUrl').value = cfg.llm_url || 'http://127.0.0.1:1234/v1/chat/completions';
-    document.getElementById('configLlmModel').value = cfg.llm_model || 'qwen3.5-4b';
+    document.getElementById('configLlmUrl').value = cfg.llm_url || '';
+    document.getElementById('configLlmModel').value = cfg.llm_model || '';
     document.getElementById('configLlmKey').value = cfg.llm_api_key || '';
     const scanDirsEl = document.getElementById('configScanDirs');
     if (scanDirsEl) {
@@ -674,7 +733,6 @@ async function openConfigModal() {
         ...softwareList.flatMap(s => (s.machines || []).map(m => m.machine_id)),
         ...Object.keys(aliases)
       ])).filter(Boolean);
-      if (allKnownMachines.length === 0) allKnownMachines.push('DESKTOP-HEGVCTR');
 
       aliasesListEl.innerHTML = allKnownMachines.map(mid => `
         <div class="machine-alias-row">

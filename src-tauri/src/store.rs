@@ -52,6 +52,14 @@ pub fn software_file() -> PathBuf {
 pub fn config_file() -> PathBuf {
     data_dir().join("config.json")
 }
+/// 已删除软件的墓碑：重扫时命中则默认不勾选，避免垃圾复活。
+pub fn ignored_file() -> PathBuf {
+    data_dir().join("ignored.json")
+}
+/// 采集证据目录：`data/evidence/<主机名>/`，长期保留（含 screenshots/）。
+pub fn evidence_dir() -> PathBuf {
+    data_dir().join("evidence")
+}
 
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
 pub fn read_json(path: &Path) -> Value {
@@ -84,30 +92,42 @@ pub fn write_software(items: &[Value]) {
     write_json(&software_file(), &Value::Array(items.to_vec()));
 }
 
+pub fn read_ignored() -> Vec<Value> {
+    match read_json(&ignored_file()) {
+        Value::Array(items) => items,
+        _ => Vec::new(),
+    }
+}
+
+pub fn write_ignored(items: &[Value]) {
+    write_json(&ignored_file(), &Value::Array(items.to_vec()));
+}
+
 pub fn default_config() -> Value {
+    // 不预置任何与具体机器 / 用户目录 / LLM 端点相关的值。
+    // 便携发布时 data/config.json 会跟着 exe 走，预置具体值会把 A 机的信息带到 B 机。
     json!({
-        "llm_url": "http://127.0.0.1:1234/v1/chat/completions",
-        "llm_model": "qwen3.5-4b",
+        "llm_url": "",
+        "llm_model": "",
         "llm_api_key": "",
-        "scan_directories": [
-            "D:\\Portable",
-            "D:\\Tools",
-            "D:\\Software",
-            "E:\\Portable",
-            "E:\\Tools",
-            "E:\\Software",
-            "C:\\Software",
-            "C:\\Portable"
-        ],
-        "machine_aliases": {
-            "DESKTOP-HEGVCTR": "台式工作站"
-        }
+        "scan_directories": [],
+        "machine_aliases": {}
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_config_has_no_machine_specific_values() {
+        // 默认配置不得预置具体机器 / 用户目录 / LLM 端点，否则便携拷机会泄漏 A 机信息。
+        let cfg = default_config();
+        assert_eq!(cfg["machine_aliases"], json!({}));
+        assert_eq!(cfg["scan_directories"], json!([]));
+        assert_eq!(cfg["llm_url"], "");
+        assert_eq!(cfg["llm_model"], "");
+    }
 
     #[test]
     fn data_paths_live_under_root() {

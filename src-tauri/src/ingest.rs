@@ -171,6 +171,9 @@ fn add_or_update(
 ) {
     let norm = normalize_name(raw_name);
     let key = norm.name.to_lowercase().trim().to_string();
+    // 绿色/便携软件无需推断处置方式：直接就是「保留/压缩整个目录」。
+    let is_portable = forced_type == Some("portable");
+    let default_strategy = if is_portable { "copy_dir" } else { "none" };
 
     if let Some(&i) = index.get(&key) {
         let item = &mut items[i];
@@ -179,6 +182,13 @@ fn add_or_update(
                 if !v.is_empty() {
                     item["version"] = json!(v);
                 }
+            }
+        }
+        // 已存在的便携项：仅当用户尚未设置（空 / none）时补成 copy_dir，不覆盖人工选择。
+        if is_portable {
+            let current = item.get("backup_strategy").and_then(|v| v.as_str()).unwrap_or("");
+            if current.is_empty() || current == "none" {
+                item["backup_strategy"] = json!("copy_dir");
             }
         }
         update_machine(item, machine);
@@ -195,7 +205,7 @@ fn add_or_update(
         "version": machine.get("version").and_then(|v| v.as_str()).unwrap_or(""),
         "machines": [],
         "restore_intent": "unreviewed",
-        "backup_strategy": "none",
+        "backup_strategy": default_strategy,
         "prep_status": "todo",
         "has_config": false,
         "download_url": norm.download_url,
@@ -209,44 +219,26 @@ fn add_or_update(
     items.push(item);
 }
 
-/// 把某个证据目录下的所有机器结果合并进 `software.json`。
-/// 证据目录只是入参，调用方（扫描）用临时目录，用完自行删除。
-pub fn run_ingest(evidence_root: &Path) -> Value {
-    let ev = evidence_root;
-    if !ev.exists() {
-        return json!({ "success": false, "message": "Evidence directory does not exist" });
+/// 路径归一化：统一分隔符、小写、去尾斜杠，用于「完全相等」判定。
+/// 只做等价比较，不做模糊匹配；识别不出就当新条目（符合「尽力保证」）。
+pub fn normalize_path(p: &str) -> String {
+    let mut s = p.trim().replace('/', "\\").to_lowercase();
+    while s.ends_with('\\') {
+        s.pop();
     }
+    s
+}
 
-    let existing = store::read_software();
-    let mut items: Vec<Value> = existing.clone();
-    let mut index: HashMap<String, usize> = HashMap::new();
-    for (i, item) in items.iter().enumerate() {
-        if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
-            index.insert(name.to_lowercase().trim().to_string(), i);
-        }
-    }
-
-    let mut next_id: u64 = existing
-        .iter()
-        .filter_map(|s| {
-            s.get("id")
-                .and_then(|v| v.as_str())
-                .and_then(|id| id.replace("SW-", "").parse::<u64>().ok())
-        })
-        .max()
-        .unwrap_or(0);
-
-    let mut machine_dirs: Vec<String> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(ev) {
-        for e in rd.flatten() {
-            if e.path().is_dir() {
-                machine_dirs.push(e.file_name().to_string_lossy().to_string());
-            }
-        }
-    }
-
-    for machine_id in &machine_dirs {
-        let mdir = ev.join(machine_id);
+/// 解析指定机器目录下的证据，聚合成候选条目的原始列表（尚未做已知/墓碑判定）。
+fn parse_evidence(
+    evidence_root: &Path,
+    machines: &[String],
+    items: &mut Vec<Value>,
+    index: &mut HashMap<String, usize>,
+    next_id: &mut u64,
+) {
+    for machine_id in machines {
+        let mdir = evidence_root.join(machine_id);
 
         // A. 注册表安装项
         if let Value::Array(apps) = store::read_json(&mdir.join("registry-apps.json")) {
@@ -262,7 +254,7 @@ pub fn run_ingest(evidence_root: &Path) -> Value {
                     "install_location": app.get("install_location").and_then(|v| v.as_str()).unwrap_or(""),
                     "publisher": app.get("publisher").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(&mut items, &mut index, &mut next_id, name, machine, None);
+                add_or_update(items, index, next_id, name, machine, None);
             }
         }
 
@@ -280,7 +272,7 @@ pub fn run_ingest(evidence_root: &Path) -> Value {
                     "install_location": port.get("folder_path").and_then(|v| v.as_str()).unwrap_or(""),
                     "main_exe": port.get("main_exe").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(&mut items, &mut index, &mut next_id, name, machine, Some("portable"));
+                add_or_update(items, index, next_id, name, machine, Some("portable"));
             }
         }
 
@@ -309,33 +301,214 @@ pub fn run_ingest(evidence_root: &Path) -> Value {
                     "install_location": target,
                     "link_file": sc.get("link_file").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(&mut items, &mut index, &mut next_id, name, machine, None);
+                add_or_update(items, index, next_id, name, machine, None);
             }
         }
     }
+}
 
-    fn intent_order(s: &Value) -> u8 {
-        match s.get("restore_intent").and_then(|v| v.as_str()).unwrap_or("unreviewed") {
-            "must" => 1,
-            "should" => 2,
-            "on_demand" => 3,
-            "unreviewed" => 4,
-            "drop" => 5,
-            _ => 4,
+fn candidate_paths(item: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
+        for m in ms {
+            let loc = {
+                let a = m.get("install_location").and_then(|v| v.as_str()).unwrap_or("");
+                if a.is_empty() {
+                    m.get("path").and_then(|v| v.as_str()).unwrap_or("")
+                } else {
+                    a
+                }
+            };
+            let p = normalize_path(loc);
+            if !p.is_empty() && !out.contains(&p) {
+                out.push(p);
+            }
         }
     }
-    items.sort_by(|a, b| {
-        let d = intent_order(a).cmp(&intent_order(b));
-        if d != std::cmp::Ordering::Equal {
-            return d;
-        }
-        let an = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let bn = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        an.cmp(bn)
-    });
+    out
+}
 
-    store::write_software(&items);
-    json!({ "success": true, "total": items.len(), "machines": machine_dirs })
+fn candidate_machine_ids(item: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
+        for m in ms {
+            let mid = m.get("machine_id").and_then(|v| v.as_str()).unwrap_or("");
+            if !mid.is_empty() && !out.iter().any(|x| x == mid) {
+                out.push(mid.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// 已知判定：已有条目包含「本次机器」的记录，且名称相同 或 路径完全相等。
+/// 命中则视为已知，扫描对它零改动。
+fn is_known(candidate: &Value, existing: &[Value]) -> bool {
+    let cand_name = candidate
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .trim()
+        .to_string();
+    let cand_paths = candidate_paths(candidate);
+    let cand_machines = candidate_machine_ids(candidate);
+
+    for ex in existing {
+        let ex_name = ex
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .trim()
+            .to_string();
+        let Some(ms) = ex.get("machines").and_then(|m| m.as_array()) else {
+            continue;
+        };
+        for m in ms {
+            let mid = m.get("machine_id").and_then(|v| v.as_str()).unwrap_or("");
+            if !cand_machines.iter().any(|x| x == mid) {
+                continue;
+            }
+            let loc = {
+                let a = m.get("install_location").and_then(|v| v.as_str()).unwrap_or("");
+                if a.is_empty() {
+                    m.get("path").and_then(|v| v.as_str()).unwrap_or("")
+                } else {
+                    a
+                }
+            };
+            let same_name = !cand_name.is_empty() && cand_name == ex_name;
+            let same_path = {
+                let p = normalize_path(loc);
+                !p.is_empty() && cand_paths.iter().any(|x| *x == p)
+            };
+            if same_name || same_path {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 墓碑判定：名称或路径命中「已删除」记录。
+fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
+    let cand_name = candidate
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .trim()
+        .to_string();
+    let cand_paths = candidate_paths(candidate);
+    for g in ignored {
+        let key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
+        if !cand_name.is_empty() && key == cand_name {
+            return true;
+        }
+        if let Some(paths) = g.get("paths").and_then(|v| v.as_array()) {
+            for gp in paths.iter().filter_map(|p| p.as_str()) {
+                if cand_paths.iter().any(|x| *x == gp) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// 解析证据目录，产出扫描候选：未知项 + 墓碑项。已有条目在此阶段零改动。
+pub fn build_candidates(
+    evidence_root: &Path,
+    machines: &[String],
+    existing: &[Value],
+    ignored: &[Value],
+) -> Vec<Value> {
+    let mut items: Vec<Value> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut next_id = 0u64;
+    parse_evidence(evidence_root, machines, &mut items, &mut index, &mut next_id);
+
+    let mut candidates: Vec<Value> = Vec::new();
+    for mut item in items {
+        if is_known(&item, existing) {
+            continue;
+        }
+        let kind = if tombstone_match(&item, ignored) {
+            "deleted_before"
+        } else {
+            "new"
+        };
+        let key = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .trim()
+            .to_string();
+        if let Some(obj) = item.as_object_mut() {
+            obj.remove("id");
+            obj.insert("key".to_string(), json!(key));
+            obj.insert("kind".to_string(), json!(kind));
+        }
+        candidates.push(item);
+    }
+    candidates
+}
+
+pub struct ApplyResult {
+    pub added: usize,
+    pub revived_keys: Vec<String>,
+}
+
+/// 只应用勾选的候选：清空旧 is_new，把勾选项追加到最前并置 is_new。
+/// 已有条目的任何其他字段都不改动。
+pub fn apply_selected(
+    software: &mut Vec<Value>,
+    candidates: &[Value],
+    selected_keys: &[String],
+) -> ApplyResult {
+    for item in software.iter_mut() {
+        if let Some(obj) = item.as_object_mut() {
+            obj.insert("is_new".to_string(), json!(false));
+        }
+    }
+
+    let mut max_id: u64 = software
+        .iter()
+        .filter_map(|s| {
+            s.get("id")
+                .and_then(|v| v.as_str())
+                .and_then(|id| id.replace("SW-", "").parse::<u64>().ok())
+        })
+        .max()
+        .unwrap_or(0);
+
+    let mut new_items: Vec<Value> = Vec::new();
+    let mut revived_keys: Vec<String> = Vec::new();
+    for cand in candidates {
+        let key = cand.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        if !selected_keys.iter().any(|k| k == key) {
+            continue;
+        }
+        max_id += 1;
+        let mut item = cand.clone();
+        if let Some(obj) = item.as_object_mut() {
+            obj.insert("id".to_string(), json!(format!("SW-{:03}", max_id)));
+            obj.insert("is_new".to_string(), json!(true));
+            obj.remove("key");
+            obj.remove("kind");
+        }
+        if cand.get("kind").and_then(|v| v.as_str()) == Some("deleted_before") {
+            revived_keys.push(key.to_string());
+        }
+        new_items.push(item);
+    }
+
+    let added = new_items.len();
+    new_items.extend(std::mem::take(software));
+    *software = new_items;
+    ApplyResult { added, revived_keys }
 }
 
 #[cfg(test)]
@@ -358,9 +531,21 @@ mod tests {
         ]);
         fs::write(machine_dir.join("registry-apps.json"), registry.to_string()).unwrap();
 
+        let portable = json!([
+            { "name": "图吧工具箱", "folder_path": "D:\\Portable\\图吧工具箱", "main_exe": "D:\\Portable\\图吧工具箱\\tool.exe", "version": "1.0" }
+        ]);
+        fs::write(machine_dir.join("portable-apps.json"), portable.to_string()).unwrap();
+
         let _guard = crate::store::test_support::use_root(&root);
-        let res = run_ingest(&evidence_root);
-        assert_eq!(res.get("success").and_then(|v| v.as_bool()), Some(true));
+        let candidates = build_candidates(&evidence_root, &["TEST-MACHINE".to_string()], &[], &[]);
+        let keys: Vec<String> = candidates
+            .iter()
+            .filter_map(|c| c.get("key").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        let mut software: Vec<Value> = Vec::new();
+        let res = apply_selected(&mut software, &candidates, &keys);
+        assert_eq!(res.added, candidates.len());
+        store::write_software(&software);
 
         let items = store::read_software();
         let names: Vec<String> = items
@@ -391,6 +576,120 @@ mod tests {
             Some("TEST-MACHINE")
         );
 
+        // 绿色/便携软件：形态为 portable，处置方式直接确定性为 copy_dir。
+        let portable_item = items
+            .iter()
+            .find(|i| i.get("name").and_then(|v| v.as_str()) == Some("图吧工具箱"))
+            .unwrap();
+        assert_eq!(portable_item.get("type").and_then(|v| v.as_str()), Some("portable"));
+        assert_eq!(
+            portable_item.get("backup_strategy").and_then(|v| v.as_str()),
+            Some("copy_dir")
+        );
+
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn candidates_classify_new_existing_deleted() {
+        let root = std::env::temp_dir().join(format!("ledger_cand_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let evidence_root = root.join("evidence");
+        let machine_dir = evidence_root.join("M-B");
+        fs::create_dir_all(&machine_dir).unwrap();
+
+        let registry = json!([
+            { "name": "Google Chrome", "install_location": "C:\\Program Files\\Google\\Chrome" },
+            { "name": "Visual Studio Code", "install_location": "C:\\Program Files\\Microsoft VS Code" },
+            { "name": "7-Zip 23.01 (x64)", "install_location": "C:\\Program Files\\7-Zip" },
+            { "name": "HiBit Uninstaller", "install_location": "C:\\Program Files\\HiBit Uninstaller" }
+        ]);
+        fs::write(machine_dir.join("registry-apps.json"), registry.to_string()).unwrap();
+
+        let existing = json!([
+            { "id": "SW-001", "name": "Google Chrome", "machines": [{ "machine_id": "M-A", "install_location": "C:\\Program Files\\Google\\Chrome" }] },
+            { "id": "SW-002", "name": "VS Code", "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\Microsoft VS Code" }] },
+            { "id": "SW-003", "name": "7-Zip", "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }] }
+        ]);
+        let ignored = json!([
+            { "match_key": "hibit uninstaller", "name": "HiBit Uninstaller", "paths": ["c:\\program files\\hibit uninstaller"] }
+        ]);
+
+        let candidates = build_candidates(
+            &evidence_root,
+            &["M-B".to_string()],
+            existing.as_array().unwrap(),
+            ignored.as_array().unwrap(),
+        );
+        let names: Vec<String> = candidates
+            .iter()
+            .filter_map(|c| c.get("name").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        // 新机器同名 -> 新行候选；同机命中名称/路径 -> 已知排除；墓碑 -> deleted_before
+        assert!(
+            names.iter().any(|n| n == "Google Chrome"),
+            "new-machine same-name should be a candidate: {:?}",
+            names
+        );
+        assert!(
+            !names.iter().any(|n| n == "Visual Studio Code"),
+            "path+machine match should be known: {:?}",
+            names
+        );
+        assert!(
+            !names.iter().any(|n| n == "7-Zip"),
+            "name+machine match should be known: {:?}",
+            names
+        );
+
+        let chrome = candidates
+            .iter()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some("Google Chrome"))
+            .unwrap();
+        assert_eq!(chrome.get("kind").and_then(|v| v.as_str()), Some("new"));
+        let hibit = candidates
+            .iter()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some("HiBit Uninstaller"))
+            .unwrap();
+        assert_eq!(hibit.get("kind").and_then(|v| v.as_str()), Some("deleted_before"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn apply_selected_clears_is_new_and_preserves_existing() {
+        let mut software = vec![json!({
+            "id": "SW-001",
+            "name": "Old",
+            "restore_intent": "must",
+            "is_new": true,
+            "backup_strategy": "copy_config"
+        })];
+        let candidates = vec![
+            json!({ "key": "new one", "kind": "new", "name": "New One", "restore_intent": "unreviewed", "backup_strategy": "none" }),
+            json!({ "key": "revived", "kind": "deleted_before", "name": "Revived", "restore_intent": "unreviewed", "backup_strategy": "none" }),
+            json!({ "key": "unselected", "kind": "new", "name": "Unselected", "restore_intent": "unreviewed", "backup_strategy": "none" }),
+        ];
+        let res = apply_selected(
+            &mut software,
+            &candidates,
+            &["new one".to_string(), "revived".to_string()],
+        );
+        assert_eq!(res.added, 2);
+        assert_eq!(res.revived_keys, vec!["revived".to_string()]);
+
+        // 已有条目：is_new 被清掉，其他字段零改动
+        let old = software.iter().find(|s| s["id"] == "SW-001").unwrap();
+        assert_eq!(old["is_new"], false);
+        assert_eq!(old["restore_intent"], "must");
+        assert_eq!(old["backup_strategy"], "copy_config");
+
+        // 未勾选的候选不导入；勾选的置 is_new 并分配 id
+        assert!(software.iter().all(|s| s["name"] != "Unselected"));
+        let n = software.iter().find(|s| s["name"] == "New One").unwrap();
+        assert_eq!(n["is_new"], true);
+        assert!(n.get("key").is_none() && n.get("kind").is_none());
+        assert_eq!(n["id"], "SW-002");
     }
 }

@@ -130,6 +130,9 @@
             <button id="btnCardLLM" class="btn btn-primary btn-sm" title="调用 LLM 补全建议">
               <svg class="i sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg> AI预填
             </button>
+            <button id="btnCardDeleteTop" class="btn btn-danger btn-sm" title="删除当前卡片并前进 (Backspace)">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
           </div>
         </div>
 
@@ -265,10 +268,6 @@
               <svg class="i sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
               <span>恢复默认</span>
             </button>
-            <button id="btnCardDelete" class="btn btn-danger btn-sm">
-              <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              <span>删除软件</span>
-            </button>
           </div>
           <div class="drawer-footer-right">
             <div class="footer-shortcut-badge">
@@ -276,7 +275,14 @@
               <span class="badge-sep">或</span>
               <kbd>[</kbd><kbd>]</kbd>
               <span class="badge-desc">切卡</span>
+              <span class="badge-sep">·</span>
+              <kbd>Backspace</kbd>
+              <span class="badge-desc">删除</span>
             </div>
+            <button id="btnCardDelete" class="btn btn-danger btn-sm" title="删除当前卡片（2 秒内再点一次确认）">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>删除软件</span>
+            </button>
             <button id="btnCardNextBottom" class="btn btn-primary btn-sm">
               下一项卡片 <svg class="i sm" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>
@@ -308,7 +314,7 @@
 
         <!-- 设备别名映射配置 -->
         <div class="drawer-field">
-          <label>设备友好别名映射 (识别多机主机名，如 DESKTOP-HEGVCTR 对应 主力台式机)</label>
+          <label>设备友好别名映射 (为主机名设置友好别名，如 主力台式机 / 便携本)</label>
           <div id="configMachineAliasesList" class="machine-aliases-list"></div>
           <span class="hint">为当前检测到的机器设置友善中文别名，将在卡片与证据中同步展示。</span>
         </div>
@@ -368,13 +374,14 @@
             <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span class="desc">意愿：必须 / 建议 / 按需 / 淘汰 / 待确认</span></div>
             <div class="about-key-row"><span class="keys"><kbd>6</kbd><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd></span><span class="desc">就绪 / 配置 / AI 预判 / 合并</span></div>
             <div class="about-key-row"><span class="keys"><kbd>PageUp</kbd><kbd>PageDown</kbd></span><span class="desc">或 <kbd>[</kbd><kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> 连续切卡</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>Backspace</kbd></span><span class="desc">删除当前卡片（再按一次确认）并自动前进</span></div>
             <div class="about-key-row"><span class="keys"><kbd>/</kbd></span><span class="desc">聚焦筛选框</span></div>
           </div>
         </div>
         <div class="about-section">
           <h4>数据位置</h4>
           <div class="about-keys">
-            <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）、ignored.json（已删墓碑）、evidence/（采集证据与截图）</span></div>
             <div class="about-key-row"><span class="keys"><kbd>下载</kbd></span><span class="desc">RECOVERY_CHECKLIST.md、AWESOME_LIST.md（浏览器下载目录）</span></div>
           </div>
         </div>

@@ -54,7 +54,10 @@ fn render_group_checklist(items: &[&Value]) -> String {
             let mut machines: Vec<String> = Vec::new();
             if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
                 for m in ms {
-                    machines.push(s(m, "machine_id").to_string());
+                    let mid = s(m, "machine_id");
+                    if !mid.is_empty() && !machines.iter().any(|x| x == mid) {
+                        machines.push(mid.to_string());
+                    }
                 }
             }
             let machines_text = machines.join(", ");

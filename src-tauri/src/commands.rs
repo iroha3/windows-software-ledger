@@ -3,7 +3,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::exporter::export_checklists;
-use crate::ingest::run_ingest;
+use crate::ingest::{apply_selected, build_candidates};
 use crate::store;
 
 fn as_str(v: &Value, key: &str) -> String {
@@ -53,13 +53,10 @@ pub fn get_status() -> Value {
             }
         }
     }
+    // 机器列表只来自真实软件条目，不再把别名表里的 key 也算作一台机器，
+    // 否则复制过来的 data/config.json 会把别的机器上的旧主机名显示成标签页。
     let cfg = store::get_config();
     let aliases = cfg.get("machine_aliases").cloned().unwrap_or(json!({}));
-    if let Some(obj) = aliases.as_object() {
-        for k in obj.keys() {
-            push_machine(k, &mut machines);
-        }
-    }
 
     let mut path_set: Vec<String> = Vec::new();
     let add_path = |p: &str, set: &mut Vec<String>| {
@@ -139,6 +136,40 @@ pub fn get_software() -> Value {
     Value::Array(store::read_software())
 }
 
+/// 汇总各机器采集到的开发环境清单（只读证据，不参与软件清单）。
+#[tauri::command]
+pub fn get_dev_env() -> Value {
+    let root = store::evidence_dir();
+    let mut machines: Vec<Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let file = path.join("dev-env.json");
+            if !file.exists() {
+                continue;
+            }
+            let data = store::read_json(&file);
+            let providers = data.get("providers").cloned().unwrap_or(json!([]));
+            let machine_id = as_str(&data, "machine_id");
+            let machine_id = if machine_id.is_empty() {
+                entry.file_name().to_string_lossy().to_string()
+            } else {
+                machine_id
+            };
+            machines.push(json!({
+                "machine_id": machine_id,
+                "collected_at": as_str(&data, "collected_at"),
+                "providers": providers,
+            }));
+        }
+    }
+    machines.sort_by(|a, b| as_str(a, "machine_id").cmp(&as_str(b, "machine_id")));
+    json!({ "success": true, "machines": machines })
+}
+
 #[tauri::command]
 pub fn update_software(payload: Value) -> Value {
     let id = as_str(&payload, "id");
@@ -196,8 +227,46 @@ pub fn delete_software(payload: Value) -> Value {
         .unwrap_or_default();
 
     let mut software = store::read_software();
+    let mut ignored = store::read_ignored();
+
+    // 删除即为墓碑：记录规范化名称与路径，重扫时默认不勾选，避免垃圾复活。
+    for id in &ids {
+        let Some(item) = software.iter().find(|s| as_str(s, "id") == *id) else {
+            continue;
+        };
+        let name = as_str(item, "name");
+        let key = name.to_lowercase().trim().to_string();
+        let mut paths: Vec<String> = Vec::new();
+        if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
+            for m in ms {
+                let loc = {
+                    let a = as_str(m, "install_location");
+                    if a.is_empty() { as_str(m, "path") } else { a }
+                };
+                let p = crate::ingest::normalize_path(&loc);
+                if !p.is_empty() && !paths.contains(&p) {
+                    paths.push(p);
+                }
+            }
+        }
+        let deleted_at = chrono::Local::now().to_rfc3339();
+        if let Some(existing) = ignored.iter_mut().find(|g| as_str(g, "match_key") == key) {
+            existing["name"] = json!(name);
+            existing["paths"] = json!(paths);
+            existing["deleted_at"] = json!(deleted_at);
+        } else {
+            ignored.push(json!({
+                "match_key": key,
+                "name": name,
+                "paths": paths,
+                "deleted_at": deleted_at,
+            }));
+        }
+    }
+
     software.retain(|s| !ids.contains(&as_str(s, "id")));
     store::write_software(&software);
+    store::write_ignored(&ignored);
     json!({ "success": true, "remaining": software.len() })
 }
 
@@ -227,6 +296,8 @@ pub fn batch_add(payload: Value) -> Value {
         .max()
         .unwrap_or(0);
 
+    let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+
     let mut new_items: Vec<Value> = Vec::new();
     for raw_name in names {
         let clean = raw_name.trim();
@@ -240,7 +311,7 @@ pub fn batch_add(payload: Value) -> Value {
             "version": "",
             "category": "系统工具",
             "type": "desktop",
-            "machines": [{ "machine_id": "DESKTOP-HEGVCTR", "form": "manual" }],
+            "machines": [{ "machine_id": hostname.as_str(), "form": "manual" }],
             "restore_intent": restore_intent,
             "backup_strategy": "none",
             "prep_status": "todo",
@@ -500,50 +571,128 @@ fn remove_dir_retry(dir: &std::path::Path) {
     eprintln!("[scan] 未能删除临时目录: {}", dir.display());
 }
 
-/// 扫描本机：临时目录内采集 -> ingest 进 software.json -> 删除临时目录。
-fn run_scan() -> Value {
+/// 采集本机证据到 `data/evidence/<主机名>/`，脚本本身仍在系统临时目录释放执行。
+/// 仅覆盖证据 JSON，保留 `screenshots/`（用户手动放的截图）。
+fn collect_evidence() -> Result<String, String> {
+    let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+    let evidence_dir = store::evidence_dir().join(&machine);
+    std::fs::create_dir_all(&evidence_dir).map_err(|e| format!("无法创建证据目录: {}", e))?;
+
+    for name in [
+        "registry-apps.json",
+        "portable-apps.json",
+        "shortcuts.json",
+        "winget-apps.json",
+        "scoop-apps.json",
+        "cli-tools.json",
+        "machine-info.json",
+    ] {
+        let _ = std::fs::remove_file(evidence_dir.join(name));
+    }
+
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let scan_dir = std::env::temp_dir()
-        .join(format!("windows-software-ledger-scan-{}-{}", std::process::id(), stamp));
-    let script = scan_dir.join("collect.ps1");
-    let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
-    let output_dir = scan_dir.join(&machine);
+    let script_dir = std::env::temp_dir()
+        .join(format!("windows-software-ledger-script-{}-{}", std::process::id(), stamp));
+    std::fs::create_dir_all(&script_dir).map_err(|e| format!("无法创建临时目录: {}", e))?;
+    let script = script_dir.join("collect.ps1");
+    // 带 UTF-8 BOM，兼容 PowerShell 5.1
+    let body = format!("\u{feff}{}", COLLECT_PS1.trim_start_matches('\u{feff}'));
+    std::fs::write(&script, body).map_err(|e| format!("无法释放采集脚本: {}", e))?;
 
-    let run = || -> Result<Value, String> {
-        std::fs::create_dir_all(&scan_dir).map_err(|e| format!("无法创建临时目录: {}", e))?;
-        // 带 UTF-8 BOM，兼容 PowerShell 5.1
-        let body = format!("\u{feff}{}", COLLECT_PS1.trim_start_matches('\u{feff}'));
-        std::fs::write(&script, body).map_err(|e| format!("无法释放采集脚本: {}", e))?;
+    let cfg = store::get_config();
+    let dirs = cfg
+        .get("scan_directories")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
+        .unwrap_or_default();
 
-        let cfg = store::get_config();
-        let dirs = cfg
-            .get("scan_directories")
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
-            .unwrap_or_default();
+    let result = run_powershell(&script, &evidence_dir, &dirs);
+    remove_dir_retry(&script_dir);
+    result?;
+    Ok(machine)
+}
 
-        let output = run_powershell(&script, &output_dir, &dirs)?;
-        let ingest = run_ingest(&scan_dir);
-        Ok(json!({ "success": true, "output": output, "ingestRes": ingest }))
+/// 待导入的扫描预览（临时文件，跨重启可用，commit 后删除）。
+fn pending_scan_file() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("windows-software-ledger");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("pending-scan.json")
+}
+
+fn summarize_candidates(candidates: &[Value]) -> Value {
+    let count = |kind: &str| candidates.iter().filter(|c| as_str(c, "kind") == kind).count();
+    json!({
+        "total": candidates.len(),
+        "new": count("new"),
+        "deleted_before": count("deleted_before"),
+    })
+}
+
+/// 扫描第一步：采集 + 解析候选，不写 software.json。
+fn scan_preview_blocking() -> Value {
+    let machine = match collect_evidence() {
+        Ok(m) => m,
+        Err(e) => return json!({ "success": false, "error": e }),
     };
-
-    let res = match run() {
-        Ok(v) => v,
-        Err(err) => json!({ "success": false, "error": err }),
-    };
-    remove_dir_retry(&scan_dir);
-    res
+    let existing = store::read_software();
+    let ignored = store::read_ignored();
+    let candidates = build_candidates(&store::evidence_dir(), &[machine.clone()], &existing, &ignored);
+    let summary = summarize_candidates(&candidates);
+    let pending = json!({
+        "machine": machine,
+        "createdAt": chrono::Local::now().to_rfc3339(),
+        "candidates": candidates,
+    });
+    store::write_json(&pending_scan_file(), &pending);
+    json!({ "success": true, "machine": machine, "summary": summary, "candidates": candidates })
 }
 
 #[tauri::command]
-pub async fn scan_local() -> Value {
-    match tauri::async_runtime::spawn_blocking(run_scan).await {
+pub async fn scan_preview() -> Value {
+    match tauri::async_runtime::spawn_blocking(scan_preview_blocking).await {
         Ok(v) => v,
         Err(e) => json!({ "success": false, "error": e.to_string() }),
     }
+}
+
+/// 扫描第二步：只把勾选的候选写入 software.json。
+#[tauri::command]
+pub fn scan_commit(payload: Value) -> Value {
+    let selected_keys: Vec<String> = payload
+        .get("selectedKeys")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let pending = store::read_json(&pending_scan_file());
+    if !pending.is_object() {
+        return json!({ "success": false, "error": "扫描预览已失效，请重新扫描" });
+    }
+    if selected_keys.is_empty() {
+        let _ = std::fs::remove_file(pending_scan_file());
+        return json!({ "success": true, "added": 0, "revived": 0 });
+    }
+    let candidates: Vec<Value> = pending
+        .get("candidates")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut software = store::read_software();
+    let result = apply_selected(&mut software, &candidates, &selected_keys);
+    store::write_software(&software);
+
+    if !result.revived_keys.is_empty() {
+        let mut ignored = store::read_ignored();
+        ignored.retain(|g| !result.revived_keys.iter().any(|k| as_str(g, "match_key") == *k));
+        store::write_ignored(&ignored);
+    }
+
+    let _ = std::fs::remove_file(pending_scan_file());
+    json!({ "success": true, "added": result.added, "revived": result.revived_keys.len() })
 }
 
 #[tauri::command]
@@ -632,22 +781,91 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn scan_populates_software_and_leaves_no_evidence() {
+    fn scan_preview_keeps_evidence_and_commit_populates_software() {
         let root = std::env::temp_dir().join(format!("ledger_scan_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let _guard = crate::store::test_support::use_root(&root);
 
-        let res = run_scan();
+        let preview = scan_preview_blocking();
         assert_eq!(
-            res.get("success").and_then(|v| v.as_bool()),
+            preview.get("success").and_then(|v| v.as_bool()),
             Some(true),
-            "scan result: {}",
-            res
+            "preview result: {}",
+            preview
         );
-        // 证据只存在于临时目录，数据根下不应残留 evidence/
-        assert!(!root.join("evidence").exists(), "evidence should not persist");
-        assert!(!store::read_software().is_empty(), "scan should populate software.json");
+        // 证据现在持久化在 data/evidence/<机器名>/
+        assert!(store::evidence_dir().exists(), "evidence should persist under data/");
+
+        let candidates = preview
+            .get("candidates")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let keys: Vec<String> = candidates
+            .iter()
+            .filter(|c| c.get("kind").and_then(|v| v.as_str()) == Some("new"))
+            .filter_map(|c| c.get("key").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        let commit = scan_commit(json!({ "selectedKeys": keys }));
+        assert_eq!(
+            commit.get("success").and_then(|v| v.as_bool()),
+            Some(true),
+            "commit result: {}",
+            commit
+        );
+        assert!(!store::read_software().is_empty(), "commit should populate software.json");
+
+        // 开发环境清单也应随扫描落盘
+        let mut dev_env_found = false;
+        if let Ok(entries) = fs::read_dir(store::evidence_dir()) {
+            for entry in entries.flatten() {
+                let f = entry.path().join("dev-env.json");
+                if f.exists() {
+                    let v = store::read_json(&f);
+                    assert!(
+                        v.get("providers").and_then(|p| p.as_array()).map(|a| !a.is_empty()).unwrap_or(false),
+                        "dev-env.json should contain providers"
+                    );
+                    dev_env_found = true;
+                }
+            }
+        }
+        assert!(dev_env_found, "scan should produce dev-env.json");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn get_dev_env_aggregates_evidence() {
+        let root = std::env::temp_dir().join(format!("ledger_devenv_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let dir = store::evidence_dir().join("M-A");
+        fs::create_dir_all(&dir).unwrap();
+        store::write_json(
+            &dir.join("dev-env.json"),
+            &json!({
+                "schema_version": 1,
+                "machine_id": "M-A",
+                "collected_at": "2026-01-01T00:00:00+08:00",
+                "providers": [
+                    { "id": "rust", "label": "Rust", "available": true, "items": [], "restore_commands": ["rustup default stable"] }
+                ]
+            }),
+        );
+
+        let res = get_dev_env();
+        assert_eq!(res.get("success").and_then(|v| v.as_bool()), Some(true));
+        let machines = res.get("machines").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(machines.len(), 1);
+        assert_eq!(machines[0].get("machine_id").and_then(|v| v.as_str()), Some("M-A"));
+        assert_eq!(
+            machines[0].get("providers").and_then(|v| v.as_array()).map(|a| a.len()),
+            Some(1)
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

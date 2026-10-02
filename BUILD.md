@@ -56,17 +56,53 @@ scripts\cargo-msvc.bat test
 
 ## 采集脚本
 
-`scripts\collect.ps1` 通过 Rust 的 `include_str!` **编译进 exe**：扫描时释放到系统临时目录执行，采集结果也在同一临时目录内，`ingest` 进 `data\software.json` 后立即删除。
+`scripts\collect.ps1` 通过 Rust 的 `include_str!` **编译进 exe**：扫描时脚本释放到系统临时目录执行，采集结果写入 `data\evidence\<主机名>\` 并长期保留（`screenshots\` 供手动存放参考截图，重扫不会清除）。扫描分两步：`scan_preview` 解析候选，`scan_commit` 只把勾选项写入 `data\software.json`。
 
 因此：
 
 - 运行时不依赖外部 `scripts\` 目录；
-- 不会在数据目录留下 `evidence\`；
-- 临时文件带 UTF-8 BOM 写出，兼容 PowerShell 5.1（存在 `pwsh` 时优先使用）。
+- 证据保留在 `data\evidence\`，可随便携目录一起拷走；
+- 临时脚本文件带 UTF-8 BOM 写出，兼容 PowerShell 5.1（存在 `pwsh` 时优先使用）。
+
+### 开发环境清单（`dev-env.json`）
+
+扫描第 7 步额外产出 `data\evidence\<主机名>\dev-env.json`，由 7 个 provider 组成（Python / Rust / VS Code 扩展 / Git / Node / Go / .NET）：
+
+```json
+{
+  "schema_version": 1,
+  "machine_id": "...",
+  "collected_at": "...",
+  "providers": [
+    {
+      "id": "rust",
+      "label": "Rust",
+      "available": true,
+      "summary": "3 个工具链",
+      "items": [ { "name": "toolchain", "version": "stable-x86_64-pc-windows-msvc" } ],
+      "restore_commands": [ "rustup toolchain install stable-x86_64-pc-windows-msvc" ]
+    }
+  ]
+}
+```
+
+前端「开发环境」页（`client/dev_env.html`）通过 `get_dev_env` 命令聚合所有 `dev-env.json`，按设备折叠展示，命令块可一键复制。它只是只读证据，**不进入 `software.json`，也不参与导入流程**。
+
+**安全红线**：provider 只调白名单只读命令，**绝不读取环境变量块、`~/.ssh`、`.git-credentials`、`.npmrc` token、`.aws/`、`.env` 或任何凭据**；Git 只取白名单键（用户名/邮箱/编辑器/别名等），仓库 remote 不在采集范围。
+
+**扩展（欢迎 PR）**：新增一个工具链只需在 `collect.ps1` 第 7 步加一个 provider 对象（`id` / `label` / `items` / `restore_commands`），前端无需改动。欢迎补充 PowerShell 模块、WSL、JetBrains 插件等。
 
 ## 图标
 
-图标源文件为 `src-tauri\icons\icon.svg`，构建所用的多分辨率 `icon.ico`（16/32/48/64/128/256，PNG 压缩）已生成并提交。
+图标源文件为 `src-tauri\icons\icon.svg`，构建所用的多分辨率 `icon.ico`（16/24/32/48/64/128/256，PNG 压缩）已生成并提交。
+
+如需重新生成（仅在修改图标时需要，依赖 `pip install resvg-py pillow`）：
+
+```bat
+python scripts\generate_icon.py
+```
+
+脚本会自检每一帧非空且居中，避免再次出现 128 帧透明、256 帧内容偏移导致的 exe 桌面图标错位。
 
 > 修改图标后需先清理再构建，否则增量编译会沿用过期的图标资源：
 >
