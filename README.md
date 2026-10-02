@@ -6,7 +6,7 @@
 
 本地优先 · 单 exe 绿色运行 · 数据可携带
 
-[![Release](https://img.shields.io/badge/release-v1.0.1-2d6173?style=flat-square)](../../releases)
+[![Release](https://img.shields.io/badge/release-v1.1.0-2d6173?style=flat-square)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-2d6173?style=flat-square)](#安装)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-2d6173?style=flat-square)](https://v2.tauri.app/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-2d6173?style=flat-square)](LICENSE)
