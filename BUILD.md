@@ -84,9 +84,18 @@ scripts\cargo-msvc.bat test
 - 证据保留在 `data\evidence\`，可随便携目录一起拷走；
 - 临时脚本文件带 UTF-8 BOM 写出，兼容 PowerShell 5.1（存在 `pwsh` 时优先使用）。
 
+### 软件图标（`data\icons\` + 证据里的 `app-icons\`）
+
+扫描第 6 步用 PowerShell 的 `System.Drawing.Icon.ExtractAssociatedIcon` 从可执行文件抽取 32×32 图标（只读 exe 资源，不碰任何敏感数据）：
+
+- **来源**：注册表项的 `DisplayIcon`（会剥掉 `,0` 索引）、快捷方式的 `target_path`、绿色软件的 `main_exe`；按 exe 路径去重，产出 `data\evidence\<主机名>\app-icons\<hash>.png`，并把文件名写回 `registry-apps.json` / `shortcuts.json` / `portable-apps.json` 的 `icon_file` 字段。
+- **导入**：`scan_commit` 把图标按软件 ID 复制到 `data\icons\<SW-ID>.png`；重扫时「已知」的已有条目走 `known_icon_refreshes` 补齐（缺则补、不覆盖）。
+- **展示**：`get_software` 把 `data\icons\<SW-ID>.png` 编码成 data URI 注入返回值的 `icon` 字段（**不写回 `software.json`**），主表格 / 抽屉 / 卡片速审在名称前显示 20px 缩略图，取不到则回退通用方盒图标。删除软件时级联删图标。
+- **局限**：`ExtractAssociatedIcon` 固定 32×32；UWP/Store 应用与部分注册表项没有可用 exe，只能回退占位。
+
 ### 开发环境清单（`dev-env.json` + `dev-env/`）
 
-扫描第 7 步额外产出两样东西（都在 `data\evidence\<主机名>\` 下）：
+扫描第 8 步额外产出两样东西（都在 `data\evidence\<主机名>\` 下）：
 
 - `dev-env/` 目录：包列表 / 配置原文，UTF-8 **无 BOM**，供 pip / npm / cargo 直接读取。
 - `dev-env.json`：7 个 provider 的摘要（Python / Rust / VS Code 扩展 / Git / Node / Go / .NET）。
@@ -120,11 +129,11 @@ scripts\cargo-msvc.bat test
 
 **安全红线**：provider 只调白名单只读命令，**绝不读取环境变量块、`~/.ssh`、`.git-credentials`、`.npmrc` token、`.aws/`、`.env` 或任何凭据**；Git 只取白名单键（用户名/邮箱/编辑器/别名等），仓库 remote 不在采集范围。另存的配置文件会先经 `Protect-Secret` 脱敏：`scheme://user:pass@` 与含 `token/password/secret/_auth/api[-_]key` 的取值一律掩码为 `***`。
 
-**扩展（欢迎 PR）**：新增一个工具链只需在 `collect.ps1` 第 7 步加一个 provider 对象（`id` / `label` / `items` / `files` / `restore_commands`），前端无需改动。欢迎补充 PowerShell 模块、WSL、JetBrains 插件等。
+**扩展（欢迎 PR）**：新增一个工具链只需在 `collect.ps1` 第 8 步加一个 provider 对象（`id` / `label` / `items` / `files` / `restore_commands`），前端无需改动。欢迎补充 PowerShell 模块、WSL、JetBrains 插件等。
 
 ### 浏览器扩展（`browser-extensions.json`）
 
-扫描第 8 步采集**已安装浏览器**的扩展只读元数据，产出 `data\evidence\<主机名>\browser-extensions.json`：
+扫描第 9 步采集**已安装浏览器**的扩展只读元数据，产出 `data\evidence\<主机名>\browser-extensions.json`：
 
 - Chromium 系（Edge / Chrome / Brave / Vivaldi / Chromium / Helium / Opera / Opera GX）用**数据驱动的候选根目录**，存在才扫，不在就跳过；逐个 profile 读 `Extensions\<扩展ID>\<版本>\manifest.json`，`__MSG_xxx__` 名称会从 `_locales` 解析。
 - Firefox 读 `%APPDATA%\Mozilla\Firefox\Profiles\<profile>\extensions.json`，只取 `location == "app-profile"` 且 `type == "extension"` 的项，名称优先 `defaultLocale.name`，并带上 `active` 与 AMO `sourceURI`。
@@ -150,7 +159,7 @@ Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env
 
 ### 耗时统计（`timings.json`）
 
-`collect.ps1 -Timing` 会在同一证据目录额外写 `timings.json`（`schema_version` / `machine_id` / `collected_at` / `total_seconds` / `laps`），记录各步骤与第 7 步各 provider 的耗时，方便定位扫描慢在哪。平时扫描不加该开关，不产生额外文件。
+`collect.ps1 -Timing` 会在同一证据目录额外写 `timings.json`（`schema_version` / `machine_id` / `collected_at` / `total_seconds` / `laps`），记录各步骤与第 8 步各 provider 的耗时，方便定位扫描慢在哪。平时扫描不加该开关，不产生额外文件。
 
 实测（264 包 / 63 扩展的机器）总耗时约 **7s**，大头是注册表枚举与开发环境采集。为了让开发环境这一段不拖后腿，已用几个快速路径替代重命令（均有回退）：
 

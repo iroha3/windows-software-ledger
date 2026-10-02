@@ -1,4 +1,4 @@
-# scripts/collect.ps1
+﻿# scripts/collect.ps1
 # 零依赖本地软件与环境线索采集脚本
 param (
     [string]$MachineId = $env:COMPUTERNAME,
@@ -51,11 +51,11 @@ $machineInfo = [PSCustomObject]@{
     collected_at  = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 }
 $machineInfo | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $OutputDir "machine-info.json") -Encoding UTF8
-Write-Host "[1/8] 机器系统信息已记录" -ForegroundColor Green
+Write-Host "[1/9] 机器系统信息已记录" -ForegroundColor Green
 Mark-Lap "1.machine-info"
 
 # 2. 采集注册表已安装软件 (32位 + 64位 + 用户级)
-Write-Host "[2/8] 正在读取 Windows 注册表已安装项..." -ForegroundColor Yellow
+Write-Host "[2/9] 正在读取 Windows 注册表已安装项..." -ForegroundColor Yellow
 $regPaths = @(
     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
     "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -73,7 +73,9 @@ foreach ($path in $regPaths) {
                 publisher        = if ($_.Publisher) { $_.Publisher.ToString().Trim() } else { "" }
                 install_location = if ($_.InstallLocation) { $_.InstallLocation.ToString().Trim() } else { "" }
                 uninstall_string = if ($_.UninstallString) { $_.UninstallString.ToString().Trim() } else { "" }
+                display_icon     = if ($_.DisplayIcon) { $_.DisplayIcon.ToString().Trim() } else { "" }
                 source           = "registry"
+                icon_file        = ""
             }
         }
     }
@@ -85,7 +87,7 @@ Write-Host "      共读取到 $($registryApps.Count) 个注册表安装条目" 
 Mark-Lap "2.registry"
 
 # 3. 采集包管理器 (Winget / Scoop)
-Write-Host "[3/8] 检查包管理器 (Winget / Scoop)..." -ForegroundColor Yellow
+Write-Host "[3/9] 检查包管理器 (Winget / Scoop)..." -ForegroundColor Yellow
 $wingetApps = @()
 if (Get-Command winget -ErrorAction SilentlyContinue) {
     try {
@@ -140,7 +142,7 @@ Mark-Lap "3.scoop"
 Write-Host "      Winget 条目: $($wingetApps.Count), Scoop 条目: $($scoopApps.Count)" -ForegroundColor Green
 
 # 4. 采集桌面与开始菜单快捷方式 (.lnk 解析)
-Write-Host "[4/8] 采集开始菜单与桌面快捷方式..." -ForegroundColor Yellow
+Write-Host "[4/9] 采集开始菜单与桌面快捷方式..." -ForegroundColor Yellow
 $shortcutPaths = @(
     [Environment]::GetFolderPath('Desktop'),
     [Environment]::GetFolderPath('CommonDesktopDirectory'),
@@ -163,6 +165,7 @@ foreach ($dir in $shortcutPaths) {
                         target_path = $target
                         link_file   = $_.FullName
                         source      = "shortcut"
+                        icon_file   = ""
                     }
                 }
             } catch {}
@@ -175,7 +178,7 @@ Write-Host "      共解析出 $($shortcuts.Count) 个有效应用程序快捷�
 Mark-Lap "4.shortcuts"
 
 # 5. 扫描便携 / 绿色软件目录
-Write-Host "[5/8] 扫描便携与绿色软件目录..." -ForegroundColor Yellow
+Write-Host "[5/9] 扫描便携与绿色软件目录..." -ForegroundColor Yellow
 $defaultCandidateDirs = @(
     "D:\Portable", "D:\Tools", "D:\Software", "D:\Green", "D:\Apps",
     "E:\Portable", "E:\Tools", "E:\Software", "E:\Green", "E:\Apps",
@@ -221,6 +224,7 @@ foreach ($dir in $candidateDirs) {
                     main_exe     = $mainExe.FullName
                     version      = $fileVersion
                     source       = "portable_scan"
+                    icon_file    = ""
                 }
             }
         }
@@ -232,8 +236,57 @@ Write-Host "      发现便携目录: $($foundDirs -join ', ')" -ForegroundColor
 Mark-Lap "5.portable"
 Write-Host "      扫描出便携软件: $($scannedPortable.Count) 个" -ForegroundColor Green
 
+# 6. 抽取软件图标（只读 exe 资源；失败即跳过，绝不影响扫描；绝不读取任何敏感数据）
+Write-Host "[6/9] 正在抽取软件图标..." -ForegroundColor Yellow
+try {
+    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+    $iconDir = Join-Path $OutputDir "app-icons"
+    New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
+    $iconCache = @{}
+
+    function Get-AppIconFile([string]$rawPath) {
+        if ([string]::IsNullOrWhiteSpace($rawPath)) { return "" }
+        $p = $rawPath.Trim().Trim('"')
+        # DisplayIcon 可能是 "C:\..\app.exe,0" 形式，剥掉索引
+        if ($p -match '^(?<p>.+?\.exe)(,\s*-?\d+)?$') { $p = $matches['p'] }
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return "" }
+        $k = $p.ToLower()
+        if ($iconCache.ContainsKey($k)) { return $iconCache[$k] }
+        $file = ""
+        try {
+            $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($p)
+            if ($ico) {
+                $bmp = $ico.ToBitmap()
+                $sha = [System.Security.Cryptography.SHA1]::Create()
+                $hash = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($k))).Replace('-', '')
+                $file = $hash.Substring(0, 16) + ".png"
+                $bmp.Save((Join-Path $iconDir $file), [System.Drawing.Imaging.ImageFormat]::Png)
+                $bmp.Dispose()
+                $ico.Dispose()
+            }
+        } catch { $file = "" }
+        $iconCache[$k] = $file
+        return $file
+    }
+
+    foreach ($a in $registryApps) { $a.icon_file = Get-AppIconFile $a.display_icon }
+    foreach ($s in $shortcuts) { $s.icon_file = Get-AppIconFile $s.target_path }
+    foreach ($p in $scannedPortable) { $p.icon_file = Get-AppIconFile $p.main_exe }
+
+    # 回写带 icon_file 的证据 JSON
+    $registryApps | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDir "registry-apps.json") -Encoding UTF8
+    $shortcuts | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDir "shortcuts.json") -Encoding UTF8
+    $scannedPortable | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDir "portable-apps.json") -Encoding UTF8
+
+    $iconCount = @($iconCache.Values | Where-Object { $_ -ne "" }).Count
+    Write-Host "      已抽取图标: $iconCount 个" -ForegroundColor Green
+} catch {
+    Write-Host "      图标抽取不可用，已跳过: $($_.Exception.Message)" -ForegroundColor DarkGray
+}
+Mark-Lap "6.icons"
+
 # 6. 扫描 PATH 中的独立 CLI 工具
-Write-Host "[6/8] 检查系统 PATH 环境变量中的 CLI 工具..." -ForegroundColor Yellow
+Write-Host "[7/9] 检查系统 PATH 环境变量中的 CLI 工具..." -ForegroundColor Yellow
 $pathDirs = ($env:PATH -split ";") | Where-Object { $_.Trim() -and (Test-Path $_.Trim()) } | Select-Object -Unique
 $cliTools = @()
 $systemPathPrefixes = @("C:\Windows", "C:\Program Files\Common Files", "C:\Program Files (x86)\Common Files")
@@ -265,7 +318,7 @@ Write-Host "      PATH 中独立 CLI 工具: $($cliTools.Count) 个" -Foreground
 Mark-Lap "6.cli-tools"
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host " [7/8] 采集开发环境清单 (Python / Rust / VS Code / Git / Node / Go / .NET)..." -ForegroundColor Yellow
+Write-Host " [8/9] 采集开发环境清单 (Python / Rust / VS Code / Git / Node / Go / .NET)..." -ForegroundColor Yellow
 
 # 开发环境清单：只跑白名单只读命令，绝不读取环境变量块、SSH key、凭据等敏感文件。
 $devProviders = @()
@@ -731,7 +784,7 @@ Write-Host "      开发环境 provider: $($devProviders.Count) 个" -Foreground
 Mark-Lap "7.devenv-json"
 
 # 8. 采集浏览器扩展（只读元数据；绝不碰扩展存储 / cookie / 凭据）
-Write-Host "[8/8] 采集浏览器扩展 (Chromium 系 / Firefox)..." -ForegroundColor Yellow
+Write-Host "[9/9] 采集浏览器扩展 (Chromium 系 / Firefox)..." -ForegroundColor Yellow
 
 $browserEntries = @()
 

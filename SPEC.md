@@ -120,7 +120,12 @@
 - `dev-env.json` + `dev-env/`：开发环境声明式清单与包列表 / 配置原文（见 BUILD.md）。
 - `browser-extensions.json`：已安装浏览器的扩展只读元数据（见 BUILD.md）。
 - `timings.json`：仅在 `-Timing` 时产出，记录各步骤耗时。
+- `app-icons/`：从 exe 抽取的 32×32 图标（`icon_file` 字段引用），扫描时生成，重扫不清除。
 - `screenshots/`：供用户手动存放参考截图，重扫不清除。
+
+#### 软件图标（`data/icons/<SW-ID>.png`）
+
+扫描时从 exe 抽取的软件图标，导入时按软件 ID 落盘。`get_software` 将其编码为 data URI 注入返回值的 `icon` 字段（不写回 `software.json`）；前端在名称前显示缩略图，缺失则回退通用图标。删除软件时级联删除。
 
 #### 配置归档（`data/vault/<主机名>/`）
 

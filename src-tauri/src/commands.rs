@@ -3,8 +3,10 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
+use base64::Engine;
+
 use crate::exporter::export_checklists;
-use crate::ingest::{apply_selected, build_candidates};
+use crate::ingest::{apply_selected, build_candidates, known_icon_refreshes};
 use crate::store;
 
 fn as_str(v: &Value, key: &str) -> String {
@@ -134,7 +136,34 @@ pub fn get_status() -> Value {
 
 #[tauri::command]
 pub fn get_software() -> Value {
-    Value::Array(store::read_software())
+    let mut items = store::read_software();
+    // 图标以 data URI 注入（文件本体在 data/icons/<SW-ID>.png），
+    // 方便 WebView 直接 <img src>；不写回 software.json。
+    for item in items.iter_mut() {
+        let id = as_str(item, "id");
+        if let Some(uri) = icon_data_uri(&id) {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("icon".to_string(), json!(uri));
+            }
+        }
+    }
+    Value::Array(items)
+}
+
+/// 读图标文件并编码成 data URI；缺失/读失败返回 None（前端回退通用图标）。
+fn icon_data_uri(id: &str) -> Option<String> {
+    if id.is_empty() {
+        return None;
+    }
+    let path = store::icons_dir().join(format!("{}.png", safe_component(id)));
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 /// 汇总各机器采集到的开发环境清单（只读证据，不参与软件清单）。
@@ -492,9 +521,10 @@ pub fn delete_software(payload: Value) -> Value {
     }
 
     software.retain(|s| !ids.contains(&as_str(s, "id")));
-    // 级联清理该软件的配置归档，不留孤儿文件
+    // 级联清理该软件的配置归档与图标，不留孤儿文件
     for id in &ids {
         let _ = std::fs::remove_dir_all(vault_target_dir("soft", id));
+        let _ = std::fs::remove_file(store::icons_dir().join(format!("{}.png", safe_component(id))));
     }
     store::write_software(&software);
     store::write_ignored(&ignored);
@@ -856,6 +886,27 @@ fn pending_scan_file() -> std::path::PathBuf {
     dir.join("pending-scan.json")
 }
 
+/// 重扫时为「已知（未变）」的已有条目补齐图标：读 pending 里的 knownIcons，
+/// 缺则复制到 data/icons/<SW-ID>.png；失败不阻断导入。
+fn apply_known_icons(pending: &Value) {
+    let Some(arr) = pending.get("knownIcons").and_then(|v| v.as_array()) else {
+        return;
+    };
+    let dir = store::icons_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    for pair in arr {
+        if let (Some(id), Some(src)) = (
+            pair.get(0).and_then(|v| v.as_str()),
+            pair.get(1).and_then(|v| v.as_str()),
+        ) {
+            let dest = dir.join(format!("{}.png", safe_component(id)));
+            if !dest.exists() {
+                let _ = std::fs::copy(src, &dest);
+            }
+        }
+    }
+}
+
 fn summarize_candidates(candidates: &[Value]) -> Value {
     let count = |kind: &str| candidates.iter().filter(|c| as_str(c, "kind") == kind).count();
     json!({
@@ -874,11 +925,13 @@ fn scan_preview_blocking() -> Value {
     let existing = store::read_software();
     let ignored = store::read_ignored();
     let candidates = build_candidates(&store::evidence_dir(), &[machine.clone()], &existing, &ignored);
+    let known_icons = known_icon_refreshes(&store::evidence_dir(), &[machine.clone()], &existing);
     let summary = summarize_candidates(&candidates);
     let pending = json!({
         "machine": machine,
         "createdAt": chrono::Local::now().to_rfc3339(),
         "candidates": candidates,
+        "knownIcons": known_icons,
     });
     store::write_json(&pending_scan_file(), &pending);
     json!({
@@ -911,6 +964,8 @@ pub fn scan_commit(payload: Value) -> Value {
     if !pending.is_object() {
         return json!({ "success": false, "error": "扫描预览已失效，请重新扫描" });
     }
+    // 已有条目的图标补齐（与是否勾选新条目无关，缺则补）
+    apply_known_icons(&pending);
     if selected_keys.is_empty() {
         let _ = std::fs::remove_file(pending_scan_file());
         return json!({ "success": true, "added": 0, "revived": 0 });
@@ -925,6 +980,16 @@ pub fn scan_commit(payload: Value) -> Value {
     let was_empty = software.is_empty();
     let result = apply_selected(&mut software, &candidates, &selected_keys, !was_empty);
     store::write_software(&software);
+
+    // 把本次导入候选的图标复制到 data/icons/<SW-ID>.png（仅导入项；失败不阻断导入）
+    if !result.icons.is_empty() {
+        let dir = store::icons_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        for (id, src) in &result.icons {
+            let dest = dir.join(format!("{}.png", safe_component(id)));
+            let _ = std::fs::copy(src, &dest);
+        }
+    }
 
     if !result.revived_keys.is_empty() {
         let mut ignored = store::read_ignored();

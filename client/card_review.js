@@ -33,7 +33,8 @@ const ICONS = {
   device: `<svg class="i sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
   sparkles: `<svg class="i sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`,
   info: `<svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
-  alert: `<svg class="i sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+  alert: `<svg class="i sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
+  box: `<svg class="i" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`
 };
 
 // DOM 元素
@@ -236,6 +237,12 @@ function updateProgress() {
   reviewProgressBar.style.width = `${percent}%`;
 }
 
+// 软件图标：扫描抽到的 exe 图标（data URI）；缺失回退通用方盒图标
+function appIconHtml(item) {
+  if (item.icon) return `<img class="app-icon" src="${item.icon}" alt="" loading="lazy">`;
+  return `<span class="app-icon-fallback" title="无图标">${ICONS.box}</span>`;
+}
+
 // 加载单张卡片
 function loadCard(index) {
   if (index < 0 || index >= currentFiltered.length) return;
@@ -249,6 +256,8 @@ function loadCard(index) {
   if (window.DeleteConfirm) window.DeleteConfirm.disarmAll();
 
   cardName.value = activeItem.name;
+  const iconWrap = document.getElementById('cardIconWrap');
+  if (iconWrap) iconWrap.innerHTML = appIconHtml(activeItem);
   cardCategory.value = activeItem.category || '开发工具';
   cardType.value = activeItem.type || 'desktop';
   cardVersion.value = activeItem.version || '';

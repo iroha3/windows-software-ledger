@@ -303,6 +303,12 @@ function getFilteredSoftware() {
   });
 }
 
+// 软件图标：扫描时抽取的 exe 图标以 data URI 注入；缺失则回退通用方盒图标
+function appIconHtml(item) {
+  if (item.icon) return `<img class="app-icon" src="${item.icon}" alt="" loading="lazy">`;
+  return `<span class="app-icon-fallback" title="无图标">${ICONS.box}</span>`;
+}
+
 // 渲染表格
 function buildRowHtml(item) {
   const isSelected = selectedIds.has(item.id);
@@ -334,7 +340,10 @@ function buildRowHtml(item) {
       </td>
       <td>
         <div class="software-name-cell">
-          <span class="software-title" data-action="open-drawer" data-id="${item.id}">${escapeHtml(item.name)}</span>
+          <div class="software-name-line">
+            ${appIconHtml(item)}
+            <span class="software-title" data-action="open-drawer" data-id="${item.id}">${escapeHtml(item.name)}</span>
+          </div>
           <div class="software-tags">
             <span class="tag-cat">${item.category || '未分类'}</span>
             <span class="tag-form">${item.type || 'desktop'}</span>
@@ -705,6 +714,8 @@ function openDrawer(id) {
   if (titleEl) titleEl.innerText = activeItem.name;
 
   document.getElementById('drawerName').value = activeItem.name || '';
+  const drawerIconWrap = document.getElementById('drawerIconWrap');
+  if (drawerIconWrap) drawerIconWrap.innerHTML = appIconHtml(activeItem);
   document.getElementById('drawerVersion').value = activeItem.version || '';
   document.getElementById('drawerCategory').value = activeItem.category || '开发工具';
   document.getElementById('drawerType').value = activeItem.type || 'desktop';

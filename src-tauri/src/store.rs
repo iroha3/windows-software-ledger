@@ -86,6 +86,12 @@ pub fn vault_dir() -> PathBuf {
     data_dir().join("vault")
 }
 
+/// 软件主程序图标：`data/icons/<SW-ID>.png`。
+/// 扫描时从 exe 抽取，仅用于展示，不含任何敏感信息。
+pub fn icons_dir() -> PathBuf {
+    data_dir().join("icons")
+}
+
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
 pub fn read_json(path: &Path) -> Value {
     match fs::read_to_string(path) {

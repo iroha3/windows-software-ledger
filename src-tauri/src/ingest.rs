@@ -168,6 +168,7 @@ fn add_or_update(
     raw_name: &str,
     machine: Value,
     forced_type: Option<&str>,
+    icon_path: &str,
 ) {
     let norm = normalize_name(raw_name);
     let key = norm.name.to_lowercase().trim().to_string();
@@ -192,6 +193,12 @@ fn add_or_update(
             }
         }
         update_machine(item, machine);
+        if icon_path.is_empty() {
+            return;
+        }
+        if item.get("icon_path").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+            item["icon_path"] = json!(icon_path);
+        }
         return;
     }
 
@@ -212,6 +219,7 @@ fn add_or_update(
         "config_notes": "",
         "is_awesome": false,
         "awesome_role": "",
+        "icon_path": icon_path,
         "created_at": chrono::Local::now().to_rfc3339(),
     });
     update_machine(&mut item, machine);
@@ -227,6 +235,18 @@ pub fn normalize_path(p: &str) -> String {
         s.pop();
     }
     s
+}
+
+/// 把证据目录里的 `icon_file` 拼成绝对路径，交给后续导入时复制。
+fn evidence_icon_path(mdir: &Path, entry: &Value) -> String {
+    let file = entry.get("icon_file").and_then(|v| v.as_str()).unwrap_or("");
+    if file.is_empty() {
+        return String::new();
+    }
+    mdir.join("app-icons")
+        .join(file)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// 解析指定机器目录下的证据，聚合成候选条目的原始列表（尚未做已知/墓碑判定）。
@@ -254,7 +274,7 @@ fn parse_evidence(
                     "install_location": app.get("install_location").and_then(|v| v.as_str()).unwrap_or(""),
                     "publisher": app.get("publisher").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(items, index, next_id, name, machine, None);
+                add_or_update(items, index, next_id, name, machine, None, &evidence_icon_path(&mdir, &app));
             }
         }
 
@@ -272,7 +292,15 @@ fn parse_evidence(
                     "install_location": port.get("folder_path").and_then(|v| v.as_str()).unwrap_or(""),
                     "main_exe": port.get("main_exe").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(items, index, next_id, name, machine, Some("portable"));
+                add_or_update(
+                    items,
+                    index,
+                    next_id,
+                    name,
+                    machine,
+                    Some("portable"),
+                    &evidence_icon_path(&mdir, &port),
+                );
             }
         }
 
@@ -301,7 +329,7 @@ fn parse_evidence(
                     "install_location": target,
                     "link_file": sc.get("link_file").and_then(|v| v.as_str()).unwrap_or(""),
                 });
-                add_or_update(items, index, next_id, name, machine, None);
+                add_or_update(items, index, next_id, name, machine, None, &evidence_icon_path(&mdir, &sc));
             }
         }
     }
@@ -343,7 +371,7 @@ fn candidate_machine_ids(item: &Value) -> Vec<String> {
 
 /// 已知判定：已有条目包含「本次机器」的记录，且名称相同 或 路径完全相等。
 /// 命中则视为已知，扫描对它零改动。
-fn is_known(candidate: &Value, existing: &[Value]) -> bool {
+fn find_known<'a>(candidate: &Value, existing: &'a [Value]) -> Option<&'a Value> {
     let cand_name = candidate
         .get("name")
         .and_then(|v| v.as_str())
@@ -384,11 +412,43 @@ fn is_known(candidate: &Value, existing: &[Value]) -> bool {
                 !p.is_empty() && cand_paths.iter().any(|x| *x == p)
             };
             if same_name || same_path {
-                return true;
+                return Some(ex);
             }
         }
     }
-    false
+    None
+}
+
+fn is_known(candidate: &Value, existing: &[Value]) -> bool {
+    find_known(candidate, existing).is_some()
+}
+
+/// 已有条目缺图标的补充来源：返回 (SW-ID, 图标绝对路径)。
+/// 这些条目不在候选列表里（已知即跳过），但重扫时仍应把图标补齐。
+pub fn known_icon_refreshes(
+    evidence_root: &Path,
+    machines: &[String],
+    existing: &[Value],
+) -> Vec<(String, String)> {
+    let mut items: Vec<Value> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut next_id = 0u64;
+    parse_evidence(evidence_root, machines, &mut items, &mut index, &mut next_id);
+
+    let mut out: Vec<(String, String)> = Vec::new();
+    for item in &items {
+        let icon = item.get("icon_path").and_then(|v| v.as_str()).unwrap_or("");
+        if icon.is_empty() {
+            continue;
+        }
+        if let Some(ex) = find_known(item, existing) {
+            let id = ex.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if !id.is_empty() && !out.iter().any(|(i, _)| i == id) {
+                out.push((id.to_string(), icon.to_string()));
+            }
+        }
+    }
+    out
 }
 
 /// 墓碑判定：名称或路径命中「已删除」记录。
@@ -459,6 +519,8 @@ pub fn build_candidates(
 pub struct ApplyResult {
     pub added: usize,
     pub revived_keys: Vec<String>,
+    /// 需要落盘的图标：(SW-ID, 证据里的绝对源路径)。
+    pub icons: Vec<(String, String)>,
 }
 
 /// 只应用勾选的候选：清空旧 is_new，把勾选项追加到最前。
@@ -489,18 +551,31 @@ pub fn apply_selected(
 
     let mut new_items: Vec<Value> = Vec::new();
     let mut revived_keys: Vec<String> = Vec::new();
+    let mut icons: Vec<(String, String)> = Vec::new();
     for cand in candidates {
         let key = cand.get("key").and_then(|v| v.as_str()).unwrap_or("");
         if !selected_keys.iter().any(|k| k == key) {
             continue;
         }
         max_id += 1;
+        let new_id = format!("SW-{:03}", max_id);
+        let icon_src = cand
+            .get("icon_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let mut item = cand.clone();
         if let Some(obj) = item.as_object_mut() {
-            obj.insert("id".to_string(), json!(format!("SW-{:03}", max_id)));
+            obj.insert("id".to_string(), json!(new_id.clone()));
             obj.insert("is_new".to_string(), json!(mark_new));
             obj.remove("key");
             obj.remove("kind");
+            // icon_path 是证据目录的临时绝对路径，不落进 software.json；
+            // 图标按 SW-ID 复制到 data/icons/ 后由 get_software 注入为 data URI。
+            obj.remove("icon_path");
+        }
+        if !icon_src.is_empty() {
+            icons.push((new_id, icon_src));
         }
         if cand.get("kind").and_then(|v| v.as_str()) == Some("deleted_before") {
             revived_keys.push(key.to_string());
@@ -511,7 +586,11 @@ pub fn apply_selected(
     let added = new_items.len();
     new_items.extend(std::mem::take(software));
     *software = new_items;
-    ApplyResult { added, revived_keys }
+    ApplyResult {
+        added,
+        revived_keys,
+        icons,
+    }
 }
 
 #[cfg(test)]
@@ -706,5 +785,24 @@ mod tests {
         );
         assert_eq!(fresh.len(), 1);
         assert_eq!(fresh[0]["is_new"], false);
+    }
+
+    #[test]
+    fn apply_selected_collects_icon_and_strips_transient_path() {
+        let candidates = vec![json!({
+            "key": "7-zip",
+            "kind": "new",
+            "name": "7-Zip",
+            "icon_path": "C:\\evidence\\M\\app-icons\\abc.png",
+            "machines": []
+        })];
+        let mut software: Vec<Value> = Vec::new();
+        let res = apply_selected(&mut software, &candidates, &["7-zip".to_string()], false);
+        // 图标来源被收集，供 scan_commit 复制到 data/icons/<SW-ID>.png
+        assert_eq!(res.icons.len(), 1);
+        assert_eq!(res.icons[0].0, "SW-001");
+        assert_eq!(res.icons[0].1, "C:\\evidence\\M\\app-icons\\abc.png");
+        // 证据目录的临时绝对路径不落进 software.json
+        assert!(software[0].get("icon_path").is_none());
     }
 }
