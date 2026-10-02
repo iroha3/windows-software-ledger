@@ -178,11 +178,11 @@ pub fn get_status() -> Value {
 #[tauri::command]
 pub fn get_software() -> Value {
     let mut items = store::read_software();
-    // 图标以 data URI 注入（文件本体在 data/icons/<SW-ID>.png），
+    // 图标以 data URI 注入（文件本体在 data/icons/，由条目的 icon_file 字段指向），
     // 方便 WebView 直接 <img src>；不写回 software.json。
     for item in items.iter_mut() {
-        let id = as_str(item, "id");
-        if let Some(uri) = icon_data_uri(&id) {
+        let file = as_str(item, "icon_file");
+        if let Some(uri) = icon_data_uri(&file) {
             if let Some(obj) = item.as_object_mut() {
                 obj.insert("icon".to_string(), json!(uri));
             }
@@ -192,11 +192,12 @@ pub fn get_software() -> Value {
 }
 
 /// 读图标文件并编码成 data URI；缺失/读失败返回 None（前端回退通用图标）。
-fn icon_data_uri(id: &str) -> Option<String> {
-    if id.is_empty() {
+/// `file` 取自条目的 `icon_file` 字段，先经 safe_component 处理以防路径穿越。
+fn icon_data_uri(file: &str) -> Option<String> {
+    if file.is_empty() {
         return None;
     }
-    let path = store::icons_dir().join(format!("{}.png", safe_component(id)));
+    let path = store::icons_dir().join(safe_component(file));
     let bytes = std::fs::read(path).ok()?;
     if bytes.is_empty() {
         return None;
@@ -563,11 +564,25 @@ pub fn delete_software(payload: Value) -> Value {
         }
     }
 
+    // 先记下待删条目引用的图标文件（删后条目就找不到了）
+    let icon_files: Vec<String> = ids
+        .iter()
+        .filter_map(|id| software.iter().find(|s| as_str(s, "id") == *id))
+        .map(|s| as_str(s, "icon_file"))
+        .filter(|f| !f.is_empty())
+        .collect();
+
     software.retain(|s| !ids.contains(&as_str(s, "id")));
     // 级联清理该软件的配置归档与图标，不留孤儿文件
     for id in &ids {
         let _ = std::fs::remove_dir_all(vault_target_dir("soft", id));
-        let _ = std::fs::remove_file(store::icons_dir().join(format!("{}.png", safe_component(id))));
+    }
+    for f in &icon_files {
+        // 若该文件仍被其余条目引用则保留（防共用文件被误删）
+        let used = software.iter().any(|s| as_str(s, "icon_file") == *f);
+        if !used {
+            let _ = std::fs::remove_file(store::icons_dir().join(safe_component(f)));
+        }
     }
     store::write_software(&software);
     store::write_ignored(&ignored);
@@ -702,7 +717,43 @@ pub fn merge_software(payload: Value) -> Value {
         }
     }
 
+    // 被合并条目引用的图标
+    let merged_icons: Vec<String> = software
+        .iter()
+        .filter(|s| merge_ids.contains(&as_str(s, "id")))
+        .map(|s| as_str(s, "icon_file"))
+        .filter(|f| !f.is_empty())
+        .collect();
+
+    // 合并结果要留得住图标：target（第一个选中）自己有就保留；
+    // 否则按勾选顺序采用被合并项里第一个可用的图标，避免合并后变成无图标。
+    if as_str(&software[target_idx], "icon_file").is_empty() {
+        for mid in &merge_ids {
+            let f = software
+                .iter()
+                .find(|s| as_str(s, "id") == *mid)
+                .map(|s| as_str(s, "icon_file"))
+                .unwrap_or_default();
+            if !f.is_empty() {
+                software[target_idx]["icon_file"] = json!(f);
+                break;
+            }
+        }
+    }
+
     software.retain(|s| !merge_ids.contains(&as_str(s, "id")));
+
+    // 清理被合并条目的图标，但不删仍被其余条目引用的文件（防共用文件被误删）
+    let still_used: Vec<String> = software
+        .iter()
+        .map(|s| as_str(s, "icon_file"))
+        .filter(|f| !f.is_empty())
+        .collect();
+    for f in &merged_icons {
+        if !still_used.iter().any(|r| r == f) {
+            let _ = std::fs::remove_file(store::icons_dir().join(safe_component(f)));
+        }
+    }
     let target = software
         .iter()
         .find(|s| as_str(s, "id") == target_id)
@@ -944,25 +995,35 @@ fn pending_scan_file() -> std::path::PathBuf {
     dir.join("pending-scan.json")
 }
 
-/// 重扫时为「已知（未变）」的已有条目补齐图标：读 pending 里的 knownIcons，
-/// 缺则复制到 data/icons/<SW-ID>.png；失败不阻断导入。
-fn apply_known_icons(pending: &Value) {
+/// 重扫时为「已知（未变）」的已有条目补齐缺失图标：读 pending 里的 knownIcons，
+/// 为条目生成稳定的 `icon_file` 字段并登记落盘。返回待复制的 (文件名, 证据源路径)。
+/// 已有图标字段且文件仍在的条目不动；失败不阻断导入。
+fn fill_known_icons(software: &mut [Value], pending: &Value) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
     let Some(arr) = pending.get("knownIcons").and_then(|v| v.as_array()) else {
-        return;
+        return out;
     };
-    let dir = store::icons_dir();
-    let _ = std::fs::create_dir_all(&dir);
     for pair in arr {
-        if let (Some(id), Some(src)) = (
+        let (Some(id), Some(src)) = (
             pair.get(0).and_then(|v| v.as_str()),
             pair.get(1).and_then(|v| v.as_str()),
-        ) {
-            let dest = dir.join(format!("{}.png", safe_component(id)));
-            if !dest.exists() {
-                let _ = std::fs::copy(src, &dest);
-            }
+        ) else {
+            continue;
+        };
+        let Some(idx) = software.iter().position(|s| as_str(s, "id") == id) else {
+            continue;
+        };
+        let existing = as_str(&software[idx], "icon_file");
+        if !existing.is_empty() && store::icons_dir().join(safe_component(&existing)).exists() {
+            continue;
         }
+        let file = store::icon_file_name(&as_str(&software[idx], "name"));
+        if let Some(obj) = software[idx].as_object_mut() {
+            obj.insert("icon_file".to_string(), json!(file.clone()));
+        }
+        out.push((file, src.to_string()));
     }
+    out
 }
 
 fn summarize_candidates(candidates: &[Value]) -> Value {
@@ -1022,12 +1083,6 @@ pub fn scan_commit(payload: Value) -> Value {
     if !pending.is_object() {
         return json!({ "success": false, "error": "扫描预览已失效，请重新扫描" });
     }
-    // 已有条目的图标补齐（与是否勾选新条目无关，缺则补）
-    apply_known_icons(&pending);
-    if selected_keys.is_empty() {
-        let _ = std::fs::remove_file(pending_scan_file());
-        return json!({ "success": true, "added": 0, "revived": 0 });
-    }
     let candidates: Vec<Value> = pending
         .get("candidates")
         .and_then(|v| v.as_array())
@@ -1037,16 +1092,15 @@ pub fn scan_commit(payload: Value) -> Value {
     let mut software = store::read_software();
     let was_empty = software.is_empty();
     let result = apply_selected(&mut software, &candidates, &selected_keys, !was_empty);
+    // 补齐已有条目的图标（会写回 icon_file 字段），与是否勾选新条目无关
+    let known_icons = fill_known_icons(&mut software, &pending);
     store::write_software(&software);
 
-    // 把本次导入候选的图标复制到 data/icons/<SW-ID>.png（仅导入项；失败不阻断导入）
-    if !result.icons.is_empty() {
-        let dir = store::icons_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        for (id, src) in &result.icons {
-            let dest = dir.join(format!("{}.png", safe_component(id)));
-            let _ = std::fs::copy(src, &dest);
-        }
+    // 把图标文件落到 data/icons/（导入项 + 补齐项；失败不阻断导入）
+    let dir = store::icons_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    for (file, src) in result.icons.iter().chain(known_icons.iter()) {
+        let _ = std::fs::copy(src, dir.join(safe_component(file)));
     }
 
     if !result.revived_keys.is_empty() {
@@ -1166,6 +1220,92 @@ mod tests {
         let cfg = save_config(json!({ "llm_model": "test-model" }));
         assert_eq!(cfg["config"]["llm_model"], "test-model");
         assert_eq!(get_config()["llm_model"], "test-model");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn merge_keeps_target_icon_and_removes_merged_icon() {
+        let root = std::env::temp_dir().join(format!("ledger_merge_icon_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let seed = json!([
+            { "id": "SW-001", "name": "A", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "icon_file": "a.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "name": "B", "machines": [{ "machine_id": "M1", "install_location": "C:\\B" }], "icon_file": "b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+        fs::create_dir_all(store::icons_dir()).unwrap();
+        fs::write(store::icons_dir().join("a.png"), b"a").unwrap();
+        fs::write(store::icons_dir().join("b.png"), b"b").unwrap();
+
+        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // target（第一个选中）的图标必须保留
+        let sw = store::read_software();
+        assert_eq!(sw.len(), 1);
+        assert_eq!(sw[0]["icon_file"], "a.png");
+        assert!(store::icons_dir().join("a.png").exists(), "target 图标不应被删");
+        // 被合并条目的图标清理掉
+        assert!(!store::icons_dir().join("b.png").exists(), "被合并条目的图标应清理");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn merge_shared_icon_across_machines_is_not_deleted() {
+        let root = std::env::temp_dir().join(format!("ledger_merge_shared_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        // 跨机器：同一软件在 A / B 机各一条，软件名相同 -> icon_file 同名（共享同一文件）
+        let seed = json!([
+            { "id": "SW-001", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-A", "install_location": "C:\\A" }], "icon_file": "vscode-x.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-B", "install_location": "D:\\B" }], "icon_file": "vscode-x.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+        fs::create_dir_all(store::icons_dir()).unwrap();
+        fs::write(store::icons_dir().join("vscode-x.png"), b"ico").unwrap();
+
+        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        let sw = store::read_software();
+        assert_eq!(sw.len(), 1);
+        assert_eq!(sw[0]["icon_file"], "vscode-x.png");
+        assert!(store::icons_dir().join("vscode-x.png").exists(), "共享图标文件不应被删");
+        assert_eq!(sw[0]["machines"].as_array().unwrap().len(), 2);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn merge_adopts_icon_when_target_has_none() {
+        let root = std::env::temp_dir().join(format!("ledger_merge_adopt_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        // target 无图标，被合并项有图标
+        let seed = json!([
+            { "id": "SW-001", "name": "A", "machines": [{ "machine_id": "M1" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "name": "B", "machines": [{ "machine_id": "M1" }], "icon_file": "b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+        fs::create_dir_all(store::icons_dir()).unwrap();
+        fs::write(store::icons_dir().join("b.png"), b"b").unwrap();
+
+        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        let sw = store::read_software();
+        assert_eq!(sw.len(), 1);
+        // 合并结果采用被合并项的图标，且文件保留
+        assert_eq!(sw[0]["icon_file"], "b.png");
+        assert!(store::icons_dir().join("b.png").exists(), "被采用的图标不应被删");
 
         let _ = fs::remove_dir_all(&root);
     }

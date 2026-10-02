@@ -86,10 +86,38 @@ pub fn vault_dir() -> PathBuf {
     data_dir().join("vault")
 }
 
-/// 软件主程序图标：`data/icons/<SW-ID>.png`。
+/// 软件主程序图标目录：文件按 `icon_file` 字段命名，与扫描序号无关。
 /// 扫描时从 exe 抽取，仅用于展示，不含任何敏感信息。
 pub fn icons_dir() -> PathBuf {
     data_dir().join("icons")
+}
+
+/// 由软件名稳定派生图标文件名，形如 `visualstudiocode-<16位hex>.png`。
+/// slug 仅用于可读性，哈希保证不同名不冲突；因此同一软件在任何机器、
+/// 任何重扫下都会得到同一文件名，跨机合并 / 台账重建都不会错位。
+pub fn icon_file_name(name: &str) -> String {
+    let key = name.trim().to_lowercase();
+    let mut slug: String = key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug: String = slug.trim_matches('-').chars().take(32).collect();
+    let slug = slug.trim_matches('-');
+    let slug = if slug.is_empty() { "icon" } else { slug };
+    format!("{}-{:016x}.png", slug, fnv1a64(&key))
+}
+
+/// FNV-1a 64 位哈希：仅用于生成图标的稳定文件名，非加密用途。
+fn fnv1a64(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
@@ -174,6 +202,18 @@ mod tests {
         assert_eq!(cfg["scan_directories"], json!([]));
         assert_eq!(cfg["llm_url"], "");
         assert_eq!(cfg["llm_model"], "");
+    }
+
+    #[test]
+    fn icon_file_name_is_stable_and_unique() {
+        let a = icon_file_name("Visual Studio Code");
+        assert!(a.ends_with(".png"), "{a}");
+        // 大小写 / 首尾空白归一后取同一文件名
+        assert_eq!(a, icon_file_name("  visual studio code  "));
+        // 不同软件名不冲突
+        assert_ne!(icon_file_name("Git"), icon_file_name("GitHub Desktop"));
+        // 中文名也能生成合法文件名
+        assert!(icon_file_name("微信").ends_with(".png"));
     }
 
     #[test]

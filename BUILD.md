@@ -89,8 +89,9 @@ scripts\cargo-msvc.bat test
 扫描第 6 步用 PowerShell 的 `System.Drawing.Icon.ExtractAssociatedIcon` 从可执行文件抽取 32×32 图标（只读 exe 资源，不碰任何敏感数据）：
 
 - **来源**：注册表项的 `DisplayIcon`（会剥掉 `,0` 索引）、快捷方式的 `target_path`、绿色软件的 `main_exe`；按 exe 路径去重，产出 `data\evidence\<主机名>\app-icons\<hash>.png`，并把文件名写回 `registry-apps.json` / `shortcuts.json` / `portable-apps.json` 的 `icon_file` 字段。
-- **导入**：`scan_commit` 把图标按软件 ID 复制到 `data\icons\<SW-ID>.png`；重扫时「已知」的已有条目走 `known_icon_refreshes` 补齐（缺则补、不覆盖）。
-- **展示**：`get_software` 把 `data\icons\<SW-ID>.png` 编码成 data URI 注入返回值的 `icon` 字段（**不写回 `software.json`**），主表格 / 抽屉 / 卡片速审在名称前显示 20px 缩略图，取不到则回退通用方盒图标。删除软件时级联删图标。
+- **导入**：`scan_commit` 按「软件名派生的稳定文件名」把图标复制到 `data\icons\<icon_file>`，并在条目的 `icon_file` 字段记下该文件名；重扫时「已知」的已有条目走 `known_icon_refreshes` 补齐（缺则补、不覆盖）。
+- **展示**：`get_software` 读条目的 `icon_file` 字段指向的文件，编码成 data URI 注入返回值的 `icon` 字段（**不写回 `software.json`**），主表格 / 抽屉 / 卡片速审在名称前显示 20px 缩略图，取不到则回退通用方盒图标。删除软件与合并条目时按 `icon_file` 级联删图标，不留孤儿。
+- **命名**：`icon_file` 由软件名稳定派生（`<slug>-<16位哈希>.png`，见 `store::icon_file_name`），与扫描序号（`SW-ID`）无关，因此跨机合并 / 台账重建 / 手工写数据都不会错位。
 - **局限**：`ExtractAssociatedIcon` 固定 32×32；UWP/Store 应用与部分注册表项没有可用 exe，只能回退占位。
 
 ### 开发环境清单（`dev-env.json` + `dev-env/`）

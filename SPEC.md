@@ -77,13 +77,13 @@
       {
         "machine_id": "PC-Desktop",
         "form": "installed",
-        "path": "C:\\Program Files\\Microsoft VS Code",
+        "install_location": "C:\\Program Files\\Microsoft VS Code",
         "version": "1.93.0"
       },
       {
         "machine_id": "PC-Laptop",
         "form": "installed",
-        "path": "C:\\Program Files\\Microsoft VS Code",
+        "install_location": "C:\\Program Files\\Microsoft VS Code",
         "version": "1.92.1"
       }
     ],
@@ -93,7 +93,9 @@
     "config_notes": "通过 GitHub 账号同步配置与插件，本地无需单独打包",
     "is_awesome": true,
     "awesome_role": "主力代码编辑与跨平台脚本编写",
-    "status": "reviewed"
+    "prep_status": "ready",
+    "has_config": true,
+    "icon_file": "visualstudiocode-1a2b3c4d5e6f7788.png"
   }
 ]
 ```
@@ -120,12 +122,34 @@
 - `dev-env.json` + `dev-env/`：开发环境声明式清单与包列表 / 配置原文（见 BUILD.md）。
 - `browser-extensions.json`：已安装浏览器的扩展只读元数据（见 BUILD.md）。
 - `timings.json`：仅在 `-Timing` 时产出，记录各步骤耗时。
-- `app-icons/`：从 exe 抽取的 32×32 图标（`icon_file` 字段引用），扫描时生成，重扫不清除。
+- `app-icons/`：从 exe 抽取的 32×32 图标（证据 JSON 的 `icon_file` 字段引用其文件名），扫描时生成，重扫不清除。
 - `screenshots/`：供用户手动存放参考截图，重扫不清除。
 
-#### 软件图标（`data/icons/<SW-ID>.png`）
+#### 软件图标（`data/icons/<icon_file>`）
 
-扫描时从 exe 抽取的软件图标，导入时按软件 ID 落盘。`get_software` 将其编码为 data URI 注入返回值的 `icon` 字段（不写回 `software.json`）；前端在名称前显示缩略图，缺失则回退通用图标。删除软件时级联删除。
+图标与条目**显式绑定**（记在条目自己的 `icon_file` 字段里），与扫描序号无关。规则如下：
+
+- **字段**：每条软件的 `icon_file` 记录图标文件名（`data/icons/` 下，如 `visualstudiocode-1a2b3c4d5e6f7788.png`）。缺省或为空 → 前端回退通用图标。
+- **命名**：由**软件名稳定派生**（`store::icon_file_name`：`<slug>-<16位 FNV-1a 哈希>.png`）。同名软件在任何机器、任何重扫下都得到同一文件名；不同名不会撞名。
+- **写入**：
+  - 扫描导入**新条目**时，从 `evidence/<主机名>/app-icons/` 复制到 `data/icons/<icon_file>`，并写入字段。
+  - 重扫时对「已知」条目走 `known_icon_refreshes` **补齐**：仅当条目没有 `icon_file`、或其文件不存在时才补，不覆盖已有的。
+- **读取**：`get_software` 读 `icon_file` 指向的文件，编码为 data URI 注入返回值的 `icon` 字段（**不写回** `software.json`）。
+- **删除**：`delete_software` 清理条目的 `icon_file` 文件；**若该文件仍被其它条目引用则保留**（共享文件不误删）。
+- **合并**：结果图标以 **target（第一个选中项，即前端 `selectedIds` 插入顺序的 `ids[0]`）** 为准：
+  1. target 有图标 → 保留；
+  2. target 无图标 → 按勾选顺序采用被合并项里**第一个可用的**图标；
+  3. 清理被合并项图标时，只删**不再被任何剩余条目引用**的文件。
+- **跨机同名**：同一软件在两台机器各有一条记录时，软件名相同 → `icon_file` 相同 → **共享同一图标文件**；合并 / 删除必须靠上面的「仍被引用则保留」规则避免误删。
+- **构建兼容**：图标文件命名方案**不保证向后兼容**——新版生成 / 整理的 `data/` 需搭配同版本 exe；用旧版 exe 打开会出现图标全部回退（旧版按 `data/icons/<SW-ID>.png` 查找）。
+
+#### 合并与删除（整理操作）
+
+- **合并**（`merge_software`）：target = **第一个选中项**（前端 `selectedIds` 插入顺序的 `ids[0]`）；其余选中项并入 target 后从台账移除。合并内容：
+  - `machines` 按 `(machine_id, install_location)` 取并集（不重复）；
+  - 字段回填：target 为空的 `version` / `download_url` 用被合并项补齐，`has_config` 取或，`config_notes` 拼接；
+  - 图标规则见上「软件图标」。
+- **删除**（`delete_software`）：按 `id` 移除并写入 `ignored.json` 墓碑；级联清理 `vault/<主机名>/soft/<SW-ID>/` 与 `icon_file`（仍被其它条目引用则保留）。
 
 #### 配置归档（`data/vault/<主机名>/`）
 

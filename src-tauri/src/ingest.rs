@@ -512,7 +512,7 @@ pub fn build_candidates(
 pub struct ApplyResult {
     pub added: usize,
     pub revived_keys: Vec<String>,
-    /// 需要落盘的图标：(SW-ID, 证据里的绝对源路径)。
+    /// 需要落盘的图标：(图标文件名, 证据里的绝对源路径)。
     pub icons: Vec<(String, String)>,
 }
 
@@ -557,6 +557,12 @@ pub fn apply_selected(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        // 图标按「软件名派生」的稳定文件名落盘，与扫描序号无关。
+        let icon_file = if icon_src.is_empty() {
+            String::new()
+        } else {
+            crate::store::icon_file_name(cand.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+        };
         let mut item = cand.clone();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("id".to_string(), json!(new_id.clone()));
@@ -564,11 +570,14 @@ pub fn apply_selected(
             obj.remove("key");
             obj.remove("kind");
             // icon_path 是证据目录的临时绝对路径，不落进 software.json；
-            // 图标按 SW-ID 复制到 data/icons/ 后由 get_software 注入为 data URI。
+            // 文件本体写到 data/icons/<icon_file>，由 get_software 注入为 data URI。
             obj.remove("icon_path");
+            if !icon_file.is_empty() {
+                obj.insert("icon_file".to_string(), json!(icon_file.clone()));
+            }
         }
-        if !icon_src.is_empty() {
-            icons.push((new_id, icon_src));
+        if !icon_file.is_empty() {
+            icons.push((icon_file, icon_src));
         }
         if cand.get("kind").and_then(|v| v.as_str()) == Some("deleted_before") {
             revived_keys.push(key.to_string());
@@ -791,11 +800,20 @@ mod tests {
         })];
         let mut software: Vec<Value> = Vec::new();
         let res = apply_selected(&mut software, &candidates, &["7-zip".to_string()], false);
-        // 图标来源被收集，供 scan_commit 复制到 data/icons/<SW-ID>.png
+        // 图标按「软件名派生的稳定文件名」收集，与 SW-ID 无关
+        let expected = crate::store::icon_file_name("7-Zip");
         assert_eq!(res.icons.len(), 1);
-        assert_eq!(res.icons[0].0, "SW-001");
+        assert_eq!(res.icons[0].0, expected);
         assert_eq!(res.icons[0].1, "C:\\evidence\\M\\app-icons\\abc.png");
-        // 证据目录的临时绝对路径不落进 software.json
+        // 条目记下 icon_file；证据目录的临时绝对路径不落进 software.json
+        assert_eq!(software[0]["icon_file"], json!(expected));
         assert!(software[0].get("icon_path").is_none());
+
+        // 无图标来源的候选不产生 icon_file，也不进落盘清单
+        let no_icon = vec![json!({ "key": "x", "kind": "new", "name": "NoIcon", "machines": [] })];
+        let mut sw2: Vec<Value> = Vec::new();
+        let r2 = apply_selected(&mut sw2, &no_icon, &["x".to_string()], false);
+        assert!(r2.icons.is_empty());
+        assert!(sw2[0].get("icon_file").is_none());
     }
 }
