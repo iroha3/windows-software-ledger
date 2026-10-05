@@ -155,6 +155,11 @@ def migrate_vault(data_dir: Path, id_to_uuid, ext_id_to_uuid):
                     shutil.rmtree(dest)
                 shutil.move(str(id_dir), str(dest))
                 moved += 1
+            try:
+                if not any(kind_dir.iterdir()):
+                    kind_dir.rmdir()
+            except OSError:
+                pass
         try:
             if not any(host.iterdir()):
                 host.rmdir()
