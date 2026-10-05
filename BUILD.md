@@ -74,6 +74,8 @@ scripts\cargo-msvc.bat test
 - 便携发布 = 一个 exe + 旁边的 `data\` 文件夹，`data\` 在首次需要写入时自动创建。
 - `cargo run` 调试时 exe 位于 `src-tauri\target\debug\`，数据即落在 `src-tauri\target\debug\data\`。
 
+> **旧数据迁移**：v1.x 的 `data\`（无 uuid）不与当前版本兼容。用 `python scripts\migrate_to_v2.py <旧 data 目录>` 一次性转换（原地迁移会先备份为 `<目录>.v1bak`，也可 `--out` 输出到新目录）：补 uuid、`should`→`on_demand`、`copy_config`→`copy_dir`、`vault\<主机名>\<kind>\<id>\`→`vault\<kind>\<uuid>\`、扩展标注重挂到 `(browser_id, profile, ext_id)`。
+
 ## 采集脚本
 
 `scripts\collect.ps1` 通过 Rust 的 `include_str!` **编译进 exe**：扫描时脚本释放到系统临时目录执行，采集结果写入 `data\evidence\<主机名>\` 并长期保留（`screenshots\` 供手动存放参考截图，重扫不会清除）。扫描分两步：`scan_preview` 解析候选，`scan_commit` 只把勾选项写入 `data\software.json`。
@@ -89,9 +91,9 @@ scripts\cargo-msvc.bat test
 扫描第 6 步用 PowerShell 的 `System.Drawing.Icon.ExtractAssociatedIcon` 从可执行文件抽取 32×32 图标（只读 exe 资源，不碰任何敏感数据）：
 
 - **来源**：注册表项的 `DisplayIcon`（会剥掉 `,0` 索引）、快捷方式的 `target_path`、绿色软件的 `main_exe`；按 exe 路径去重，产出 `data\evidence\<主机名>\app-icons\<hash>.png`，并把文件名写回 `registry-apps.json` / `shortcuts.json` / `portable-apps.json` 的 `icon_file` 字段。
-- **导入**：`scan_commit` 按「软件名派生的稳定文件名」把图标复制到 `data\icons\<icon_file>`，并在条目的 `icon_file` 字段记下该文件名；重扫时「已知」的已有条目走 `known_icon_refreshes` 补齐（缺则补、不覆盖）。
+- **导入**：`scan_commit` 把图标复制到 `data\icons\<uuid>.png`，并在条目的 `icon_file` 字段记下文件名；重扫时「已知」的已有条目走 `known_icon_refreshes` 补齐（缺则补、不覆盖）。
 - **展示**：`get_software` 读条目的 `icon_file` 字段指向的文件，编码成 data URI 注入返回值的 `icon` 字段（**不写回 `software.json`**），主表格 / 抽屉 / 卡片速审在名称前显示 20px 缩略图，取不到则回退通用方盒图标。删除软件与合并条目时按 `icon_file` 级联删图标，不留孤儿。
-- **命名**：`icon_file` 由软件名稳定派生（`<slug>-<16位哈希>.png`，见 `store::icon_file_name`），与扫描序号（`SW-ID`）无关，因此跨机合并 / 台账重建 / 手工写数据都不会错位。
+- **命名**：`icon_file` = `<uuid>.png`（见 `store::icon_file_name`），绑定内部 uuid，与软件名 / 扫描序号（`SW-ID`）无关；一条记录一个图标，删除 / 合并跟着记录走。
 - **局限**：`ExtractAssociatedIcon` 固定 32×32；UWP/Store 应用与部分注册表项没有可用 exe，只能回退占位。
 
 ### 开发环境清单（`dev-env.json` + `dev-env/`）
@@ -142,7 +144,7 @@ scripts\cargo-msvc.bat test
 
 Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env`），并合并用户层标注，前端 `client\browsers.html` **复刻主页台账外壳**（统计横条 / 设备选项卡 / 筛选 / 批量条 / 侧边抽屉 / 设置弹窗），可按设备 / 浏览器 / 意愿 / 进度过滤与搜索。表格列为：勾选 / 精选 / 扩展名称（下方标签显示浏览器与配置）/ 版本 / 状态 / 保留意愿 / 准备进度 / **商店链接** / 设备 / 备注 / 附件。
 
-**商店链接**：扫描时自动录入（Firefox 取 AMO `sourceURI`，Chromium 有可靠商店归属才填），列为可编辑文本框，值按扩展 ID 存 `data\extensions.json`，右边按钮一键在浏览器打开。
+**商店链接**：扫描时自动录入（Firefox 取 AMO `sourceURI`，Chromium 有可靠商店归属才填），列为可编辑文本框，值按内部 uuid 存 `data\extensions.json`，右边按钮一键在浏览器打开。
 
 **Firefox 配置名**：证据里的 profile 形如 `xc8zepzv.default-release`（前缀是随机串），展示时由 `cleanProfile()` 剥掉前缀，只显示 `default-release`。
 
@@ -151,10 +153,10 @@ Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env
 **用户层（扫描字段只读，用户层可增）**：把主页那套交互原样搬来，扫描字段（名称 / 版本 / 扩展 ID / 状态 / 来源 / 设备 / 配置）一律**只读**，用户可增：
 
 - **保留意愿**（必须 / 按需 / 淘汰 / 待确认，快捷键 1~4）、**准备进度**（待办 / 就绪）、**精选星标**：与软件台账同一套值域与 UI；
-- **备注**：内联可编辑，按扩展 ID 存 `data\extensions.json`（重扫不丢）；
-- **附件归档**：每条扩展可手动放入文件（拖入或选择），存 `data\vault\<主机名>\ext\<扩展ID>\`，行尾回形针按钮带数量角标；
-- 用户层字段统一按**扩展 ID** 存入 `data\extensions.json`（单个扩展可跨设备 / 配置复用同一份标注）；
-- 浏览器页另有**整份浏览器配置归档**（`browser\<ID>`）。
+- **备注**：内联可编辑，按内部 uuid 存 `data\extensions.json`（重扫不丢）；
+- **附件归档**：每条扩展可手动放入文件（拖入或选择），存 `data\vault\ext\<扩展uuid>\`，行尾回形针按钮带数量角标；
+- 用户层字段按内部 uuid 存入 `data\extensions.json`，并内嵌匹配键 `(browser_id, profile, ext_id)`；重扫时按该组合认回 uuid（同一扩展在不同浏览器 / 配置各自独立标注）；
+- 浏览器页另有**整份浏览器配置归档**（`data\vault\browser\<浏览器uuid>\`）。
 
 **安全红线**：只读 `manifest.json` / `extensions.json` 元数据，**绝不读取扩展的 `storage.local`（LevelDB）、`Preferences` 敏感键、Cookie 或密码**。本页同样**不进入 `software.json`，不参与导入**。
 
@@ -168,14 +170,14 @@ Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env
 - Node 全局包：读 `npm root -g` 下的 `package.json`（~0.8s）代替 `npm ls -g`（~1.7s）；npm registry 直接读 `.npmrc` / 环境变量，不再起 npm 进程。
 - Go：一次 `go env GOPATH GOPROXY` 代替两次调用。
 
-### 配置归档（`data\vault\<主机名>\`）
+### 配置归档（`data\vault\<kind>\<uuid>\`）
 
 与扫描解耦的**手动保管箱**，用来把个性化配置文件随台账一起带走：
 
-- 路径：`data\vault\<主机名>\soft\<SW-ID>\`（软件卡片）、`data\vault\<主机名>\browser\<浏览器ID>\`（浏览器整份配置）与 `data\vault\<主机名>\ext\<扩展ID>\`（扩展附件）。
+- 路径按**内部 uuid** 分层：`data\vault\soft\<软件uuid>\`（软件卡片）、`data\vault\browser\<浏览器uuid>\`（浏览器整份配置）与 `data\vault\ext\<扩展uuid>\`（扩展附件），不再分主机名。
 - 只能由用户**手动拖入或点「选择文件」**添加（`vault_add`），保存用 `vault_export`（另存为），删除用 `vault_delete`。**绝不自动采集**。
-- 点「无配置」只是收起面板，**归档文件一律不动**；删除归档只能靠单个 × 或删除软件时的**级联清理**（`delete_software` 会一并删掉 `soft\<ID>`）。
-- Windows 路径不能含 `:`，所以 target 落成 `soft` / `browser` 两层目录，而不是 `soft:SW-001`。
+- 点「无配置」只是收起面板，**归档文件一律不动**；删除软件时把 `soft\<uuid>\` 整体**软删除**到 `data\trash\<时间戳>-<随机>\`（见 `store::trash_dir`），不物理销毁。
+- Windows 路径不能含 `:`，所以 kind 落成目录名（`soft` / `browser` / `ext`），而不是 `soft:SW-001`。
 
 ## 图标
 
