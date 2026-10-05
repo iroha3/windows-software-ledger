@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""一台机器的「母本台账」+ 另一台机器的 data/ -> 一份三台都能用的 v2 data/。
+"""把两份 data/ 合成一份：A（母本）+ B 全量并列，**软件条目不做任何自动合并**。
 
-典型场景：A 机已升 v2 并打好了标（母本），B 机还是 v1。想把 B 机的软件并进母本，
-产出一份 `data/`，拷到 A / B / C 都能直接用——就像「先在 A 打标，再把 data 拷去 B、拷去 C」。
-
-- **第一个参数是锚点（母本）**：它的决策与主观字段优先，A 机应放第一个。
-- 任一端的 data 若是 v1（条目缺 uuid），会自动先做 v1→v2 迁移（补 uuid、should→on_demand、
-  copy_config→copy_dir、vault/<主机名>/<kind>/<id>/→vault/<kind>/<uuid>/、扩展标注重挂），
-  迁移在临时副本上进行，**不改动原始目录**。
-- 合并规则与后端 `merge_software` 一致：**锚点为准；事实/资产并入或补齐，决策与主观永不并入**。
-  - software.json：按软件名（trim + 小写）配对。配上的并入锚点：machines 按 `machine_id` 去重
-    （同机补齐 install_location / version、portable 升级）；补齐 version / download_url；
-    has_config 取或；config_notes 追加；restore_intent / backup_strategy / category / type / notes
-    等锚点已有值保持不动。配不上的原样追加，并重排 SW-ID 避免两本台账撞号。
-  - icons/<uuid>.png、vault/<kind>/<uuid>/：被并项的图标/归档并入锚点（同名文件锚点优先，
-    冲突者进 data/trash/）。追加项整体搬入。
-  - extensions.json / browsers.json：按 uuid 合并，并按匹配键 `(browser_id, profile, ext_id)` /
-    `browser_id` 去重（锚点优先，只补缺失字段）。
-  - evidence/：整目录拷贝，同名主机目录不覆盖 base 已有文件。
-  - ignored.json：墓碑并集去重；config.json 保留锚点。
+典型场景：A 机已升 v2，B 机还是 v1。想要一份含两台机器数据的 `data/`，拷到 A / B / C 都能用。
+- 任一端若是 v1（条目缺 uuid），自动先做 v1→v2 迁移（在临时副本上进行，**不改动原目录**）。
+- software.json：两份条目**原样并列**（只按 uuid 去重，uuid 相同才算同一条）。被并进来的条目
+  重排 SW-ID，避免两本台账撞号。**同名条目不会自动合并**——要不要合并、并哪几条，由你在 app
+  里用「同名合并」自己决定；分开保留两条也完全正常。
+- icons / vault / evidence：按 uuid / 主机名并集拷入，已存在的不覆盖。
+- extensions.json / browsers.json：按 `(browser_id, profile, ext_id)` / `browser_id` 归并
+  （扩展标注没有「机器」维度，同一扩展在不同机器上是同一条；锚点=第一个 data）。
+- ignored.json：墓碑并集去重；config.json 保留 A。
 
 用法：
-  python scripts/merge_data.py <A机 data（锚点/母本）> <B机 data> --out <产出 data>
-  python scripts/merge_data.py <A机 data> <B机 data>          # 原地并入 A，先备份 A.v1bak
+  python scripts/combine_data.py <A机 data> <B机 data> --out <产出 data>
+  python scripts/combine_data.py <A机 data> <B机 data>          # 原地并入 A，先备份 A.v1bak
 """
 
 import argparse
@@ -32,7 +23,6 @@ import shutil
 import sys
 import tempfile
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -89,53 +79,11 @@ def prepare(data_dir):
     return tmp, tmp_root
 
 
-def norm_name(s):
-    return (s or "").strip().lower()
-
-
 def numeric_id(s):
     try:
         return int(str(s).replace("SW-", ""))
     except (ValueError, TypeError):
         return 0
-
-
-def trash_file(base_dir, path):
-    """同名冲突时把被并项文件挪进垃圾桶（不物理删除）。"""
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = Path(base_dir) / "trash" / f"{stamp}-{uuid.uuid4().hex[:8]}"
-    dest.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(path), str(dest / Path(path).name))
-
-
-def fill_machine(anchor_machines, child_machine):
-    mid = child_machine.get("machine_id", "")
-    for m in anchor_machines:
-        if m.get("machine_id", "") == mid:
-            if not m.get("install_location") and child_machine.get("install_location"):
-                m["install_location"] = child_machine["install_location"]
-            if not m.get("version") and child_machine.get("version"):
-                m["version"] = child_machine["version"]
-            if child_machine.get("form") == "portable":
-                m["form"] = "portable"
-            return
-    anchor_machines.append(dict(child_machine))
-
-
-def merge_soft(anchor, child):
-    """锚点为准：事实/资产并入或补齐，决策与主观不动。"""
-    machines = anchor.setdefault("machines", [])
-    for m in child.get("machines") or []:
-        fill_machine(machines, m)
-    for field in ("version", "download_url"):
-        if not anchor.get(field) and child.get(field):
-            anchor[field] = child[field]
-    if child.get("has_config"):
-        anchor["has_config"] = True
-    notes = (child.get("config_notes") or "").strip()
-    if notes:
-        cur = (anchor.get("config_notes") or "").strip()
-        anchor["config_notes"] = f"{cur}; {notes}" if cur else notes
 
 
 def copy_icon(inc_dir, base_dir, icon_file, uuid_):
@@ -151,8 +99,8 @@ def copy_icon(inc_dir, base_dir, icon_file, uuid_):
     return dst.name
 
 
-def merge_vault_dir(base_dir, kind, target_uuid, inc_dir, src_uuid):
-    """incoming 的 vault/<kind>/<src_uuid>/ 并入 vault/<kind>/<target_uuid>/，同名锚点优先。"""
+def copy_vault_dir(base_dir, kind, target_uuid, inc_dir, src_uuid):
+    """incoming 的 vault/<kind>/<src_uuid>/ 并入 base，已存在同名文件不覆盖。"""
     if not target_uuid or not src_uuid:
         return 0
     src = Path(inc_dir) / "vault" / kind / src_uuid
@@ -165,9 +113,7 @@ def merge_vault_dir(base_dir, kind, target_uuid, inc_dir, src_uuid):
         if not f.is_file():
             continue
         dest = dst / f.name
-        if dest.exists():
-            trash_file(base_dir, f)
-        else:
+        if not dest.exists():
             shutil.move(str(f), str(dest))
         moved += 1
     try:
@@ -177,46 +123,42 @@ def merge_vault_dir(base_dir, kind, target_uuid, inc_dir, src_uuid):
     return moved
 
 
-def merge_software(base_dir, inc_dir):
+def combine_software(base_dir, inc_dir):
+    """两份条目原样并列，同名不合并。只按 uuid 去重。"""
     base = load_json(Path(base_dir) / "software.json", [])
     inc = load_json(Path(inc_dir) / "software.json", [])
     base = base if isinstance(base, list) else []
     inc = inc if isinstance(inc, list) else []
-    by_name = {}
-    for it in base:
-        key = norm_name(it.get("name"))
-        if key:
-            by_name.setdefault(key, it)
+    seen = {it.get("uuid") for it in base if it.get("uuid")}
     max_id = max((numeric_id(it.get("id")) for it in base), default=0)
-    stats = {"merged": 0, "appended": 0}
+    stats = {"added": 0, "skipped": 0}
     for child in inc:
-        key = norm_name(child.get("name"))
-        anchor = by_name.get(key) if key else None
-        if anchor is not None:
-            merge_soft(anchor, child)
-            if not anchor.get("icon_file") and child.get("icon_file"):
-                name = copy_icon(inc_dir, base_dir, child["icon_file"], anchor.get("uuid", ""))
-                if name:
-                    anchor["icon_file"] = name
-            merge_vault_dir(base_dir, "soft", anchor.get("uuid", ""), inc_dir, child.get("uuid", ""))
-            stats["merged"] += 1
-        else:
-            max_id += 1
-            child["id"] = f"SW-{max_id:03}"
-            name = copy_icon(inc_dir, base_dir, child.get("icon_file"), child.get("uuid", ""))
-            if name:
-                child["icon_file"] = name
-            merge_vault_dir(base_dir, "soft", child.get("uuid", ""), inc_dir, child.get("uuid", ""))
-            base.append(child)
-            if key:
-                by_name[key] = child
-            stats["appended"] += 1
+        uid = child.get("uuid")
+        if not uid:
+            uid = str(uuid.uuid4())
+            child["uuid"] = uid
+        if uid in seen:
+            stats["skipped"] += 1
+            continue
+        max_id += 1
+        child["id"] = f"SW-{max_id:03}"
+        name = copy_icon(inc_dir, base_dir, child.get("icon_file"), uid)
+        if name:
+            child["icon_file"] = name
+        copy_vault_dir(base_dir, "soft", uid, inc_dir, uid)
+        base.append(child)
+        seen.add(uid)
+        stats["added"] += 1
     dump_json(Path(base_dir) / "software.json", base)
     return stats
 
 
-def merge_map(base_dir, inc_dir, filename, key_fields, vault_kind):
-    """合并 uuid 索引的标注文件（extensions.json / browsers.json），按匹配键去重。"""
+def combine_map(base_dir, inc_dir, filename, key_fields, vault_kind):
+    """合并 uuid 索引的标注文件（extensions.json / browsers.json），按匹配键归并。
+
+    扩展/浏览器标注没有「机器」维度，同一扩展在不同机器上是同一条，所以这里按匹配键归并、
+    锚点（第一个 data）优先，而不是像软件条目那样并列。
+    """
     path = Path(base_dir) / filename
     base = load_json(path, {})
     inc = load_json(Path(inc_dir) / filename, {})
@@ -242,13 +184,13 @@ def merge_map(base_dir, inc_dir, filename, key_fields, vault_kind):
                 if fk not in dst or dst[fk] in ("", None, [], {}):
                     dst[fk] = fv
         if vault_kind:
-            merge_vault_dir(base_dir, vault_kind, target, inc_dir, uid)
+            copy_vault_dir(base_dir, vault_kind, target, inc_dir, uid)
     if base or inc or path.exists():
         dump_json(path, base)
     return created
 
 
-def merge_evidence(base_dir, inc_dir):
+def combine_evidence(base_dir, inc_dir):
     src_root = Path(inc_dir) / "evidence"
     if not src_root.is_dir():
         return 0
@@ -268,7 +210,7 @@ def merge_evidence(base_dir, inc_dir):
     return copied
 
 
-def merge_ignored(base_dir, inc_dir):
+def combine_ignored(base_dir, inc_dir):
     base = load_json(Path(base_dir) / "ignored.json", [])
     inc = load_json(Path(inc_dir) / "ignored.json", [])
     base = base if isinstance(base, list) else []
@@ -283,7 +225,7 @@ def merge_ignored(base_dir, inc_dir):
         dump_json(Path(base_dir) / "ignored.json", base)
 
 
-def merge_trash(base_dir, inc_dir):
+def combine_trash(base_dir, inc_dir):
     src = Path(inc_dir) / "trash"
     if not src.is_dir():
         return
@@ -293,7 +235,7 @@ def merge_trash(base_dir, inc_dir):
             shutil.copytree(d, dst)
 
 
-def merge_config(base_dir, inc_dir):
+def combine_config(base_dir, inc_dir):
     dst = Path(base_dir) / "config.json"
     if not dst.exists():
         src = Path(inc_dir) / "config.json"
@@ -301,30 +243,30 @@ def merge_config(base_dir, inc_dir):
             shutil.copy2(src, dst)
 
 
-def merge(base_dir, inc_dir):
+def combine(base_dir, inc_dir):
     stats = {}
-    stats.update(merge_software(base_dir, inc_dir))
-    stats["ext_new"] = merge_map(
+    stats.update(combine_software(base_dir, inc_dir))
+    stats["ext_new"] = combine_map(
         base_dir, inc_dir, "extensions.json", ("browser_id", "profile", "ext_id"), "ext"
     )
-    stats["browser_new"] = merge_map(base_dir, inc_dir, "browsers.json", ("browser_id",), "browser")
-    stats["evidence_files"] = merge_evidence(base_dir, inc_dir)
-    merge_ignored(base_dir, inc_dir)
-    merge_trash(base_dir, inc_dir)
-    merge_config(base_dir, inc_dir)
+    stats["browser_new"] = combine_map(base_dir, inc_dir, "browsers.json", ("browser_id",), "browser")
+    stats["evidence_files"] = combine_evidence(base_dir, inc_dir)
+    combine_ignored(base_dir, inc_dir)
+    combine_trash(base_dir, inc_dir)
+    combine_config(base_dir, inc_dir)
     return stats
 
 
 def main():
-    ap = argparse.ArgumentParser(description="母本台账 + 另一台 data -> 三台可用的 v2 data")
-    ap.add_argument("base", help="锚点/母本 data 目录（通常放 A 机）")
-    ap.add_argument("incoming", help="要并入的 data 目录（v1 会自动迁移）")
+    ap = argparse.ArgumentParser(description="把两份 data/ 合成一份（条目并列，不自动合并）")
+    ap.add_argument("base", help="母本 data 目录（通常放 A 机，其数据在前）")
+    ap.add_argument("incoming", help="要并进来的 data 目录（v1 会自动迁移）")
     ap.add_argument("--out", help="产出目录（默认原地并入 base，先备份 base.v1bak）")
     args = ap.parse_args()
     base = Path(args.base).resolve()
     inc = Path(args.incoming).resolve()
     if not has_software(base):
-        sys.exit(f"[错误] 锚点里没有 software.json: {base}")
+        sys.exit(f"[错误] 母本里没有 software.json: {base}")
     if not has_software(inc):
         sys.exit(f"[错误] incoming 里没有 software.json: {inc}")
     out = Path(args.out).resolve() if args.out else None
@@ -344,21 +286,21 @@ def main():
             backup = base.with_name(base.name + ".v1bak")
             if not backup.exists():
                 shutil.copytree(base, backup)
-                print(f"[i] 已备份锚点 -> {backup}")
+                print(f"[i] 已备份母本 -> {backup}")
             if is_v1(base):
                 migrate_inplace(base)
             target = base
 
-        stats = merge(target, src)
+        stats = combine(target, src)
     finally:
         if src_tmp:
             shutil.rmtree(src_tmp, ignore_errors=True)
 
     print(f"[OK] 产出 v2 data: {target}")
-    print(f"    软件: 并入 {stats['merged']} 条 / 追加 {stats['appended']} 条")
+    print(f"    软件: 新增 {stats['added']} 条 / 跳过重复 uuid {stats['skipped']} 条（同名不合并，原样并列）")
     print(f"    扩展新增 {stats['ext_new']} 条；浏览器新增 {stats['browser_new']} 条；"
           f"证据补齐 {stats['evidence_files']} 个文件")
-    print("    把它拷到 A / B / C 的 exe 旁即可（各机重扫会刷新自己的证据）。")
+    print("    把它拷到 A / B / C 的 exe 旁即可；要不要合并同名条目，在 app 里自己定。")
 
 
 if __name__ == "__main__":
