@@ -76,7 +76,7 @@ scripts\cargo-msvc.bat test
 
 > **旧数据迁移**：v1.x 的 `data\`（无 uuid）不与当前版本兼容。用 `python scripts\migrate_to_v2.py <旧 data 目录>` 一次性转换（原地迁移会先备份为 `<目录>.v1bak`，也可 `--out` 输出到新目录）：补 uuid、`should`→`on_demand`、`copy_config`→`copy_dir`、`vault\<主机名>\<kind>\<id>\`→`vault\<kind>\<uuid>\`、扩展标注重挂到 `(browser_id, profile, ext_id)`。
 >
-> **两份台账合并**：`python scripts\merge_data.py <本机 data> <另一台 data> [--out <目标 data>]` 把两台机器的 `data\` 捏成一份。规则同 `merge_software`：按软件名配对并入，**第一个参数是锚点（其决策与主观字段优先）**，`machines` 按 `machine_id` 去重，图标 / 保管箱 / 证据 / 扩展标注一并归并，锚点缺的图标 / 事实字段由被并项补齐。
+> **两份台账合并**：`python scripts\merge_data.py <母本 data> <另一台 data> [--out <目标 data>]` 把两台机器的 `data\` 捏成一份。**第一个参数是锚点/母本（其决策与主观字段优先）**；任一端若是 v1（缺 uuid）会先自动迁移（在临时副本上进行，不改动原目录）。规则同 `merge_software`：按软件名配对并入，`machines` 按 `machine_id` 去重，图标 / 保管箱 / 证据 / 扩展标注一并归并，锚点缺的图标 / 事实字段由被并项补齐。典型用法：A 机已升 v2 并打好标，`python scripts\merge_data.py <A的data> <B的v1data> --out <产出data>`，产出可直接拷去 A / B / C。
 
 ## 采集脚本
 

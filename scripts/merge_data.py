@@ -1,33 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把两份 data/ 捏成一份：base = 本机 data（锚点），incoming = 另一台机器的 data。
+"""一台机器的「母本台账」+ 另一台机器的 data/ -> 一份三台都能用的 v2 data/。
 
-规则与后端 `merge_software` 一致：**锚点为准；事实/资产并入或补齐，决策与主观永不并入**。
+典型场景：A 机已升 v2 并打好了标（母本），B 机还是 v1。想把 B 机的软件并进母本，
+产出一份 `data/`，拷到 A / B / C 都能直接用——就像「先在 A 打标，再把 data 拷去 B、拷去 C」。
 
-- software.json：按软件名（trim + 小写）配对。
-  - 配上的并入锚点：machines 按 `machine_id` 去重（同机补齐 install_location / version、portable 升级）；
-    补齐 version / download_url；has_config 取或；config_notes 追加；
-    restore_intent / backup_strategy / category / type / notes 等锚点已有值保持不动。
-  - 配不上的原样追加，并重排 SW-ID 避免两本台账撞号。
-- icons/<uuid>.png、vault/<kind>/<uuid>/：被并项的图标/归档并入锚点（同名文件锚点优先，
-  冲突者进 data/trash/）。追加项整体搬入。
-- extensions.json / browsers.json：按 uuid 合并，并按匹配键
-  `(browser_id, profile, ext_id)` / `browser_id` 去重（锚点优先，只补缺失字段）。
-- evidence/：整目录拷贝，同名主机目录不覆盖 base 已有文件。
-- ignored.json：墓碑并集去重；config.json 保留 base。
+- **第一个参数是锚点（母本）**：它的决策与主观字段优先，A 机应放第一个。
+- 任一端的 data 若是 v1（条目缺 uuid），会自动先做 v1→v2 迁移（补 uuid、should→on_demand、
+  copy_config→copy_dir、vault/<主机名>/<kind>/<id>/→vault/<kind>/<uuid>/、扩展标注重挂），
+  迁移在临时副本上进行，**不改动原始目录**。
+- 合并规则与后端 `merge_software` 一致：**锚点为准；事实/资产并入或补齐，决策与主观永不并入**。
+  - software.json：按软件名（trim + 小写）配对。配上的并入锚点：machines 按 `machine_id` 去重
+    （同机补齐 install_location / version、portable 升级）；补齐 version / download_url；
+    has_config 取或；config_notes 追加；restore_intent / backup_strategy / category / type / notes
+    等锚点已有值保持不动。配不上的原样追加，并重排 SW-ID 避免两本台账撞号。
+  - icons/<uuid>.png、vault/<kind>/<uuid>/：被并项的图标/归档并入锚点（同名文件锚点优先，
+    冲突者进 data/trash/）。追加项整体搬入。
+  - extensions.json / browsers.json：按 uuid 合并，并按匹配键 `(browser_id, profile, ext_id)` /
+    `browser_id` 去重（锚点优先，只补缺失字段）。
+  - evidence/：整目录拷贝，同名主机目录不覆盖 base 已有文件。
+  - ignored.json：墓碑并集去重；config.json 保留锚点。
 
 用法：
-  python scripts/merge_data.py <base data> <incoming data> --out <目标 data>   # 输出到新目录
-  python scripts/merge_data.py <base data> <incoming data>                     # 原地并入，先备份 base.v1bak
+  python scripts/merge_data.py <A机 data（锚点/母本）> <B机 data> --out <产出 data>
+  python scripts/merge_data.py <A机 data> <B机 data>          # 原地并入 A，先备份 A.v1bak
 """
 
 import argparse
 import json
 import shutil
 import sys
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from migrate_to_v2 import migrate_extensions, migrate_software, migrate_vault  # noqa: E402
 
 
 def load_json(path, default):
@@ -42,6 +51,42 @@ def dump_json(path, obj):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+def has_software(data_dir):
+    return (Path(data_dir) / "software.json").exists()
+
+
+def is_v1(data_dir):
+    """条目里有任何一条缺 uuid，就当作 v1 数据。"""
+    sw = load_json(Path(data_dir) / "software.json", [])
+    return isinstance(sw, list) and any(isinstance(it, dict) and not it.get("uuid") for it in sw)
+
+
+def migrate_inplace(data_dir):
+    """把 data_dir 就地升级成 v2（调用方负责先备份）。"""
+    data_dir = Path(data_dir)
+    sw = migrate_software(data_dir)
+    ex = migrate_extensions(data_dir, data_dir / "evidence")
+    migrate_vault(data_dir, sw.get("id_to_uuid", {}), ex.get("ext_id_to_uuid", {}))
+    if not (data_dir / "browsers.json").exists():
+        dump_json(data_dir / "browsers.json", {})
+    return sw, ex
+
+
+def prepare(data_dir):
+    """v1 -> 临时 v2 副本；已是 v2 则原样返回。返回 (可用目录, 待清理的临时根 或 None)。"""
+    data_dir = Path(data_dir)
+    if not is_v1(data_dir):
+        return data_dir, None
+    tmp_root = Path(tempfile.mkdtemp(prefix="ledger-v2-"))
+    tmp = tmp_root / "data"
+    shutil.copytree(data_dir, tmp)
+    sw, ex = migrate_inplace(tmp)
+    print(f"[i] 检测到 v1 数据并自动迁移: {data_dir}")
+    print(f"    补 uuid {sw.get('added_uuid', 0)} 条；should→on_demand {sw.get('intent', 0)}；"
+          f"扩展重挂 {ex.get('ext_created', 0)} 条")
+    return tmp, tmp_root
 
 
 def norm_name(s):
@@ -271,38 +316,49 @@ def merge(base_dir, inc_dir):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="把两份 data/ 捏成一份（base 为锚点）")
-    ap.add_argument("base", help="本机 data 目录（锚点）")
-    ap.add_argument("incoming", help="另一台机器的 data 目录")
-    ap.add_argument("--out", help="输出目录（默认原地并入 base，先备份 base.v1bak）")
+    ap = argparse.ArgumentParser(description="母本台账 + 另一台 data -> 三台可用的 v2 data")
+    ap.add_argument("base", help="锚点/母本 data 目录（通常放 A 机）")
+    ap.add_argument("incoming", help="要并入的 data 目录（v1 会自动迁移）")
+    ap.add_argument("--out", help="产出目录（默认原地并入 base，先备份 base.v1bak）")
     args = ap.parse_args()
     base = Path(args.base).resolve()
     inc = Path(args.incoming).resolve()
-    if not (base / "software.json").exists():
-        sys.exit(f"[错误] base 里没有 software.json: {base}")
-    if not (inc / "software.json").exists():
+    if not has_software(base):
+        sys.exit(f"[错误] 锚点里没有 software.json: {base}")
+    if not has_software(inc):
         sys.exit(f"[错误] incoming 里没有 software.json: {inc}")
+    out = Path(args.out).resolve() if args.out else None
+    if out and out in (base, inc):
+        sys.exit("[错误] --out 不能等于 base 或 incoming")
 
-    if args.out:
-        out = Path(args.out).resolve()
-        if out in (base, inc):
-            sys.exit("[错误] --out 不能等于 base 或 incoming")
-        if out.exists():
-            shutil.rmtree(out)
-        shutil.copytree(base, out)
-        target = out
-    else:
-        backup = base.with_name(base.name + ".v1bak")
-        if not backup.exists():
-            shutil.copytree(base, backup)
-            print(f"[i] 已备份 base -> {backup}")
-        target = base
+    src, src_tmp = prepare(inc)
+    try:
+        if out:
+            if out.exists():
+                shutil.rmtree(out)
+            shutil.copytree(base, out)
+            if is_v1(out):
+                migrate_inplace(out)
+            target = out
+        else:
+            backup = base.with_name(base.name + ".v1bak")
+            if not backup.exists():
+                shutil.copytree(base, backup)
+                print(f"[i] 已备份锚点 -> {backup}")
+            if is_v1(base):
+                migrate_inplace(base)
+            target = base
 
-    stats = merge(target, inc)
-    print(f"[OK] 合并完成: {target}")
+        stats = merge(target, src)
+    finally:
+        if src_tmp:
+            shutil.rmtree(src_tmp, ignore_errors=True)
+
+    print(f"[OK] 产出 v2 data: {target}")
     print(f"    软件: 并入 {stats['merged']} 条 / 追加 {stats['appended']} 条")
     print(f"    扩展新增 {stats['ext_new']} 条；浏览器新增 {stats['browser_new']} 条；"
           f"证据补齐 {stats['evidence_files']} 个文件")
+    print("    把它拷到 A / B / C 的 exe 旁即可（各机重扫会刷新自己的证据）。")
 
 
 if __name__ == "__main__":
