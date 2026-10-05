@@ -1336,7 +1336,8 @@ tr.selected td {
   resize: vertical;
 }
 
-.drawer-field .hint {
+.drawer-field .hint,
+.config-pane .hint {
   font-size: 11px;
   color: var(--ink-3);
   margin-top: 2px;
@@ -2977,4 +2978,80 @@ body.sync-readonly #btnBatchLLM {
 }
 body.sync-readonly #batchBar {
   display: none !important;
+}
+
+/* Agent 集成（MCP）配置片段预览 */
+.mcp-snippet {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 190px;
+  overflow: auto;
+  color: var(--ink);
+}
+
+/* 设置弹窗：左栏分页 */
+.config-layout {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  gap: 0;
+}
+.config-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 150px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--rule);
+  padding: 14px 10px;
+}
+.config-nav-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.config-nav-item:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.config-nav-item.active {
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+.config-panes {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+.config-pane {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+}
+.config-pane.active {
+  display: flex;
+}
+.config-intro {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.7;
 }

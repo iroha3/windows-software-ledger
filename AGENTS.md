@@ -29,11 +29,13 @@ src-tauri/src/
   xlsx.rs                   零依赖 xlsx 生成器（手写 ZIP + OOXML，仅存储不压缩）
   webdav.rs                 WebDAV 传输层（GET/PUT/DELETE/MKCOL/MOVE，不用 PROPFIND）
   sync.rs                   同步引擎：会话锁 / manifest / 并集拉取 / 镜像推送 / 强制覆盖
-  main.rs
+  mcp.rs                    MCP（stdio）服务端：默认只读，可开关写入；手写 JSON-RPC，无依赖
+  main.rs                   `--mcp` 分流到 mcp::serve_stdio，否则正常开 GUI
 scripts/                  独立辅助脚本，不参与应用运行时（见下）
 src-tauri/Cargo.toml      ★版本号唯一来源
 src-tauri/tauri.conf.json 不写 version（回退用 Cargo 版本）；frontendDist=../client
 BUILD.md                  构建 / 数据目录 / 采集脚本的详细说明（本文件不重复）
+MCP.md                    MCP 接口：配置方式 / 工具清单 / 写入与同步锁语义 / 安全边界
 SPEC.md                   产品范围与数据模型
 ```
 
@@ -50,6 +52,8 @@ SPEC.md                   产品范围与数据模型
 
 - `scripts/cargo-msvc.bat` 会自动定位 VS 2022/2019 的 `vcvars64.bat` 再调 `cargo %*`。
 - 纯 JS 语法检查：`node --check client/app.js`（无需依赖）。
+- MCP 手动验收（零依赖迷你客户端）：`node scripts/mcp-client.js`（演示）/ `... tools` / `... call search_software '{"intent":"must"}'`。自动挑选最新的 exe，也可 `MCP_EXE=<路径>` 指定。
+- MCP 写入准入：设置开关 `config.json` 的 `mcp_write_enabled`（默认关）+ `store::mcp_write_denied()`（读 `data/.sync/session.json` 判断本机是否持锁）。GUI 在 `set_read_only()` / 关窗释放锁时写入该文件；MCP 写工具先过 `mcp.rs::write_gate()`，成功记 `data/.mcp/audit.jsonl`。字段白名单在 `WRITABLE_FIELDS`。
 - LLM 探测脚本：`bun scripts/test_llm.js "软件名" "路径"`（默认走 DeepSeek 非思考模式）。
 - 图标重建：`python scripts/generate_icon.py`（仅改图标时需要，改后记得 `cargo-msvc.bat clean -p windows-software-ledger` 再构建）。
 
@@ -111,5 +115,6 @@ SPEC.md                   产品范围与数据模型
 | 导出文档格式 | `src-tauri/src/exporter.rs` |
 | xlsx 生成（导出 Excel） | `src-tauri/src/xlsx.rs` |
 | WebDAV 同步 / 会话锁 / 合并规则 | `src-tauri/src/sync.rs`、`src-tauri/src/webdav.rs` |
+| MCP 接口（agent 集成，只读 + 可选写入） | `src-tauri/src/mcp.rs`、`MCP.md` |
 | 数据路径 / 数据落盘 | `src-tauri/src/store.rs` |
 | LLM 提示词 | `src-tauri/src/commands.rs`（`llm_analyze`）、`scripts/test_llm.js` |

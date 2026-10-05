@@ -161,6 +161,77 @@ pub fn last_sync_file() -> PathBuf {
     sync_dir().join("last.json")
 }
 
+/// 编辑权状态：GUI 把「本机是否持锁（可写）」落到磁盘，供独立的 MCP 进程
+/// 判断能否写入。**本地文件，绝不参与同步**。
+pub fn sync_session_file() -> PathBuf {
+    sync_dir().join("session.json")
+}
+
+/// 记录当前编辑权状态：`read_only = true` 表示本机是只读镜像。
+pub fn write_session_state(read_only: bool) {
+    let enabled = get_webdav_config()
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    write_json(
+        &sync_session_file(),
+        &json!({
+            "webdav_enabled": enabled,
+            "read_only": read_only,
+            "updated_at": chrono::Local::now().to_rfc3339(),
+        }),
+    );
+}
+
+/// MCP 写入准入：未启用 WebDAV → 允许；启用 → 仅当本机持锁（`read_only=false`）。
+/// 返回 `Some(原因)` 表示拒绝写入。
+pub fn mcp_write_denied() -> Option<String> {
+    let sess = read_json(&sync_session_file());
+    let enabled = sess
+        .get("webdav_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| {
+            get_webdav_config()
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        });
+    if !enabled {
+        return None;
+    }
+    let read_only = sess.get("read_only").and_then(|v| v.as_bool()).unwrap_or(true);
+    if read_only {
+        return Some(
+            "本机当前是只读镜像（另一台机器持有同步锁）。请在持锁的机器上操作，\
+             或先在软件里取得编辑权 / 关闭 WebDAV 同步，再让 agent 写入。"
+                .to_string(),
+        );
+    }
+    None
+}
+
+/// MCP 写入审计日志：`data/.mcp/audit.jsonl`，一行一次写入，方便回看 / 撤销。
+/// **本地文件，绝不参与同步**。
+pub fn audit_file() -> PathBuf {
+    data_dir().join(".mcp").join("audit.jsonl")
+}
+
+pub fn append_audit(tool: &str, detail: &Value) {
+    let path = audit_file();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let line = json!({
+        "at": chrono::Local::now().to_rfc3339(),
+        "tool": tool,
+        "detail": detail,
+    });
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
 /// 通用文件保管箱：`data/vault/<kind>/<uuid>/`（不再分主机名）。
 /// 与扫描证据解耦；删除条目时整个目录移入垃圾桶，绝不物理销毁。
 pub fn vault_dir() -> PathBuf {
@@ -206,8 +277,18 @@ pub fn write_json(path: &Path, value: &Value) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
+    // 原子写：先写同目录临时文件再改名。GUI 与 MCP 是两个进程，
+    // 直接 fs::write 会在并发时互相截断，改名则保证读者只看到完整文件。
     if let Ok(s) = serde_json::to_string_pretty(value) {
-        let _ = fs::write(path, s);
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "data.json".to_string());
+        let suffix = new_uuid();
+        let tmp = path.with_file_name(format!(".{}.{}.tmp", file_name, &suffix[..8]));
+        if fs::write(&tmp, s).is_ok() && fs::rename(&tmp, path).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
     }
 }
 
@@ -220,6 +301,21 @@ pub fn read_software() -> Vec<Value> {
 
 pub fn write_software(items: &[Value]) {
     write_json(&software_file(), &Value::Array(items.to_vec()));
+}
+
+/// 台账数据版本指纹：software.json / ignored.json 的修改时间。
+/// 前端轮询它判断是否被外部（如 MCP 写工具）改动，避免每次拉全量清单。
+pub fn ledger_revision() -> String {
+    let stamp = |p: &Path| -> String {
+        match fs::metadata(p).and_then(|m| m.modified()) {
+            Ok(t) => t
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos().to_string())
+                .unwrap_or_else(|_| "0".to_string()),
+            Err(_) => "0".to_string(),
+        }
+    };
+    format!("{}:{}", stamp(&software_file()), stamp(&ignored_file()))
 }
 
 pub fn read_ignored() -> Vec<Value> {
@@ -242,7 +338,9 @@ pub fn default_config() -> Value {
         "llm_api_key": "",
         // 扫描目录按主机名分键：每台机器只读自己那份，全量镜像也不会互相覆盖。
         "scan_directories": {},
-        "machine_aliases": {}
+        "machine_aliases": {},
+        // MCP 写入开关：默认关（只读信息源）。开启后 agent 可改台账。
+        "mcp_write_enabled": false
     })
 }
 
@@ -312,6 +410,20 @@ mod tests {
             // 整个 evidence 删掉，行为不变
             fs::remove_dir_all(evidence_dir()).unwrap();
             assert_eq!(read_software()[0]["machines"][0]["machine_id"], guid);
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn ledger_revision_changes_after_write() {
+        let base = std::env::temp_dir().join(format!("ledger_rev_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("data")).unwrap();
+        {
+            let _guard = test_support::use_root(&base);
+            let before = ledger_revision();
+            write_software(&[json!({ "id": "SW-001", "name": "Zed" })]);
+            assert_ne!(before, ledger_revision());
         }
         let _ = fs::remove_dir_all(&base);
     }

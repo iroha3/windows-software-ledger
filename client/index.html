@@ -459,79 +459,116 @@ ffmpeg, ripgrep, jq, pandoc
     </div>
   </div>
 
-  <!-- 中台综合设置弹窗 (包含扫描目录、LLM 端点与 API Key) -->
+  <!-- 设置弹窗：左栏分页（扫描与设备 / AI 预判 / 多机同步 / Agent 集成） -->
   <div class="modal-overlay" id="configModal">
-    <div class="modal-content" style="width: 550px;">
+    <div class="modal-content" style="width: 760px; max-width: 94vw; height: 600px;">
       <div class="modal-header">
         <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
           <svg class="i" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-          中台扫描与 LLM 设置
+          设置
         </h3>
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('configModal').classList.remove('show')">
           <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
-      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
-        <!-- 扫描目录配置 -->
-        <div class="drawer-field">
-          <label>便携与绿色软件扫描路径</label>
-          <textarea id="configScanDirs" rows="3" style="font-family: var(--mono); font-size: 12px;"></textarea>
-          <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
-        </div>
-
-        <!-- 设备别名映射配置 -->
-        <div class="drawer-field">
-          <label>设备友好别名映射 (为主机名设置友好别名，如 主力台式机 / 便携本)</label>
-          <div id="configMachineAliasesList" class="machine-aliases-list">
-            <!-- 由 JS 根据已扫描机器动态加载 -->
-          </div>
-          <span class="hint">为当前检测到的机器设置友善中文别名，将在选项卡、表格和卡片中同步展示。</span>
-        </div>
-
-        <div style="border-top: 1px solid var(--rule); padding-top: 10px;">
-          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
-          <div class="preset-chips">
-            <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
-            <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-flash)</button>
-          </div>
-        </div>
-
-        <div class="drawer-field">
-          <label>Chat Completions API 地址（留空则不启用 AI 预判）</label>
-          <input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions">
-        </div>
-        <div class="drawer-field">
-          <label>模型标识 (Model ID)</label>
-          <input type="text" id="configLlmModel" placeholder="qwen3.5-4b">
-        </div>
-        <div class="drawer-field">
-          <label>API Key (本地模型可留空，云端模型自动发送 Bearer 令牌)</label>
-          <input type="password" id="configLlmKey" placeholder="sk-..." autocomplete="off">
-        </div>
-
-        <div style="border-top: 1px solid var(--rule); padding-top: 12px; display:flex; flex-direction:column; gap:10px;">
-          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; display:block;">WebDAV 同步</label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
-            <input type="checkbox" id="configWebdavEnabled">
-            启用 WebDAV 同步
-          </label>
-          <div id="webdavFields" style="display:none; flex-direction:column; gap:10px;">
+      <div class="modal-body config-layout">
+        <nav class="config-nav" id="configNav">
+          <button type="button" class="config-nav-item active" data-pane="general">扫描与设备</button>
+          <button type="button" class="config-nav-item" data-pane="llm">AI 预判</button>
+          <button type="button" class="config-nav-item" data-pane="sync">多机同步</button>
+          <button type="button" class="config-nav-item" data-pane="mcp">Agent 集成 (MCP)</button>
+        </nav>
+        <div class="config-panes">
+          <!-- 扫描与设备 -->
+          <section class="config-pane active" data-pane="general">
             <div class="drawer-field">
-              <label>WebDAV 地址</label>
-              <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
+              <label>便携与绿色软件扫描路径</label>
+              <textarea id="configScanDirs" rows="3" style="font-family: var(--mono); font-size: 12px;"></textarea>
+              <span class="hint">系统将在此类目录中逐层检索绿色免安装可执行程序（.exe）并自动建档。</span>
             </div>
-            <div style="display:flex; gap:10px;">
-              <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
-              <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
+            <div class="drawer-field">
+              <label>设备友好别名映射 (为主机名设置友好别名，如 主力台式机 / 便携本)</label>
+              <div id="configMachineAliasesList" class="machine-aliases-list">
+                <!-- 由 JS 根据已扫描机器动态加载 -->
+              </div>
+              <span class="hint">为当前检测到的机器设置友善中文别名，将在选项卡、表格和卡片中同步展示。</span>
             </div>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
-              <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
-              <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
-              <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
-              <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
+          </section>
+
+          <!-- AI 预判 -->
+          <section class="config-pane" data-pane="llm">
+            <div class="drawer-field">
+              <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; display: block;">大模型常用服务预设：</label>
+              <div class="preset-chips">
+                <button type="button" class="preset-chip" id="presetLocal">本地 LM Studio / Ollama</button>
+                <button type="button" class="preset-chip" id="presetDeepseek">DeepSeek (deepseek-flash)</button>
+              </div>
             </div>
-          </div>
+            <div class="drawer-field">
+              <label>Chat Completions API 地址（留空则不启用 AI 预判）</label>
+              <input type="text" id="configLlmUrl" placeholder="http://127.0.0.1:1234/v1/chat/completions">
+            </div>
+            <div class="drawer-field">
+              <label>模型标识 (Model ID)</label>
+              <input type="text" id="configLlmModel" placeholder="qwen3.5-4b">
+            </div>
+            <div class="drawer-field">
+              <label>API Key (本地模型可留空，云端模型自动发送 Bearer 令牌)</label>
+              <input type="password" id="configLlmKey" placeholder="sk-..." autocomplete="off">
+            </div>
+          </section>
+
+          <!-- 多机同步 -->
+          <section class="config-pane" data-pane="sync">
+            <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+              <input type="checkbox" id="configWebdavEnabled">
+              启用 WebDAV 同步
+            </label>
+            <div id="webdavFields" style="display:none; flex-direction:column; gap:10px;">
+              <div class="drawer-field">
+                <label>WebDAV 地址</label>
+                <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
+              </div>
+              <div style="display:flex; gap:10px;">
+                <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
+                <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
+              </div>
+            </div>
+            <span class="hint">同一时刻只有一台机器可写，其余只读。凭据仅存本地 data/webdav.json，不参与同步。</span>
+          </section>
+
+          <!-- Agent 集成 (MCP) -->
+          <section class="config-pane" data-pane="mcp">
+            <p class="config-intro">把本台账接给支持 MCP 的 AI agent（Claude Code / Codex / Cursor / Pi 等）。接上后，agent 就能读机器、软件、官网链接、开发环境与归档文件，用来规划重装、整理清单，或任何基于这份台账的事！</p>
+            <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+              <input type="checkbox" id="configMcpWrite">
+              允许 AI agent 写入台账（更新 / 新增 / 删除 / 合并）
+            </label>
+            <span class="hint">默认关闭，只读信息源。开启后 agent 可改台账：删除会写墓碑并移入 data/trash（可回滚），合并不可逆；每次写入记入 data/.mcp/audit.jsonl。启用 WebDAV 时，仅「本机持有同步锁（软件正在编辑）」才能写。</span>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="mcpClientSelect" style="flex:1;">
+                <option value="claude-code-cmd">Claude Code（命令行）</option>
+                <option value="claude-code-json">Claude Code（.mcp.json）</option>
+                <option value="codex">Codex CLI（config.toml）</option>
+                <option value="pi">Pi</option>
+                <option value="cursor">Cursor</option>
+                <option value="claude-desktop">Claude Desktop</option>
+                <option value="vscode">VS Code（Copilot）</option>
+                <option value="generic">通用 JSON（Windsurf / Cline 等）</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnMcpCopy">复制配置</button>
+            </div>
+            <div id="mcpTargetHint" class="hint" style="font-family: var(--mono); font-size: 11px;"></div>
+            <pre id="mcpSnippet" class="mcp-snippet"></pre>
+            <span class="hint">配置后重启对应客户端即可。完整说明见 <a href="#" id="mcpDocLink" style="color: var(--accent);">MCP.md</a>。</span>
+          </section>
         </div>
       </div>
       <div class="modal-footer">

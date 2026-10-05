@@ -59,8 +59,12 @@
         return invoke('get_status');
       case '/api/version':
         return invoke('get_version');
+      case '/api/mcp':
+        return invoke('get_mcp_info');
       case '/api/software':
         return invoke('get_software');
+      case '/api/ledger-revision':
+        return invoke('get_ledger_revision');
       case '/api/dev-env':
         return invoke('get_dev_env');
       case '/api/browser-extensions':

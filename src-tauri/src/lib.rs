@@ -1,6 +1,7 @@
 mod commands;
 mod exporter;
 mod ingest;
+pub mod mcp;
 mod store;
 mod sync;
 mod webdav;
@@ -41,6 +42,12 @@ pub fn run() {
                     let _ = sync::run_sync(sync::SyncMode::Normal);
                     let _ = sync::release(&owner);
                     state.held.store(false, Ordering::SeqCst);
+                    // 已释放锁：把「本机可写」状态改掉，否则独立的 MCP 进程会误以为还能写。
+                    let enabled = store::get_webdav_config()
+                        .get("enabled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    store::write_session_state(enabled);
                     let _ = window.close();
                 }
             }
@@ -50,6 +57,8 @@ pub fn run() {
             commands::save_config,
             commands::get_status,
             commands::get_version,
+            commands::get_mcp_info,
+            commands::get_ledger_revision,
             commands::get_software,
             commands::get_dev_env,
             commands::get_browser_extensions,

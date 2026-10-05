@@ -22,6 +22,9 @@ static READ_ONLY: AtomicBool = AtomicBool::new(false);
 
 pub fn set_read_only(v: bool) {
     READ_ONLY.store(v, Ordering::SeqCst);
+    // 落盘编辑权状态：MCP 是独立进程，读不到这里的 AtomicBool，
+    // 只能靠 data/.sync/session.json 判断本机能否写入。
+    store::write_session_state(v);
 }
 
 fn deny_if_read_only() -> Option<Value> {
@@ -317,6 +320,32 @@ pub fn get_version() -> Value {
     json!({ "version": env!("CARGO_PKG_VERSION") })
 }
 
+/// MCP（agent 集成）配置信息：返回当前 exe 绝对路径，供设置页生成各客户端的配置片段。
+/// 数据目录始终是 exe 同级的 data/，所以客户端只认这个 exe 路径就够了。
+#[tauri::command]
+pub fn get_mcp_info() -> Value {
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let write_enabled = store::get_config()
+        .get("mcp_write_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    json!({
+        "exe_path": exe,
+        "args": ["--mcp"],
+        "server_name": "software-ledger",
+        "version": env!("CARGO_PKG_VERSION"),
+        "write_enabled": write_enabled,
+    })
+}
+
+/// 台账数据版本指纹：供前端轮询，检测到外部（如 MCP 写工具）改动后自动刷新表格。
+#[tauri::command]
+pub fn get_ledger_revision() -> Value {
+    json!({ "revision": store::ledger_revision() })
+}
+
 #[tauri::command]
 pub fn get_status() -> Value {
     let software = store::read_software();
@@ -485,6 +514,16 @@ pub fn get_dev_env() -> Value {
 
 #[tauri::command]
 pub fn get_browser_extensions() -> Value {
+    collect_browser_extensions(true)
+}
+
+/// 只读版本：给 MCP 用。认回 uuid 时只在内存里铸号，绝不写 extensions.json / browsers.json，
+/// 保持 MCP「只提供信息、不落盘」的定位。
+pub fn get_browser_extensions_readonly() -> Value {
+    collect_browser_extensions(false)
+}
+
+fn collect_browser_extensions(commit: bool) -> Value {
     let root = store::evidence_dir();
     // 用户层：扩展 / 浏览器均按 uuid 存，匹配键内嵌。重扫时据此把 uuid 认回来。
     let mut ext_map = store::read_extensions();
@@ -572,10 +611,10 @@ pub fn get_browser_extensions() -> Value {
             }));
         }
     }
-    if ext_changed {
+    if commit && ext_changed {
         store::write_extensions(&ext_map);
     }
-    if browser_changed {
+    if commit && browser_changed {
         store::write_browsers(&browser_map);
     }
     machines.sort_by(|a, b| as_str(a, "machine_id").cmp(&as_str(b, "machine_id")));

@@ -12,6 +12,8 @@ let currentMachine = '';
 let scanDirsByMachine = {};
 let syncLockedByOther = null;
 let webdavEnabled = false; // WebDAV 是否已启用（关闭时隐藏同步入口）
+let mcpInfo = null;        // 当前 exe 路径等（供设置页生成 MCP 配置片段）
+let mcpLoaded = false;
 let readOnly = false;      // 只读镜像：另一台机器持锁时为 true，禁止一切编辑
 let drawerVault = null; // 抽屉的配置归档组件实例
 
@@ -137,11 +139,18 @@ const configWebdavEnabled = document.getElementById('configWebdavEnabled');
 const configWebdavUrl = document.getElementById('configWebdavUrl');
 const configWebdavUser = document.getElementById('configWebdavUser');
 const configWebdavPass = document.getElementById('configWebdavPass');
+const configMcpWrite = document.getElementById('configMcpWrite');
 const btnWebdavTest = document.getElementById('btnWebdavTest');
 const btnSyncNow = document.getElementById('btnSyncNow');
 const btnSyncUnlock = document.getElementById('btnSyncUnlock');
 const btnForcePush = document.getElementById('btnForcePush');
 const btnForcePull = document.getElementById('btnForcePull');
+const mcpClientSelect = document.getElementById('mcpClientSelect');
+const mcpSnippet = document.getElementById('mcpSnippet');
+const mcpTargetHint = document.getElementById('mcpTargetHint');
+const btnMcpCopy = document.getElementById('btnMcpCopy');
+const mcpDocLink = document.getElementById('mcpDocLink');
+const configNav = document.getElementById('configNav');
 
 // Toast 非阻塞消息提示系统 (使用纯净 SVG 图标)
 function showToast(message, type = 'info', duration = 2500) {
@@ -182,6 +191,7 @@ async function init() {
   enableWheelSelect();
   // WebDAV：先拉取远端最新，再决定是否需要扫描本机
   await initSync();
+  startLedgerWatch();
   // 首次运行 / 清单为空时自动扫描本机，省去手动点一次；
   // 只读镜像下不自动扫描（避免刚启动就报「本机只读」）。
   if (softwareList.length === 0 && !readOnly) {
@@ -449,6 +459,50 @@ async function loadSoftware() {
   } catch (e) {
     console.error('Failed to load software:', e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 台账外部变更监听：agent 通过 MCP 写工具改了 software.json 后，
+// 主动把表格刷新出来，让人实时看到它在改什么。轮询一个廉价的版本指纹，
+// 只有变了才拉全量，避免空转。
+// ---------------------------------------------------------------------------
+let ledgerRevision = null;
+let ledgerWatchTimer = null;
+
+// 正在编辑 / 有弹窗时先不刷新，避免打断输入或吞掉未保存的改动。
+function isEditingBusy() {
+  if (sideDrawer && sideDrawer.classList.contains('show')) return true;
+  if (batchBar && batchBar.classList.contains('show')) return true;
+  return !!document.querySelector('.modal-overlay.show');
+}
+
+async function pollLedgerRevision() {
+  try {
+    const data = await (await fetch('/api/ledger-revision')).json();
+    const rev = data.revision;
+    if (ledgerRevision === null) { ledgerRevision = rev; return; }
+    if (rev === ledgerRevision) return;
+    // 已变动；正在编辑就先记着，等空闲后的下一轮再刷。
+    if (isEditingBusy()) return;
+    ledgerRevision = rev;
+    const before = JSON.stringify(softwareList);
+    await loadSoftware();
+    await fetchStatus();
+    // 数据真的不同才提示，避免自己写入后重复弹窗。
+    if (JSON.stringify(softwareList) !== before) {
+      showToast('台账已被外部更新，已自动刷新', 'success', 3000);
+    }
+  } catch (e) { /* 轮询失败静默重试 */ }
+}
+
+function startLedgerWatch() {
+  if (ledgerWatchTimer) return;
+  // 先取一次基线，之后定期比对
+  fetch('/api/ledger-revision')
+    .then(r => r.json())
+    .then(d => { ledgerRevision = d.revision; })
+    .catch(() => {});
+  ledgerWatchTimer = setInterval(pollLedgerRevision, 2000);
 }
 
 function renderStats(stats) {
@@ -1495,6 +1549,17 @@ function bindEvents() {
   btnConfig.addEventListener('click', openConfigModal);
   btnSaveConfig.addEventListener('click', saveConfigModal);
 
+  // 设置弹窗左栏分页
+  if (configNav) {
+    configNav.addEventListener('click', (e) => {
+      const btn = e.target.closest('.config-nav-item');
+      if (btn) showConfigPane(btn.dataset.pane);
+    });
+  }
+  if (mcpClientSelect) mcpClientSelect.addEventListener('change', renderMcpSnippet);
+  if (btnMcpCopy) btnMcpCopy.addEventListener('click', copyMcpSnippet);
+  if (mcpDocLink) mcpDocLink.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(REPO_URL + '/blob/master/MCP.md'); });
+
   // WebDAV 同步
   if (btnSync) btnSync.addEventListener('click', () => doSync('auto'));
   if (btnWebdavTest) btnWebdavTest.addEventListener('click', testWebdav);
@@ -2087,6 +2152,90 @@ function openAboutModal() {
   document.getElementById('aboutModal').classList.add('show');
 }
 
+// ---- Agent 集成 (MCP)：为常见客户端生成配置片段 ----
+// 各客户端配置格式不一：Claude/Cursor/Windsurf 用 mcpServers，VS Code 用 servers，Codex 用 TOML。
+const MCP_CLIENTS = {
+  'claude-code-cmd': '在终端执行（写入 ~/.claude.json；加 -s project 可写入项目 .mcp.json）',
+  'claude-code-json': '项目根目录 .mcp.json',
+  'codex': '%USERPROFILE%\\.codex\\config.toml',
+  'pi': '在终端执行（写入用户级 ~/.pi/agent/mcp.json；也可写项目 .pi/mcp.json）',
+  'cursor': '%USERPROFILE%\\.cursor\\mcp.json（或项目 .cursor/mcp.json）',
+  'claude-desktop': '%APPDATA%\\Claude\\claude_desktop_config.json',
+  'vscode': '.vscode/mcp.json',
+  'generic': '任意使用 mcpServers 格式的客户端（Windsurf / Cline / Roo 等）',
+};
+
+function mcpSnippetText(client) {
+  // 路径统一用正斜杠：Windows 可接受，且不用操心 JSON / TOML 的反斜杠转义。
+  const exe = ((mcpInfo && mcpInfo.exe_path) || 'D:/Tools/windows-software-ledger.exe').replace(/\\/g, '/');
+  const name = (mcpInfo && mcpInfo.server_name) || 'software-ledger';
+  const stdio = { command: exe, args: ['--mcp'] };
+  switch (client) {
+    case 'claude-code-cmd':
+      return `claude mcp add ${name} -- "${exe}" --mcp`;
+    case 'codex':
+      return `[mcp_servers.${name}]\ncommand = "${exe}"\nargs = ["--mcp"]`;
+    case 'pi':
+      return `pi mcp add ${name} -- "${exe}" --mcp`;
+    case 'vscode':
+      return JSON.stringify({ servers: { [name]: Object.assign({ type: 'stdio' }, stdio) } }, null, 2);
+    case 'claude-code-json':
+    case 'cursor':
+    case 'claude-desktop':
+    case 'generic':
+    default:
+      return JSON.stringify({ mcpServers: { [name]: stdio } }, null, 2);
+  }
+}
+
+function renderMcpSnippet() {
+  if (!mcpSnippet || !mcpClientSelect) return;
+  const client = mcpClientSelect.value;
+  mcpSnippet.textContent = mcpSnippetText(client);
+  if (mcpTargetHint) mcpTargetHint.textContent = '配置文件：' + (MCP_CLIENTS[client] || '');
+}
+
+async function loadMcpInfo() {
+  if (mcpLoaded) return;
+  try {
+    mcpInfo = await (await fetch('/api/mcp')).json();
+    mcpLoaded = true;
+  } catch (e) { /* 纯浏览器模式下没有该接口，忽略 */ }
+}
+
+// 设置弹窗左栏分页：切换面板；切到 MCP 时按需加载配置片段。
+function showConfigPane(name) {
+  if (configNav) {
+    configNav.querySelectorAll('.config-nav-item').forEach((b) => {
+      b.classList.toggle('active', b.dataset.pane === name);
+    });
+  }
+  document.querySelectorAll('#configModal .config-pane').forEach((p) => {
+    p.classList.toggle('active', p.dataset.pane === name);
+  });
+  if (name === 'mcp') loadMcpInfo().then(renderMcpSnippet);
+}
+
+async function copyMcpSnippet() {
+  if (!mcpSnippet) return;
+  const text = mcpSnippet.textContent || '';
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    document.body.removeChild(ta);
+  }
+  showToast(ok ? 'MCP 配置已复制' : '复制失败，请手动选择复制', ok ? 'success' : 'error');
+}
+
 // 配置弹窗管理
 async function openConfigModal() {
   try {
@@ -2095,6 +2244,7 @@ async function openConfigModal() {
     configLlmUrl.value = cfg.llm_url || '';
     configLlmModel.value = cfg.llm_model || '';
     configLlmKey.value = cfg.llm_api_key || '';
+    if (configMcpWrite) configMcpWrite.checked = !!cfg.mcp_write_enabled;
     const scanDirsEl = document.getElementById('configScanDirs');
     scanDirsByMachine = (cfg.scan_directories && !Array.isArray(cfg.scan_directories)) ? cfg.scan_directories : {};
     if (scanDirsEl) {
@@ -2109,7 +2259,7 @@ async function openConfigModal() {
       const allKnownMachines = Array.from(new Set([...machinesList, ...Object.keys(aliases)]));
       aliasesListEl.innerHTML = allKnownMachines.map(mid => `
         <div class="machine-alias-row">
-          <span class="machine-alias-id">${ICONS.device} ${escapeHtml(mid)}</span>
+          <span class="machine-alias-id">${machineDeviceIcon(mid)} ${escapeHtml(mid)}</span>
           <input type="text" class="machine-alias-input" data-mid="${escapeHtml(mid)}" value="${escapeHtml(aliases[mid] || '')}" placeholder="设置友好别名 (如：主力台式机 / 便携本)">
         </div>
       `).join('');
@@ -2162,7 +2312,10 @@ async function saveConfigModal() {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ llm_url, llm_model, llm_api_key, scan_directories, machine_aliases })
+      body: JSON.stringify({
+        llm_url, llm_model, llm_api_key, scan_directories, machine_aliases,
+        mcp_write_enabled: !!(configMcpWrite && configMcpWrite.checked)
+      })
     });
     const data = await res.json();
     if (data.success) {
