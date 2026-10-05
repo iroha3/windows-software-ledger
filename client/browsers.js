@@ -169,9 +169,10 @@ function applyLocal(uuid, fields) {
 
 async function saveExt(uuid, fields) {
   applyLocal(uuid, fields);
-  // 后端按 (浏览器, profile, 扩展ID) 认回实体；Chrome / Edge 同 ID 不再互相覆盖。
+  // 后端按 (机器, 浏览器, profile, 扩展ID) 认回实体；同扩展在异机 / 异浏览器上各自独立。
   const e = state.extList.find((x) => x.uuid === uuid);
   const payload = {
+    machine_id: e ? e.machineId : '',
     browser_id: e ? e.browserId : '',
     profile: e ? e.profile : '',
     ext_id: e ? e.id : '',

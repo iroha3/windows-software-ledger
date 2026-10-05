@@ -132,14 +132,14 @@
 - **`uuid`**：每个实体的**内部唯一标识**（UUID v4）。所有内部绑定（保管箱 / 图标 / 合并 / 删除 / 前端传参）一律以它为准。软件条目在 `software.json` 里持久化；扩展 / 浏览器在用户层文件里持久化。
 - **`id`（`SW-xxx`）**：**仅供展示**的顺序号，可被复用，不参与任何存储绑定；搜索同时匹配 `SW-ID` 与名称。
 - **不做旧版本兼容**：`read_software` 是**纯读**——不补 uuid、不归并已下线的 `copy_config`、不读 evidence。**uuid 是所有内部绑定的硬前提**，匹配 / 删除 / 合并一律只认 uuid（不再回退 `SW-ID`）。数据结构变更直接破坏，不写兼容层。
-- **重扫认回**：扫描只按「匹配键」把已有实体的 uuid 认回来，绝不另铸新号。软件的匹配键 = **机器 + 安装路径（bin path）**（`find_known`，**路径不变就不换 uuid；同名不算同一实体**）；仅当候选无任何路径时，才退回「同机器 + 同名」。扩展 = `(browser_id, profile, ext_id)`（扩展 ID 只在单个浏览器内唯一，**必须带浏览器维度**）；浏览器 = `browser_id`。
+- **重扫认回**：扫描只按「匹配键」把已有实体的 uuid 认回来，绝不另铸新号。软件的匹配键 = **机器 + 安装路径（bin path）**（`find_known`，**路径不变就不换 uuid；同名不算同一实体**）；仅当候选无任何路径时，才退回「同机器 + 同名」。扩展 = `(machine_id, browser_id, profile, ext_id)`（扩展跟软件一样按机器分开，同一扩展装在两台机器上各自独立；扩展 ID 只在单个浏览器内唯一，所以机器与浏览器维度都要带）；浏览器 = `(machine_id, browser_id)`。
 - **路径（`data/` 不追求人类可读）**：
   - 图标：`data/icons/<uuid>.png`
   - 保管箱：`data/vault/<kind>/<uuid>/`（`kind` ∈ `soft` / `browser` / `ext`），**不再分主机名**
   - 垃圾桶：`data/trash/<stamp>-<rand>/`（内含 `meta.json` 记录原始相对路径，另一项为被删的文件/目录本体）
 - **用户层文件**：
-  - `data/extensions.json`：键 = 扩展 uuid，值内嵌匹配键 `browser_id` / `profile` / `ext_id` + 备注等用户字段。
-  - `data/browsers.json`：键 = 浏览器 uuid，值内嵌 `browser_id`。
+  - `data/extensions.json`：键 = 扩展 uuid，值内嵌匹配键 `machine_id` / `browser_id` / `profile` / `ext_id` + 备注等用户字段。
+  - `data/browsers.json`：键 = 浏览器 uuid，值内嵌 `machine_id` / `browser_id`。
 - **机器身份**（独立于实体 uuid 的第三条轴）：`machines[].machine_id` 直接就是**主机名**（`COMPUTERNAME`），机器名本身就是显示名，**绝不把内部标识当名字展示**（正如软件只秀 `SW-ID`、不秀 uuid）。改名视为换机器，由用户用别名统一显示。
 - **evidence 与台账彻底解耦**：`data/evidence/` 纯给人看（及其查看页），**软件台账完全不读它**——随便增删改 evidence（包括 `machine-info.json`）都不影响软件清单 / 合并 / 删除 / 归档。因此 evidence 目录就用**机器名**命名（`data/evidence/<主机名>/`），可读性优先。上一版曾用 MachineGuid 当机器 id 的遗留数据不再自动归位（接受破碎，不写迁移脚本）。
 

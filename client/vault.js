@@ -1,6 +1,6 @@
 // client/vault.js
-// 通用文件保管箱前端组件：可复用于软件卡片（kind=soft, id=SW-xxx）、
-// 浏览器页（kind=browser, id=edge）、扩展附件（kind=ext, id=<扩展ID>）。
+// 通用文件保管箱前端组件：可复用于软件（kind=soft）、浏览器（kind=browser）、
+// 扩展附件（kind=ext），id 一律是对应实体的 uuid。
 // 设计原则：
 //   - 只搬运用户手动放入的文件，绝不自动采集敏感内容
 //   - 默认收起，点 pill 就地展开；也可无 pill，由外部调 expand()

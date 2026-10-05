@@ -8,8 +8,8 @@
   重排 SW-ID，避免两本台账撞号。**同名条目不会自动合并**——要不要合并、并哪几条，由你在 app
   里用「同名合并」自己决定；分开保留两条也完全正常。
 - icons / vault / evidence：按 uuid / 主机名并集拷入，已存在的不覆盖。
-- extensions.json / browsers.json：按 `(browser_id, profile, ext_id)` / `browser_id` 归并
-  （扩展标注没有「机器」维度，同一扩展在不同机器上是同一条；锚点=第一个 data）。
+- extensions.json / browsers.json：与软件同样，**纯并集、不按匹配键合并**，只按 uuid 去重。
+  同一条扩展分别装在两台机器上就保留为两条，各自独立。
 - ignored.json：墓碑并集去重；config.json 保留 A。
 
 用法：
@@ -153,41 +153,29 @@ def combine_software(base_dir, inc_dir):
     return stats
 
 
-def combine_map(base_dir, inc_dir, filename, key_fields, vault_kind):
-    """合并 uuid 索引的标注文件（extensions.json / browsers.json），按匹配键归并。
+def combine_map(base_dir, inc_dir, filename, vault_kind):
+    """uuid 索引的标注文件（extensions.json / browsers.json）纯并集。
 
-    扩展/浏览器标注没有「机器」维度，同一扩展在不同机器上是同一条，所以这里按匹配键归并、
-    锚点（第一个 data）优先，而不是像软件条目那样并列。
+    和软件条目一样：只按 uuid 去重，**不按 (browser/profile/ext) 匹配键合并**。
+    同一条扩展在两台机器上各有一条标注时，两条都保留、各自独立。
     """
     path = Path(base_dir) / filename
     base = load_json(path, {})
     inc = load_json(Path(inc_dir) / filename, {})
     base = base if isinstance(base, dict) else {}
     inc = inc if isinstance(inc, dict) else {}
-    key_index = {}
-    for uid, val in base.items():
-        k = tuple((val or {}).get(f, "") for f in key_fields)
-        key_index.setdefault(k, uid)
-    created = 0
+    stats = {"added": 0, "skipped": 0}
     for uid, val in inc.items():
-        val = val if isinstance(val, dict) else {}
-        k = tuple(val.get(f, "") for f in key_fields)
-        target = key_index.get(k)
-        if target is None:
-            target = uid if uid not in base else str(uuid.uuid4())
-            base[target] = dict(val)
-            key_index[k] = target
-            created += 1
-        else:
-            dst = base[target]
-            for fk, fv in val.items():
-                if fk not in dst or dst[fk] in ("", None, [], {}):
-                    dst[fk] = fv
+        if uid in base:
+            stats["skipped"] += 1
+            continue
+        base[uid] = dict(val) if isinstance(val, dict) else {}
         if vault_kind:
-            copy_vault_dir(base_dir, vault_kind, target, inc_dir, uid)
+            copy_vault_dir(base_dir, vault_kind, uid, inc_dir, uid)
+        stats["added"] += 1
     if base or inc or path.exists():
         dump_json(path, base)
-    return created
+    return stats
 
 
 def combine_evidence(base_dir, inc_dir):
@@ -246,10 +234,12 @@ def combine_config(base_dir, inc_dir):
 def combine(base_dir, inc_dir):
     stats = {}
     stats.update(combine_software(base_dir, inc_dir))
-    stats["ext_new"] = combine_map(
-        base_dir, inc_dir, "extensions.json", ("browser_id", "profile", "ext_id"), "ext"
-    )
-    stats["browser_new"] = combine_map(base_dir, inc_dir, "browsers.json", ("browser_id",), "browser")
+    ext = combine_map(base_dir, inc_dir, "extensions.json", "ext")
+    browser = combine_map(base_dir, inc_dir, "browsers.json", "browser")
+    stats["ext_new"] = ext["added"]
+    stats["ext_skipped"] = ext["skipped"]
+    stats["browser_new"] = browser["added"]
+    stats["browser_skipped"] = browser["skipped"]
     stats["evidence_files"] = combine_evidence(base_dir, inc_dir)
     combine_ignored(base_dir, inc_dir)
     combine_trash(base_dir, inc_dir)
@@ -298,9 +288,11 @@ def main():
 
     print(f"[OK] 产出 v2 data: {target}")
     print(f"    软件: 新增 {stats['added']} 条 / 跳过重复 uuid {stats['skipped']} 条（同名不合并，原样并列）")
-    print(f"    扩展新增 {stats['ext_new']} 条；浏览器新增 {stats['browser_new']} 条；"
+    print(f"    扩展: 新增 {stats['ext_new']} 条 / 跳过重复 uuid {stats['ext_skipped']} 条"
+          f"（不按匹配键合并）")
+    print(f"    浏览器: 新增 {stats['browser_new']} 条 / 跳过 {stats['browser_skipped']} 条；"
           f"证据补齐 {stats['evidence_files']} 个文件")
-    print("    把它拷到 A / B / C 的 exe 旁即可；要不要合并同名条目，在 app 里自己定。")
+    print("    把它拷到 A / B / C 的 exe 旁即可；要不要合并条目，在 app 里自己定。")
 
 
 if __name__ == "__main__":

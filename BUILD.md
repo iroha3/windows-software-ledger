@@ -74,9 +74,9 @@ scripts\cargo-msvc.bat test
 - 便携发布 = 一个 exe + 旁边的 `data\` 文件夹，`data\` 在首次需要写入时自动创建。
 - `cargo run` 调试时 exe 位于 `src-tauri\target\debug\`，数据即落在 `src-tauri\target\debug\data\`。
 
-> **旧数据迁移**：v1.x 的 `data\`（无 uuid）不与当前版本兼容。用 `python scripts\migrate_to_v2.py <旧 data 目录>` 一次性转换（原地迁移会先备份为 `<目录>.v1bak`，也可 `--out` 输出到新目录）：补 uuid、`should`→`on_demand`、`copy_config`→`copy_dir`、`vault\<主机名>\<kind>\<id>\`→`vault\<kind>\<uuid>\`、扩展标注重挂到 `(browser_id, profile, ext_id)`。
+> **旧数据迁移**：v1.x 的 `data\`（无 uuid）不与当前版本兼容。用 `python scripts\migrate_to_v2.py <旧 data 目录>` 一次性转换（原地迁移会先备份为 `<目录>.v1bak`，也可 `--out` 输出到新目录）：补 uuid、`should`→`on_demand`、`copy_config`→`copy_dir`、`vault\<主机名>\<kind>\<id>\`→`vault\<kind>\<uuid>\`、扩展标注重挂到 `(machine_id, browser_id, profile, ext_id)`（v1 扩展标注没有机器维度，反查到属哪台就挂哪台）。
 >
-> **两份台账合并**：`python scripts\combine_data.py <A的data> <B的data> [--out <目标 data>]` 把两台机器的 `data\` 合成一份，可拷去 A / B / C。任一端若是 v1（缺 uuid）会先自动迁移（在临时副本上进行，不改动原目录）。**软件条目原样并列、不自动合并**：同名条目会保留为多条，要不要合并、并哪几条由用户在 app 内用「同名合并」自定，两侧决策都保留（被并入的条目重排 SW-ID 防撞号）。图标 / 保管箱 / 证据 / 墓碑一并归并；扩展与浏览器标注按 `(browser_id, profile, ext_id)` / `browser_id` 归并（这两类没有「机器」维度）。
+> **两份台账合并**：`python scripts\combine_data.py <A的data> <B的data> [--out <目标 data>]` 把两台机器的 `data\` 合成一份，可拷去 A / B / C。任一端若是 v1（缺 uuid）会先自动迁移（在临时副本上进行，不改动原目录）。**软件条目原样并列、不自动合并**：同名条目会保留为多条，要不要合并、并哪几条由用户在 app 内用「同名合并」自定，两侧决策都保留（被并入的条目重排 SW-ID 防撞号）。图标 / 保管箱 / 证据 / 墓碑一并归并；**扩展与浏览器标注同样纯并集、不自动合并**，只按 uuid 去重（扩展跟软件一样按机器分开）。
 
 ## 采集脚本
 
@@ -157,7 +157,7 @@ Rust 侧 `get_browser_extensions` 聚合各机器的该文件（仿 `get_dev_env
 - **保留意愿**（必须 / 按需 / 淘汰 / 待确认，快捷键 1~4）、**准备进度**（待办 / 就绪）、**精选星标**：与软件台账同一套值域与 UI；
 - **备注**：内联可编辑，按内部 uuid 存 `data\extensions.json`（重扫不丢）；
 - **附件归档**：每条扩展可手动放入文件（拖入或选择），存 `data\vault\ext\<扩展uuid>\`，行尾回形针按钮带数量角标；
-- 用户层字段按内部 uuid 存入 `data\extensions.json`，并内嵌匹配键 `(browser_id, profile, ext_id)`；重扫时按该组合认回 uuid（同一扩展在不同浏览器 / 配置各自独立标注）；
+- 用户层字段按内部 uuid 存入 `data\extensions.json`，并内嵌匹配键 `(machine_id, browser_id, profile, ext_id)`；重扫时按该组合认回 uuid（同一扩展在不同机器 / 浏览器 / 配置各自独立标注，不跨机共用）；
 - 浏览器页另有**整份浏览器配置归档**（`data\vault\browser\<浏览器uuid>\`）。
 
 **安全红线**：只读 `manifest.json` / `extensions.json` 元数据，**绝不读取扩展的 `storage.local`（LevelDB）、`Preferences` 敏感键、Cookie 或密码**。本页同样**不进入 `software.json`，不参与导入**。

@@ -40,7 +40,11 @@ def dump_json(path: Path, obj):
 
 
 def collect_ext_catalog(evidence_dir: Path):
-    """扫描证据里的 browser-extensions.json，返回 {ext_id: (browser_id, profile)}。"""
+    """扫描证据里的 browser-extensions.json，返回 {ext_id: (machine_id, browser_id, profile)}。
+
+    v1 的 extensions.json 只按扩展 ID 索引，没有机器维度；这里反查到第一个
+    (machine, browser, profile) 组合就挂上去（有损，但比丢掉好）。
+    """
     catalog = {}
     if not evidence_dir.is_dir():
         return catalog
@@ -50,14 +54,16 @@ def collect_ext_catalog(evidence_dir: Path):
         data = load_json(machine_dir / "browser-extensions.json", None)
         if not isinstance(data, dict):
             continue
+        machine_id = data.get("machine_id") or machine_dir.name
         for browser in data.get("browsers") or []:
-            browser_id = browser.get("browser_id", "")
+            # 证据里浏览器字段是 id（旧字段名 label）；不是 browser_id。
+            browser_id = browser.get("id") or browser.get("label") or ""
             for profile in browser.get("profiles") or []:
                 profile_name = profile.get("profile", "")
                 for ext in profile.get("extensions") or []:
                     ext_id = ext.get("id", "")
                     if ext_id and ext_id not in catalog:
-                        catalog[ext_id] = (browser_id, profile_name)
+                        catalog[ext_id] = (machine_id, browser_id, profile_name)
     return catalog
 
 
@@ -103,8 +109,13 @@ def migrate_extensions(data_dir: Path, evidence_dir: Path):
             new_map[key] = fields
             ext_id_to_uuid[fields.get("ext_id", "")] = key
             continue
-        browser_id, profile = catalog.get(key, ("", ""))
-        entry = {"browser_id": browser_id, "profile": profile, "ext_id": key}
+        machine_id, browser_id, profile = catalog.get(key, ("", "", ""))
+        entry = {
+            "machine_id": machine_id,
+            "browser_id": browser_id,
+            "profile": profile,
+            "ext_id": key,
+        }
         entry.update(fields)
         entry.pop("id", None)
         new_map[str(uuid.uuid4())] = entry

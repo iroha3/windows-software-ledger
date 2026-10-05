@@ -264,6 +264,13 @@ pub fn get_browser_extensions() -> Value {
                 continue;
             }
             let data = store::read_json(&file);
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let machine_id = as_str(&data, "machine_id");
+            let machine_id = if machine_id.is_empty() {
+                dir_name.clone()
+            } else {
+                machine_id
+            };
             let mut browsers = data.get("browsers").cloned().unwrap_or(json!([]));
             if let Value::Array(bs) = &mut browsers {
                 for b in bs.iter_mut() {
@@ -273,7 +280,8 @@ pub fn get_browser_extensions() -> Value {
                         .or_else(|| b.get("label").and_then(|v| v.as_str()))
                         .unwrap_or("")
                         .to_string();
-                    let (browser_uuid, created) = resolve_browser_uuid(&mut browser_map, &browser_id);
+                    let (browser_uuid, created) =
+                        resolve_browser_uuid(&mut browser_map, &machine_id, &browser_id);
                     browser_changed |= created;
                     if let Some(obj) = b.as_object_mut() {
                         obj.insert("uuid".to_string(), json!(browser_uuid));
@@ -291,13 +299,21 @@ pub fn get_browser_extensions() -> Value {
                                 continue;
                             };
                             let ext_id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let (uuid, created) =
-                                resolve_ext_uuid(&mut ext_map, &browser_id, &profile, &ext_id);
+                            let (uuid, created) = resolve_ext_uuid(
+                                &mut ext_map,
+                                &machine_id,
+                                &browser_id,
+                                &profile,
+                                &ext_id,
+                            );
                             ext_changed |= created;
                             // 注入用户层字段（备注 / 保留意愿 / 就绪 / 精选），重扫不丢失
                             if let Some(user) = ext_map.get(uuid.as_str()).and_then(|v| v.as_object()) {
                                 for (k, v) in user {
-                                    if matches!(k.as_str(), "updated_at" | "browser_id" | "profile" | "ext_id") {
+                                    if matches!(
+                                        k.as_str(),
+                                        "updated_at" | "machine_id" | "browser_id" | "profile" | "ext_id"
+                                    ) {
                                         continue;
                                     }
                                     obj.insert(k.clone(), v.clone());
@@ -309,13 +325,6 @@ pub fn get_browser_extensions() -> Value {
                     }
                 }
             }
-            let dir_name = entry.file_name().to_string_lossy().to_string();
-            let machine_id = as_str(&data, "machine_id");
-            let machine_id = if machine_id.is_empty() {
-                dir_name.clone()
-            } else {
-                machine_id
-            };
             machines.push(json!({
                 "machine_id": machine_id,
                 "dir": dir_name,
@@ -400,17 +409,20 @@ fn move_to_trash(src: &std::path::Path, original_rel: &str) -> bool {
     }
 }
 
-/// 按 `(browser_id, profile, ext_id)` 在扩展用户层里认回 uuid；认不到才铸新。
-/// 返回 (uuid, 是否新建)。扩展 ID 只在单个浏览器内唯一，必须带上浏览器维度。
+/// 按 `(machine_id, browser_id, profile, ext_id)` 在扩展用户层里认回 uuid；认不到才铸新。
+/// 返回 (uuid, 是否新建)。扩展跟软件一样按机器分开：同一扩展装在两台机器上 = 两个独立实体，
+/// 各自有自己的意愿 / 备注 / 附件，绝不跨机共用一条。
 fn resolve_ext_uuid(
     map: &mut Value,
+    machine_id: &str,
     browser_id: &str,
     profile: &str,
     ext_id: &str,
 ) -> (String, bool) {
     if let Some(root) = map.as_object() {
         for (uuid, v) in root {
-            if v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id
+            if v.get("machine_id").and_then(|x| x.as_str()).unwrap_or("") == machine_id
+                && v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id
                 && v.get("profile").and_then(|x| x.as_str()).unwrap_or("") == profile
                 && v.get("ext_id").and_then(|x| x.as_str()).unwrap_or("") == ext_id
             {
@@ -422,24 +434,35 @@ fn resolve_ext_uuid(
     if let Some(root) = map.as_object_mut() {
         root.insert(
             uuid.clone(),
-            json!({ "browser_id": browser_id, "profile": profile, "ext_id": ext_id }),
+            json!({
+                "machine_id": machine_id,
+                "browser_id": browser_id,
+                "profile": profile,
+                "ext_id": ext_id,
+            }),
         );
     }
     (uuid, true)
 }
 
-/// 按 `browser_id` 在浏览器用户层里认回 uuid；认不到才铸新。返回 (uuid, 是否新建)。
-fn resolve_browser_uuid(map: &mut Value, browser_id: &str) -> (String, bool) {
+/// 按 `(machine_id, browser_id)` 在浏览器用户层里认回 uuid；认不到才铸新。
+/// 浏览器整份配置归档同样按机器分开，不跨机共用。
+fn resolve_browser_uuid(map: &mut Value, machine_id: &str, browser_id: &str) -> (String, bool) {
     if let Some(root) = map.as_object() {
         for (uuid, v) in root {
-            if v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id {
+            if v.get("machine_id").and_then(|x| x.as_str()).unwrap_or("") == machine_id
+                && v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id
+            {
                 return (uuid.clone(), false);
             }
         }
     }
     let uuid = store::new_uuid();
     if let Some(root) = map.as_object_mut() {
-        root.insert(uuid.clone(), json!({ "browser_id": browser_id }));
+        root.insert(
+            uuid.clone(),
+            json!({ "machine_id": machine_id, "browser_id": browser_id }),
+        );
     }
     (uuid, true)
 }
@@ -481,10 +504,18 @@ pub fn vault_list(kind: String, id: String) -> Value {
 }
 
 /// 保存某条扩展的用户层字段（data/extensions.json，按 uuid 持久化）。
-/// 前端只给 `(browser_id, profile, ext_id)` 匹配键，uuid 由后端认回 / 铸新。
-/// 传入的字段会与已有字段合并（不覆盖未提及的键）。
+/// 前端给 `(machine_id, browser_id, profile, ext_id)` 匹配键，uuid 由后端认回 / 铸新。
+/// 缺 machine_id 时退回本机。传入字段与已有字段合并（不覆盖未提及的键）。
 #[tauri::command]
 pub fn update_extension(payload: Value) -> Value {
+    let machine_id = {
+        let m = as_str(&payload, "machine_id");
+        if m.is_empty() {
+            current_machine()
+        } else {
+            m
+        }
+    };
     let browser_id = as_str(&payload, "browser_id");
     let profile = as_str(&payload, "profile");
     let ext_id = as_str(&payload, "ext_id");
@@ -495,7 +526,7 @@ pub fn update_extension(payload: Value) -> Value {
         return json!({ "success": false, "error": "字段格式错误" });
     };
     let mut map = store::read_extensions();
-    let (uuid, _) = resolve_ext_uuid(&mut map, &browser_id, &profile, &ext_id);
+    let (uuid, _) = resolve_ext_uuid(&mut map, &machine_id, &browser_id, &profile, &ext_id);
     let now = chrono::DateTime::<chrono::Local>::from(std::time::SystemTime::now()).to_rfc3339();
     {
         let Some(root) = map.as_object_mut() else {
@@ -510,6 +541,7 @@ pub fn update_extension(payload: Value) -> Value {
                 eobj.insert(k, v);
             }
         }
+        eobj.insert("machine_id".to_string(), json!(machine_id));
         eobj.insert("browser_id".to_string(), json!(browser_id));
         eobj.insert("profile".to_string(), json!(profile));
         eobj.insert("ext_id".to_string(), json!(ext_id));
@@ -1672,6 +1704,7 @@ mod tests {
         let _guard = crate::store::test_support::use_root(&root);
 
         let saved = update_extension(json!({
+            "machine_id": "PC-A",
             "browser_id": "edge",
             "profile": "Default",
             "ext_id": "uBlock0@raymondhill.net",
@@ -1685,14 +1718,25 @@ mod tests {
         assert_eq!(entry["notes"].as_str(), Some("广告拦截，装完必开"));
         assert_eq!(entry["restore_intent"].as_str(), Some("must"));
 
-        // 同一个扩展 ID 在 Chrome / Edge 下是不同实体（uuid 不同），不再互相覆盖
+        // 同一台机器上，同一个扩展 ID 在 Chrome / Edge 下是不同实体（uuid 不同）
         let chrome = update_extension(json!({
+            "machine_id": "PC-A",
             "browser_id": "chrome",
             "profile": "Default",
             "ext_id": "uBlock0@raymondhill.net",
             "fields": {}
         }));
         assert_ne!(chrome["uuid"].as_str().unwrap(), uuid);
+
+        // 同一扩展装在另一台机器上 = 另一个独立实体，绝不跨机共用标注
+        let other_pc = update_extension(json!({
+            "machine_id": "PC-B",
+            "browser_id": "edge",
+            "profile": "Default",
+            "ext_id": "uBlock0@raymondhill.net",
+            "fields": {}
+        }));
+        assert_ne!(other_pc["uuid"].as_str().unwrap(), uuid);
 
         // vault_list 必须返回真实机器名
         let listed = vault_list("ext".into(), uuid.clone());
