@@ -52,7 +52,7 @@
       <div class="header-divider"></div>
 
       <button id="btnSync" class="btn btn-secondary" title="立即与 WebDAV 同步（或强制覆盖）">
-        <svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        <svg class="i sm" viewBox="0 0 24 24"><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line></svg>
         <span>同步</span>
       </button>
 
@@ -510,30 +510,28 @@ ffmpeg, ripgrep, jq, pandoc
         </div>
 
         <div style="border-top: 1px solid var(--rule); padding-top: 12px; display:flex; flex-direction:column; gap:10px;">
-          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; display:block;">WebDAV 同步（单写者：开软件抢锁拉取，关软件推送并释放）</label>
+          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; display:block;">WebDAV 同步</label>
           <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
             <input type="checkbox" id="configWebdavEnabled">
             启用 WebDAV 同步
           </label>
-          <div class="drawer-field">
-            <label>WebDAV 地址</label>
-            <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
+          <div id="webdavFields" style="display:none; flex-direction:column; gap:10px;">
+            <div class="drawer-field">
+              <label>WebDAV 地址</label>
+              <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
+            </div>
+            <div style="display:flex; gap:10px;">
+              <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
+              <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
+            </div>
           </div>
-          <div style="display:flex; gap:10px;">
-            <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
-            <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
-            <span class="hint" id="webdavStatus">未检测</span>
-          </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
-          </div>
-          <span class="hint">凭据仅保存在本机 data/webdav.json，不会上传。强制覆盖前会自动快照，可回滚。</span>
         </div>
       </div>
       <div class="modal-footer">
@@ -604,7 +602,7 @@ ffmpeg, ripgrep, jq, pandoc
             <svg class="i lg" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
           </div>
           <div class="about-name">软件备份台账</div>
-          <div class="about-version">v1.2.0</div>
+          <div class="about-version">v…</div>
           <div class="about-tagline">本地优先的软件清点与备份决策工具</div>
         </div>
         <p class="about-desc">扫描本机软件、归并去重、标注恢复意愿与处置方式，并导出重装恢复清单与精选资产库。</p>

@@ -4,15 +4,24 @@
 //! 所有单元格走 inlineStr，省去 sharedStrings 的复杂度。
 //! 只服务「导出软件清单」这一种用途，不追求通用。
 
-/// 生成单表 xlsx 的字节内容。`rows[0]` 视为表头（加粗底纹）。
-pub fn build(rows: &[Vec<String>], sheet_name: &str, col_widths: &[f64]) -> Vec<u8> {
+/// 生成单表 xlsx 的字节内容。`rows[0]` 视为表头；`title` / `meta` 渲染在表头之上。
+pub fn build(
+    sheet_name: &str,
+    title: Option<&str>,
+    meta: &[String],
+    rows: &[Vec<String>],
+    col_widths: &[f64],
+) -> Vec<u8> {
     let mut zip = ZipWriter::new();
     zip.add("[Content_Types].xml", CONTENT_TYPES.as_bytes());
     zip.add("_rels/.rels", ROOT_RELS.as_bytes());
     zip.add("xl/workbook.xml", workbook_xml(sheet_name).as_bytes());
     zip.add("xl/_rels/workbook.xml.rels", WORKBOOK_RELS.as_bytes());
     zip.add("xl/styles.xml", STYLES.as_bytes());
-    zip.add("xl/worksheets/sheet1.xml", sheet_xml(rows, col_widths).as_bytes());
+    zip.add(
+        "xl/worksheets/sheet1.xml",
+        sheet_xml(title, meta, rows, col_widths).as_bytes(),
+    );
     zip.finish()
 }
 
@@ -25,9 +34,9 @@ const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"
 const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
 
-// 两个字体（常规 / 加粗）、三个填充（none、gray125、表头灰底）——OOXML 要求前两个填充固定。
+// 四个字体（常规 / 加粗 / 加粗大号 / 灰色小号）、三个填充（none、gray125、表头灰底）——OOXML 要求前两个填充固定。
 const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEDF1F3"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"#;
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF808080"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEDF1F3"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"#;
 
 fn workbook_xml(sheet_name: &str) -> String {
     format!(
@@ -37,13 +46,20 @@ fn workbook_xml(sheet_name: &str) -> String {
     )
 }
 
-fn sheet_xml(rows: &[Vec<String>], col_widths: &[f64]) -> String {
-    let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0).max(1);
-    let mut x = String::with_capacity(rows.len() * cols * 48);
+fn sheet_xml(title: Option<&str>, meta: &[String], rows: &[Vec<String>], col_widths: &[f64]) -> String {
+    let ncols = rows.iter().map(|r| r.len()).max().unwrap_or(0).max(1);
+    let mut x = String::with_capacity(rows.len() * ncols * 48 + 1024);
     x.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
     x.push_str(r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#);
-    // 冻结首行
-    x.push_str(r#"<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>"#);
+
+    // 表头之上：标题 + 元信息。冻结这部分与表头，数据区自动筛选。
+    let prefix = title.is_some() as usize + meta.len();
+    let header_row = prefix + 1;
+    let data_start = header_row + 1;
+    x.push_str(&format!(
+        r#"<sheetViews><sheetView workbookViewId="0"><pane ySplit="{}" topLeftCell="A{}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A{}" sqref="A{}"/></sheetView></sheetViews>"#,
+        header_row, data_start, data_start, data_start
+    ));
     x.push_str(r#"<sheetFormatPr defaultRowHeight="15"/>"#);
     if !col_widths.is_empty() {
         x.push_str("<cols>");
@@ -57,36 +73,62 @@ fn sheet_xml(rows: &[Vec<String>], col_widths: &[f64]) -> String {
         }
         x.push_str("</cols>");
     }
+
     x.push_str("<sheetData>");
-    for (ri, row) in rows.iter().enumerate() {
-        let r = ri + 1;
-        x.push_str(&format!(r#"<row r="{}">"#, r));
-        for (ci, val) in row.iter().enumerate() {
-            // 表头行即使空也写；数据行跳过空值，减小体积
-            if ri > 0 && val.is_empty() {
-                continue;
-            }
-            let style = if ri == 0 { r#" s="1""# } else { "" };
-            x.push_str(&format!(
-                r#"<c r="{}{}"{} t="inlineStr"><is><t xml:space="preserve">{}</t></is></c>"#,
-                col_name(ci),
-                r,
-                style,
-                esc(val)
-            ));
-        }
-        x.push_str("</row>");
+    let mut r = 1usize;
+    if let Some(t) = title {
+        x.push_str(&cell_row(r, &[(0, t, 2)]));
+        r += 1;
+    }
+    for m in meta {
+        x.push_str(&cell_row(r, &[(0, m.as_str(), 3)]));
+        r += 1;
+    }
+    // 表头：即使某列标题为空也写
+    let header: &[String] = rows.first().map(|v| v.as_slice()).unwrap_or(&[]);
+    let header_cells: Vec<(usize, &str, u32)> =
+        header.iter().enumerate().map(|(i, v)| (i, v.as_str(), 1)).collect();
+    x.push_str(&cell_row(r, &header_cells));
+    r += 1;
+    // 数据：跳过空单元格，减小体积
+    for row in rows.iter().skip(1) {
+        let cells: Vec<(usize, &str, u32)> = row
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(i, v)| (i, v.as_str(), 0))
+            .collect();
+        x.push_str(&cell_row(r, &cells));
+        r += 1;
     }
     x.push_str("</sheetData>");
     if rows.len() > 1 {
         x.push_str(&format!(
-            r#"<autoFilter ref="A1:{}{}"/>"#,
-            col_name(cols - 1),
-            rows.len()
+            r#"<autoFilter ref="A{}:{}{}"/>"#,
+            header_row,
+            col_name(ncols - 1),
+            r - 1
         ));
     }
     x.push_str("</worksheet>");
     x
+}
+
+/// 序列化一行；`cells` 为 (0 基列号, 文本, 样式索引)。
+fn cell_row(row: usize, cells: &[(usize, &str, u32)]) -> String {
+    let mut s = format!(r#"<row r="{}">"#, row);
+    for (ci, val, style) in cells {
+        let sattr = if *style == 0 { String::new() } else { format!(r#" s="{}""#, style) };
+        s.push_str(&format!(
+            r#"<c r="{}{}"{} t="inlineStr"><is><t xml:space="preserve">{}</t></is></c>"#,
+            col_name(*ci),
+            row,
+            sattr,
+            esc(val)
+        ));
+    }
+    s.push_str("</row>");
+    s
 }
 
 /// 0 基列号 → 列名：0→A，25→Z，26→AA。
@@ -242,7 +284,7 @@ mod tests {
             vec!["名称".into(), "版本".into()],
             vec!["A&B".into(), "1.0".into()],
         ];
-        let bytes = build(&rows, "软件清单", &[20.0, 10.0]);
+        let bytes = build("软件清单", None, &[], &rows, &[20.0, 10.0]);
         // 文件头魔数
         assert_eq!(&bytes[..4], b"PK\x03\x04");
         // EOCD 魔数出现在结尾 22 字节内
@@ -261,23 +303,34 @@ mod tests {
         let rows = vec![
             vec![
                 "软件名称".into(), "分类".into(), "版本号".into(), "形态".into(), "所在机器".into(),
-                "恢复意愿".into(), "处置方式".into(), "准备进度".into(), "精选".into(),
+                "安装路径".into(), "恢复意愿".into(), "处置方式".into(), "准备进度".into(), "精选".into(),
                 "官网 / 下载链接".into(), "备份备忘与配置说明".into(),
             ],
             vec![
                 "Visual Studio Code".into(), "开发工具".into(), "1.90".into(), "常规安装".into(),
-                "DESKTOP-ABC：C:\\Program Files\\Microsoft VS Code".into(),
+                "主力台式机\n便携本".into(),
+                "C:\\Program Files\\Microsoft VS Code\nD:\\VS Code".into(),
                 "🔴 必须恢复 (Must Restore)".into(), "☁️ 账号登录同步".into(), "已就绪".into(),
                 "★".into(), "https://code.visualstudio.com/".into(),
                 "配置在 %APPDATA%\\Code\\User".into(),
             ],
         ];
         let path = std::env::temp_dir().join("ledger_sample.xlsx");
-        std::fs::write(&path, build(&rows, "软件清单", &[22.0, 14.0, 12.0, 10.0, 34.0, 20.0, 22.0, 12.0, 8.0, 36.0, 46.0])).unwrap();
+        std::fs::write(
+            &path,
+            build(
+                "软件清单",
+                Some("软件备份台账 · 软件清单"),
+                &[format!("导出时间：{}    软件版本：v{}    共 {} 条", "2026-10-05 12:00:00", "2.1.0", rows.len() - 1)],
+                &rows,
+                &[22.0, 14.0, 12.0, 10.0, 26.0, 34.0, 20.0, 22.0, 12.0, 8.0, 36.0, 46.0],
+            ),
+        )
+        .unwrap();
         // 特殊字符与多行
         let rows2 = vec![vec!["A&B".into(), "<x>\"q\"".into(), "一\n二".into()]];
         let path2 = std::env::temp_dir().join("ledger_sample2.xlsx");
-        std::fs::write(&path2, build(&rows2, "s", &[10.0, 10.0, 10.0])).unwrap();
+        std::fs::write(&path2, build("s", None, &[], &rows2, &[10.0, 10.0, 10.0])).unwrap();
         eprintln!("wrote {:?} and {:?}", path, path2);
     }
 }

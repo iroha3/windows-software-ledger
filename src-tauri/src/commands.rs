@@ -311,6 +311,12 @@ pub async fn sync_status(app: tauri::AppHandle) -> Value {
 // 状态汇总
 // ---------------------------------------------------------------------------
 
+/// 应用版本号（唯一来源：src-tauri/Cargo.toml）。关于弹窗动态读取，避免各页面硬编码漂移。
+#[tauri::command]
+pub fn get_version() -> Value {
+    json!({ "version": env!("CARGO_PKG_VERSION") })
+}
+
 #[tauri::command]
 pub fn get_status() -> Value {
     let software = store::read_software();
@@ -1582,8 +1588,16 @@ pub fn export_markdown() -> Value {
 #[tauri::command]
 pub fn export_xlsx(dest: String) -> Value {
     let rows = crate::exporter::export_xlsx_rows();
-    let widths = [22.0, 14.0, 12.0, 10.0, 34.0, 20.0, 22.0, 12.0, 8.0, 36.0, 46.0];
-    let bytes = crate::xlsx::build(&rows, "软件清单", &widths);
+    let widths = [
+        22.0, 14.0, 12.0, 10.0, 24.0, 34.0, 20.0, 22.0, 12.0, 8.0, 36.0, 46.0,
+    ];
+    let meta = vec![format!(
+        "导出时间：{}    软件版本：v{}    共 {} 条",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        env!("CARGO_PKG_VERSION"),
+        rows.len().saturating_sub(1)
+    )];
+    let bytes = crate::xlsx::build("软件清单", Some("软件备份台账 · 软件清单"), &meta, &rows, &widths);
     if let Some(parent) = std::path::Path::new(&dest).parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {

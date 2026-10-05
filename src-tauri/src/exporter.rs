@@ -150,6 +150,7 @@ pub fn export_xlsx_rows() -> Vec<Vec<String>> {
         "版本号".into(),
         "形态".into(),
         "所在机器".into(),
+        "安装路径".into(),
         "恢复意愿".into(),
         "处置方式".into(),
         "准备进度".into(),
@@ -159,8 +160,9 @@ pub fn export_xlsx_rows() -> Vec<Vec<String>> {
     ]];
 
     for item in &items {
-        // 机器分布：优先显示别名，附上安装路径；多台机器换行展示
-        let mut machines: Vec<String> = Vec::new();
+        // 机器与路径各占一列，按同一顺序换行对齐；机器优先显示别名
+        let mut hosts: Vec<String> = Vec::new();
+        let mut paths: Vec<String> = Vec::new();
         if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
             for m in ms {
                 let mid = s(m, "machine_id");
@@ -172,11 +174,8 @@ pub fn export_xlsx_rows() -> Vec<Vec<String>> {
                     .and_then(|a| a.get(mid))
                     .and_then(|v| v.as_str())
                     .unwrap_or(mid);
-                if loc.is_empty() {
-                    machines.push(display.to_string());
-                } else {
-                    machines.push(format!("{}：{}", display, loc));
-                }
+                hosts.push(display.to_string());
+                paths.push(loc.to_string());
             }
         }
         let awesome = if item.get("is_awesome").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -189,7 +188,8 @@ pub fn export_xlsx_rows() -> Vec<Vec<String>> {
             s(item, "category").to_string(),
             s(item, "version").to_string(),
             type_label(s(item, "type")).to_string(),
-            machines.join("\n"),
+            hosts.join("\n"),
+            paths.join("\n"),
             intent_label(s(item, "restore_intent")).to_string(),
             strategy_label(s(item, "backup_strategy")).to_string(),
             prep_label(s(item, "prep_status")).to_string(),

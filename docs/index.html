@@ -138,8 +138,7 @@ footer a { color: var(--ink-2); }
   <p class="lead">真正麻烦的从来不是装软件，而是想不起来装过什么、也不知道哪些配置散落在哪里。<br>软件备份台账把这件事收敛成：一次扫描，一次标注。</p>
   <div class="feat">
     <div><h3>一键扫描本机</h3><p>自动采集注册表安装项、便携软件与开始菜单快捷方式，归并去重后入库，不用手敲。</p></div>
-    <div><h3>恢复意愿分级</h3><p>必须恢复 / 用到再装 / 淘汰弃用 / 待确认，一列下拉就能定夺。</p></div>
-    <div><h3>处置方式 + 配置备忘</h3><p>保留目录、导出配置、重新下载、账号同步、无需操作，并记下配置文件具体在哪。</p></div>
+    <div><h3>恢复意愿与处置方式</h3><p>每条软件定两件事：要不要装（必须恢复 / 用到再装 / 淘汰弃用 / 待确认），以及怎么备份（保留目录 / 重新下载 / 账号同步 / 无需操作），再记下配置文件具体在哪。</p></div>
     <div><h3>卡片速审</h3><p>一次只问一条。键盘 1–4 定恢复意愿，翻页键切下一条，两百条也能一口气标完。</p></div>
     <div><h3>AI 辅助预判（可选）</h3><p>接入本地 LM Studio 或任意 OpenAI 兼容端点（如 DeepSeek），自动补全分类、意愿与配置建议。</p></div>
     <div><h3>多机器视图与合并</h3><p>记录每款软件出现在哪台机器、装在哪里；重复条目一键合并，汇总各机器路径。</p></div>
@@ -245,7 +244,7 @@ footer a { color: var(--ink-2); }
   <details><summary>数据存在哪？换台电脑怎么办？</summary><p>全部在 exe 同目录的 <code>data/</code> 里：台账 <code>software.json</code>、设置 <code>config.json</code>，以及图标、配置归档、扫描证据等子目录。不写注册表、不写 AppData，整个文件夹拷走就是迁移。</p></details>
   <details><summary>要装 Python / Node / 数据库吗？</summary><p>都不用。单个 exe 绿色运行，系统只需 Windows 10 / 11（精简系统可能需补一个 WebView2 Runtime）。</p></details>
   <details><summary>它和「手动记 Excel」有什么区别？</summary><p>清单自动生成、可反复扫描增量更新；每条都带机器分布、安装路径、官网链接与配置备忘，还带恢复意愿和准备进度——导出的不是一张表，而是一张能照着执行的重装清单。</p></details>
-  <details><summary>被 Windows Defender 报毒 / 拦截了怎么办？</summary><p>大概率是<b>误报</b>。这个工具会枚举已安装软件、把内嵌的 PowerShell 采集脚本释放到临时目录执行，还可能连接你配置的 WebDAV 做多机同步——这些行为在杀软的启发式规则里，和恶意软件高度相似。本项目 <b>完全开源、没有加壳混淆</b>，代码都在 <a href="https://github.com/iroha3/windows-software-ledger">GitHub</a> 上可逐行查看，你也可以直接自行编译。被拦时给 exe 加一条白名单即可；<b>如果不放心，请不要使用</b>——我们宁可你把家底记在自己的表格里，也不想让你承担任何风险。</p></details>
+  <details><summary>被 Windows Defender 报毒 / 拦截了怎么办？</summary><p>那是<b>误报</b>。这个工具会枚举已安装软件、把内嵌的 PowerShell 采集脚本释放到临时目录执行，还可能连接你配置的 WebDAV 做多机同步——这些行为在杀软的启发式规则里，和恶意软件高度相似。本项目 <b>完全开源、没有加壳混淆</b>，代码都在 <a href="https://github.com/iroha3/windows-software-ledger">GitHub</a> 上可逐行查看，你也可以直接自行编译。被拦时给 exe 加一条白名单即可；<b>如果不放心，请不要使用</b>——我们宁可你把家底记在自己的表格里，也不想让你承担任何风险。</p></details>
   <details><summary>收费吗？</summary><p>免费开源，基于 AGPL-3.0 许可。觉得有用的话，去 <a href="https://github.com/iroha3/windows-software-ledger">给个 Star</a> 就是最大的支持。</p></details>
 </div></section>
 

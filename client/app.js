@@ -142,7 +142,6 @@ const btnSyncNow = document.getElementById('btnSyncNow');
 const btnSyncUnlock = document.getElementById('btnSyncUnlock');
 const btnForcePush = document.getElementById('btnForcePush');
 const btnForcePull = document.getElementById('btnForcePull');
-const webdavStatus = document.getElementById('webdavStatus');
 
 // Toast 非阻塞消息提示系统 (使用纯净 SVG 图标)
 function showToast(message, type = 'info', duration = 2500) {
@@ -201,6 +200,12 @@ function setSyncBusy(busy) {
     if (label) label.textContent = busy ? '同步中…' : '同步';
   }
   if (btnSyncNow) btnSyncNow.disabled = busy || !webdavEnabled;
+}
+
+// 渐进披露：未勾选「启用 WebDAV 同步」时收起下面的地址/凭据/操作区。
+function toggleWebdavFields() {
+  const el = document.getElementById('webdavFields');
+  if (el) el.style.display = (configWebdavEnabled && configWebdavEnabled.checked) ? 'flex' : 'none';
 }
 
 // 关闭 WebDAV 时隐藏同步入口；开启时恢复。
@@ -301,7 +306,6 @@ async function doSync(mode) {
       applyReadOnly();
       renderSyncBanner();
       toastSyncResult(res.sync);
-      refreshSyncStatus();
     } else if (res.error) {
       showToast('同步失败：' + res.error, 'error', 5000);
     }
@@ -313,7 +317,6 @@ async function doSync(mode) {
 }
 
 async function testWebdav() {
-  if (webdavStatus) webdavStatus.textContent = '测试中…';
   try {
     // 先落盘再测，保证测的是当前填写的地址/凭据
     await fetch('/api/webdav/config', {
@@ -328,14 +331,11 @@ async function testWebdav() {
     });
     const res = await (await fetch('/api/webdav/test', { method: 'POST' })).json();
     if (res.success) {
-      if (webdavStatus) webdavStatus.textContent = '连接正常';
       showToast('WebDAV 连接正常', 'success');
     } else {
-      if (webdavStatus) webdavStatus.textContent = '连接失败';
       showToast('连接失败：' + (res.error || '未知错误'), 'error', 5000);
     }
   } catch (e) {
-    if (webdavStatus) webdavStatus.textContent = '连接失败';
     showToast('连接失败：' + e.message, 'error');
   }
 }
@@ -351,17 +351,6 @@ async function forceUnlock() {
   } catch (e) {
     showToast('强制解锁失败：' + e.message, 'error');
   }
-}
-
-async function refreshSyncStatus() {
-  try {
-    const st = await (await fetch('/api/sync/status')).json();
-    if (!webdavStatus) return;
-    if (!st.enabled) webdavStatus.textContent = '未启用';
-    else if (st.we_hold) webdavStatus.textContent = '本机持有同步锁';
-    else if (st.host) webdavStatus.textContent = `由 ${st.host} 持有（本机只读）`;
-    else webdavStatus.textContent = '空闲';
-  } catch (e) { /* 忽略 */ }
 }
 
 function renderSyncBanner() {
@@ -1511,6 +1500,7 @@ function bindEvents() {
   if (btnWebdavTest) btnWebdavTest.addEventListener('click', testWebdav);
   if (btnSyncNow) btnSyncNow.addEventListener('click', () => doSync('auto'));
   if (btnSyncUnlock) btnSyncUnlock.addEventListener('click', forceUnlock);
+  if (configWebdavEnabled) configWebdavEnabled.addEventListener('change', toggleWebdavFields);
   if (btnForcePush) btnForcePush.addEventListener('click', () => {
     if (window.confirm('将用本机数据覆盖 WebDAV 远端（远端现状自动备份到 _backup/）。确定继续？')) doSync('push');
   });
@@ -1995,7 +1985,7 @@ async function handleExport() {
       const modalBody = document.getElementById('exportModalBody');
       modalBody.innerHTML = `
         <p style="margin-bottom: 12px; color: var(--ink-2);">
-          清单已生成，点击右侧按钮<strong>选择保存路径</strong>（Excel 为整份软件表格）：
+          清单已生成，点击右侧按钮<strong>选择保存路径</strong>：
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
           <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
@@ -2132,11 +2122,11 @@ async function openConfigModal() {
       if (configWebdavUrl) configWebdavUrl.value = wd.url || '';
       if (configWebdavUser) configWebdavUser.value = wd.username || '';
       if (configWebdavPass) configWebdavPass.value = wd.password || '';
+      toggleWebdavFields();
       applyWebdavUi(!!wd.enabled && !!wd.url);
     } catch (e) { /* 忽略：未配置时也允许打开设置 */ }
 
     configModal.classList.add('show');
-    refreshSyncStatus();
   } catch (e) {
     showToast('读取配置失败', 'error');
   }

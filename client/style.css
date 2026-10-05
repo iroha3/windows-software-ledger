@@ -1766,8 +1766,12 @@ a.evidence-val:hover {
 }
 
 .preset-chip {
-  font-size: 11.5px;
-  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1;
+  padding: 4px 9px;
+  border: 0;
   border-radius: 6px;
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--rule);
@@ -2922,6 +2926,13 @@ a.evidence-val:hover {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* 同步按钮文案在「同步 / 同步中…」之间切换，固定标签宽度避免左侧按钮位移 */
+#btnSync > span {
+  display: inline-block;
+  min-width: 4.2em;
+  text-align: center;
 }
 
 /* WebDAV 同步横幅：另一台设备持锁时提示本机只读 */

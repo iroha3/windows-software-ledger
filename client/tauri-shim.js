@@ -57,6 +57,8 @@
         return method === 'POST' ? invoke('save_config', { payload: body }) : invoke('get_config');
       case '/api/status':
         return invoke('get_status');
+      case '/api/version':
+        return invoke('get_version');
       case '/api/software':
         return invoke('get_software');
       case '/api/dev-env':
@@ -170,9 +172,26 @@
       })
       .catch(() => {});
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', syncReadOnlyCheck);
-  } else {
+  // 关于弹窗的版本号：从后端读（唯一来源 src-tauri/Cargo.toml），避免各页面硬编码漂移。
+  // 三个页面（主页 / 卡片速审 / 浏览器）都有 .about-version。
+  function fillAppVersion() {
+    const els = document.querySelectorAll('.about-version');
+    if (!els.length) return;
+    fetch('/api/version')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.version) els.forEach((el) => { el.textContent = 'v' + d.version; });
+      })
+      .catch(() => {});
+  }
+
+  function bootPageState() {
     syncReadOnlyCheck();
+    fillAppVersion();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootPageState);
+  } else {
+    bootPageState();
   }
 })();

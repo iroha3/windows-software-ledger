@@ -49,6 +49,7 @@ pub fn run() {
             commands::get_config,
             commands::save_config,
             commands::get_status,
+            commands::get_version,
             commands::get_software,
             commands::get_dev_env,
             commands::get_browser_extensions,
