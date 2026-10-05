@@ -199,6 +199,7 @@ fn add_or_update(
     let id = format!("SW-{:03}", next_id);
     let mut item = json!({
         "id": id,
+        "uuid": store::new_uuid(),
         "name": norm.name,
         "category": norm.category,
         "type": forced_type.unwrap_or(norm.kind.as_str()),
@@ -362,7 +363,8 @@ fn candidate_machine_ids(item: &Value) -> Vec<String> {
     out
 }
 
-/// 已知判定：已有条目包含「本次机器」的记录，且名称相同 或 路径完全相等。
+/// 已知判定：已有条目包含「本次机器」的记录，且安装路径完全相等；
+/// 仅当候选本身没有任何路径时，才退回「名称相同」。
 /// 命中则视为已知，扫描对它零改动。
 fn find_known<'a>(candidate: &Value, existing: &'a [Value]) -> Option<&'a Value> {
     let cand_name = candidate
@@ -374,6 +376,9 @@ fn find_known<'a>(candidate: &Value, existing: &'a [Value]) -> Option<&'a Value>
         .to_string();
     let cand_paths = candidate_paths(candidate);
     let cand_machines = candidate_machine_ids(candidate);
+    // 候选自带路径时，只认路径。否则「手动添加的同名条目（无路径）」会把
+    // 「扫描到的另一份安装」判成已知而整条吞掉（同名 ≠ 同一实体）。
+    let cand_has_path = !cand_paths.is_empty();
 
     for ex in existing {
         let ex_name = ex
@@ -399,12 +404,13 @@ fn find_known<'a>(candidate: &Value, existing: &'a [Value]) -> Option<&'a Value>
                     a
                 }
             };
-            let same_name = !cand_name.is_empty() && cand_name == ex_name;
             let same_path = {
                 let p = normalize_path(loc);
                 !p.is_empty() && cand_paths.iter().any(|x| *x == p)
             };
-            if same_name || same_path {
+            let same_name = !cand_name.is_empty() && cand_name == ex_name;
+            // 有路径：只认路径；无路径：退回名称匹配。
+            if same_path || (!cand_has_path && same_name) {
                 return Some(ex);
             }
         }
@@ -416,7 +422,7 @@ fn is_known(candidate: &Value, existing: &[Value]) -> bool {
     find_known(candidate, existing).is_some()
 }
 
-/// 已有条目缺图标的补充来源：返回 (SW-ID, 图标绝对路径)。
+/// 已有条目缺图标的补充来源：返回 (uuid, 图标绝对路径)。
 /// 这些条目不在候选列表里（已知即跳过），但重扫时仍应把图标补齐。
 pub fn known_icon_refreshes(
     evidence_root: &Path,
@@ -435,16 +441,17 @@ pub fn known_icon_refreshes(
             continue;
         }
         if let Some(ex) = find_known(item, existing) {
-            let id = ex.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if !id.is_empty() && !out.iter().any(|(i, _)| i == id) {
-                out.push((id.to_string(), icon.to_string()));
+            let uuid = ex.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
+            if !uuid.is_empty() && !out.iter().any(|(i, _)| i == uuid) {
+                out.push((uuid.to_string(), icon.to_string()));
             }
         }
     }
     out
 }
 
-/// 墓碑判定：名称或路径命中「已删除」记录。
+/// 墓碑判定：优先按「删掉的那条安装路径」精确命中；仅当双方都没有路径时，
+/// 才退回「名称相同」。避免删掉一份同名安装就永久误伤其它同名安装。
 fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
     let cand_name = candidate
         .get("name")
@@ -454,17 +461,24 @@ fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
         .trim()
         .to_string();
     let cand_paths = candidate_paths(candidate);
+    let cand_has_path = !cand_paths.is_empty();
     for g in ignored {
-        let key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
-        if !cand_name.is_empty() && key == cand_name {
+        let g_paths: Vec<&str> = g
+            .get("paths")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|p| p.as_str())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if cand_paths.iter().any(|cp| g_paths.iter().any(|gp| gp == cp)) {
             return true;
         }
-        if let Some(paths) = g.get("paths").and_then(|v| v.as_array()) {
-            for gp in paths.iter().filter_map(|p| p.as_str()) {
-                if cand_paths.iter().any(|x| *x == gp) {
-                    return true;
-                }
-            }
+        let key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
+        if !cand_has_path && g_paths.is_empty() && !cand_name.is_empty() && key == cand_name {
+            return true;
         }
     }
     false
@@ -552,20 +566,22 @@ pub fn apply_selected(
         }
         max_id += 1;
         let new_id = format!("SW-{:03}", max_id);
+        let uuid = crate::store::new_uuid();
         let icon_src = cand
             .get("icon_path")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        // 图标按「软件名派生」的稳定文件名落盘，与扫描序号无关。
+        // 图标文件名 = `<uuid>.png`，与软件名 / 显示号无关。
         let icon_file = if icon_src.is_empty() {
             String::new()
         } else {
-            crate::store::icon_file_name(cand.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+            crate::store::icon_file_name(&uuid)
         };
         let mut item = cand.clone();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("id".to_string(), json!(new_id.clone()));
+            obj.insert("uuid".to_string(), json!(uuid.clone()));
             obj.insert("is_new".to_string(), json!(mark_new));
             obj.remove("key");
             obj.remove("kind");
@@ -742,13 +758,94 @@ mod tests {
     }
 
     #[test]
+    fn same_name_manual_entry_does_not_mask_scanned_install() {
+        // 复现：扫到 7-Zip -> 手动再加一个同名 7-Zip（无安装路径）-> 删除扫到的那份 -> 重扫。
+        // 同名的无路径手动条目不能把扫描候选整条吞掉，否则删除后永远恢复不了。
+        let root = std::env::temp_dir().join(format!("ledger_mask_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let evidence_root = root.join("evidence");
+        let machine_dir = evidence_root.join("M-B");
+        fs::create_dir_all(&machine_dir).unwrap();
+        fs::write(
+            machine_dir.join("registry-apps.json"),
+            json!([{ "name": "7-Zip 24.07 (x64)", "install_location": "C:\\Program Files\\7-Zip" }])
+                .to_string(),
+        )
+        .unwrap();
+
+        // 手动添加的同名条目：同机器、无安装路径
+        let existing = json!([
+            { "id": "SW-236", "name": "7-Zip", "machines": [{ "machine_id": "M-B", "form": "manual" }] }
+        ]);
+        let candidates = build_candidates(
+            &evidence_root,
+            &["M-B".to_string()],
+            existing.as_array().unwrap(),
+            &[],
+        );
+        assert_eq!(
+            candidates.len(),
+            1,
+            "同名的无路径手动条目不应遮蔽扫描候选: {:?}",
+            candidates
+        );
+        assert_eq!(candidates[0].get("name").and_then(|v| v.as_str()), Some("7-Zip"));
+        assert_eq!(candidates[0].get("kind").and_then(|v| v.as_str()), Some("new"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tombstone_is_path_scoped_not_name_wide() {
+        // 删掉 C:\Program Files\7-Zip 那份后，另一路径的同名安装不该被墓碑误伤。
+        let root = std::env::temp_dir().join(format!("ledger_tomb_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let evidence_root = root.join("evidence");
+        let machine_dir = evidence_root.join("M-B");
+        fs::create_dir_all(&machine_dir).unwrap();
+        fs::write(
+            machine_dir.join("registry-apps.json"),
+            json!([{ "name": "7-Zip 24.07 (x64)", "install_location": "C:\\Program Files\\7-Zip" }])
+                .to_string(),
+        )
+        .unwrap();
+
+        let other_path = json!([
+            { "match_key": "7-zip", "name": "7-Zip", "paths": ["c:\\other\\7-zip"] }
+        ]);
+        let cands = build_candidates(
+            &evidence_root,
+            &["M-B".to_string()],
+            &[],
+            other_path.as_array().unwrap(),
+        );
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].get("kind").and_then(|v| v.as_str()), Some("new"));
+
+        // 同一路径 -> 才判为「之前已删除」
+        let same_path = json!([
+            { "match_key": "7-zip", "name": "7-Zip", "paths": ["c:\\program files\\7-zip"] }
+        ]);
+        let cands = build_candidates(
+            &evidence_root,
+            &["M-B".to_string()],
+            &[],
+            same_path.as_array().unwrap(),
+        );
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].get("kind").and_then(|v| v.as_str()), Some("deleted_before"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn apply_selected_clears_is_new_and_preserves_existing() {
         let mut software = vec![json!({
             "id": "SW-001",
             "name": "Old",
             "restore_intent": "must",
             "is_new": true,
-            "backup_strategy": "copy_config"
+            "backup_strategy": "copy_dir"
         })];
         let candidates = vec![
             json!({ "key": "new one", "kind": "new", "name": "New One", "restore_intent": "unreviewed", "backup_strategy": "none" }),
@@ -768,7 +865,7 @@ mod tests {
         let old = software.iter().find(|s| s["id"] == "SW-001").unwrap();
         assert_eq!(old["is_new"], false);
         assert_eq!(old["restore_intent"], "must");
-        assert_eq!(old["backup_strategy"], "copy_config");
+        assert_eq!(old["backup_strategy"], "copy_dir");
 
         // 未勾选的候选不导入；勾选的置 is_new 并分配 id
         assert!(software.iter().all(|s| s["name"] != "Unselected"));
@@ -800,13 +897,15 @@ mod tests {
         })];
         let mut software: Vec<Value> = Vec::new();
         let res = apply_selected(&mut software, &candidates, &["7-zip".to_string()], false);
-        // 图标按「软件名派生的稳定文件名」收集，与 SW-ID 无关
-        let expected = crate::store::icon_file_name("7-Zip");
+        // 图标文件名 = `<uuid>.png`，与软件名 / 显示号无关
+        let uuid = software[0]["uuid"].as_str().unwrap();
+        let expected = crate::store::icon_file_name(uuid);
         assert_eq!(res.icons.len(), 1);
         assert_eq!(res.icons[0].0, expected);
         assert_eq!(res.icons[0].1, "C:\\evidence\\M\\app-icons\\abc.png");
         // 条目记下 icon_file；证据目录的临时绝对路径不落进 software.json
         assert_eq!(software[0]["icon_file"], json!(expected));
+        assert!(!software[0]["uuid"].as_str().unwrap().is_empty());
         assert!(software[0].get("icon_path").is_none());
 
         // 无图标来源的候选不产生 icon_file，也不进落盘清单

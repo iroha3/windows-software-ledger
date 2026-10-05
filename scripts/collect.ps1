@@ -10,6 +10,11 @@ param (
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# 机器 id = 主机名；未显式传入则取本机 COMPUTERNAME。
+if ([string]::IsNullOrWhiteSpace($MachineId)) {
+    $MachineId = $env:COMPUTERNAME
+}
+
 # --- 打点：各步骤耗时（写入 timings.json；-Timing 时同步打印）---
 $script:TimingLaps = @()
 $script:TimingWatch = [System.Diagnostics.Stopwatch]::StartNew()

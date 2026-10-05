@@ -7,3 +7,4 @@ exports/
 data/
 evidence/
 docs/prev-chat*.md
+docs/*.dango

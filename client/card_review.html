@@ -61,7 +61,6 @@
             <option value="all">全部意愿状态</option>
             <option value="unreviewed">待确认</option>
             <option value="must">必须恢复</option>
-            <option value="should">建议恢复</option>
             <option value="on_demand">用到再装</option>
             <option value="drop">淘汰弃用</option>
           </select>
@@ -168,20 +167,18 @@
           <div class="decision-panel">
             <div class="decision-section-title">
               <span>迁移意愿决策</span>
-              <span class="decision-hint">数字键 1~5 快速切换</span>
+              <span class="decision-hint">数字键 1~4 快速切换</span>
             </div>
 
             <!-- 5个大胶囊按钮 -->
             <div class="intent-segmented" id="cardIntentSegmented">
               <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
-              <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
               <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
               <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
               <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
             </div>
             <select id="cardIntent" style="display:none;">
               <option value="must">必须恢复</option>
-              <option value="should">建议恢复</option>
               <option value="on_demand">用到再装</option>
               <option value="drop">淘汰弃用</option>
               <option value="unreviewed">待确认</option>
@@ -254,6 +251,19 @@
           <!-- 4. 机器来源证据 (直接展示，不折叠) -->
           <div class="evidence-block">
             <div id="cardMachinesList" class="evidence-list"></div>
+          </div>
+
+          <!-- 5. 同名条目合并入口（无同名条目时整块隐藏） -->
+          <div class="merge-block" id="cardMergeBlock" style="display: none;">
+            <div class="merge-block-head">
+              <span class="merge-block-title">
+                <svg class="i sm" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>
+                同名条目
+                <span class="merge-count" id="cardMergeCount">0</span>
+              </span>
+              <button id="btnMergeAll" class="btn btn-secondary btn-sm" type="button" title="将以下全部同名条目并入当前卡片（以本卡为准）">全部并入本卡</button>
+            </div>
+            <div class="merge-list" id="cardMergeList"></div>
           </div>
         </div>
 
@@ -379,8 +389,8 @@
         <div class="about-section">
           <h4>快捷键</h4>
           <div class="about-keys">
-            <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span class="desc">意愿：必须 / 建议 / 按需 / 淘汰 / 待确认</span></div>
-            <div class="about-key-row"><span class="keys"><kbd>6</kbd><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd></span><span class="desc">就绪 / 配置 / AI 预判 / 合并</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span class="desc">意愿：必须 / 按需 / 淘汰 / 待确认</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>5</kbd></span><span class="desc">切换准备就绪</span></div>
             <div class="about-key-row"><span class="keys"><kbd>PageUp</kbd><kbd>PageDown</kbd></span><span class="desc">或 <kbd>[</kbd><kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> 连续切卡</span></div>
             <div class="about-key-row"><span class="keys"><kbd>Backspace</kbd></span><span class="desc">删除当前卡片（再按一次确认）并自动前进</span></div>
             <div class="about-key-row"><span class="keys"><kbd>/</kbd></span><span class="desc">聚焦筛选框</span></div>
@@ -392,6 +402,30 @@
             <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）、ignored.json（已删墓碑）、evidence/（采集证据与截图）</span></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 合并冲突确认弹窗：待并入项带有非默认评档时提示会被丢弃 -->
+  <div class="modal-overlay" id="mergeConfirmModal">
+    <div class="modal-content" style="width: 480px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>
+          确认合并
+        </h3>
+        <button class="btn btn-secondary btn-sm" id="btnMergeCancelX" type="button">
+          <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="merge-confirm-lead">以下同名条目已有评档，并入后 <b>以当前卡片为准</b>，其评档将被丢弃：</p>
+        <div class="merge-confirm-list" id="mergeConfirmList"></div>
+        <p class="merge-confirm-note">机器来源会叠加到当前卡片；版本、官网、图标等空缺处会被补齐。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btnMergeCancel" type="button">取消</button>
+        <button class="btn btn-primary" id="btnMergeConfirm" type="button">仍然合并</button>
       </div>
     </div>
   </div>

@@ -28,10 +28,6 @@
   --intent-must-border: #b0472f;
   --intent-must-text: #b0472f;
 
-  --intent-should-bg: rgba(156, 95, 28, 0.10);
-  --intent-should-border: #9c5f1c;
-  --intent-should-text: #9c5f1c;
-
   --intent-ondemand-bg: rgba(45, 97, 115, 0.10);
   --intent-ondemand-border: #2d6173;
   --intent-ondemand-text: #2d6173;
@@ -92,10 +88,6 @@
   --intent-must-bg: rgba(224, 138, 114, 0.15);
   --intent-must-border: #e08a72;
   --intent-must-text: #f0a28d;
-
-  --intent-should-bg: rgba(216, 163, 92, 0.15);
-  --intent-should-border: #d8a35c;
-  --intent-should-text: #ebd09c;
 
   --intent-ondemand-bg: rgba(134, 184, 201, 0.15);
   --intent-ondemand-border: #86b8c9;
@@ -383,7 +375,6 @@ svg.i.fill {
   flex-shrink: 0;
 }
 .dot-must { background-color: var(--danger); box-shadow: 0 0 0 2px var(--danger-soft); }
-.dot-should { background-color: var(--amber); box-shadow: 0 0 0 2px var(--amber-soft); }
 .dot-ondemand { background-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .dot-drop { background-color: var(--ink-3); }
 .dot-unreviewed { background-color: var(--rule-2); }
@@ -880,11 +871,6 @@ tr.selected td {
   border-color: color-mix(in srgb, var(--intent-must-border) 40%, transparent);
   color: var(--intent-must-text);
 }
-.intent-should {
-  background: var(--intent-should-bg);
-  border-color: color-mix(in srgb, var(--intent-should-border) 40%, transparent);
-  color: var(--intent-should-text);
-}
 .intent-on_demand {
   background: var(--intent-ondemand-bg);
   border-color: color-mix(in srgb, var(--intent-ondemand-border) 40%, transparent);
@@ -1118,6 +1104,11 @@ tr.selected td {
   gap: 14px;
 }
 
+/* 抽屉内容禁止 flex 压缩，否则同名条目 / 证据多时会被压扁、看不全 */
+.drawer-body > * {
+  flex-shrink: 0;
+}
+
 /* 软件主视觉 Hero 模块 */
 .card-hero-block {
   display: flex;
@@ -1273,13 +1264,6 @@ tr.selected td {
   border-color: var(--intent-must-border);
   color: var(--intent-must-text);
   box-shadow: 0 1px 3px rgba(176, 71, 47, 0.15);
-}
-
-.intent-seg-btn.active[data-intent="should"] {
-  background: var(--intent-should-bg);
-  border-color: var(--intent-should-border);
-  color: var(--intent-should-text);
-  box-shadow: 0 1px 3px rgba(156, 95, 28, 0.15);
 }
 
 .intent-seg-btn.active[data-intent="on_demand"] {
@@ -1461,6 +1445,9 @@ tr.selected td {
   overflow-y: auto;
   font-size: 11.5px;
 }
+.evidence-list > * {
+  flex-shrink: 0;
+}
 
 /* 扩展抽屉里的只读证据行 */
 .evidence-row {
@@ -1578,6 +1565,39 @@ a.evidence-val:hover {
   flex-direction: column;
   gap: 2px;
 }
+
+/* 机器色标签：同一 machine_id 全站同色，一眼分辨设备 */
+.machine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  color: var(--mc, var(--ink));
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.machine-chip + .machine-chip { margin-left: 4px; }
+.machine-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mc, var(--ink-3));
+  display: inline-block;
+  flex: none;
+}
+.machine-chip-none { color: var(--ink-3); }
+
+/* 机器证据卡里的设备图标取机器色 */
+.machine-icon {
+  color: var(--mc, var(--accent));
+  display: inline-flex;
+  flex: none;
+}
+.tab-btn .machine-icon { margin-right: 4px; vertical-align: -2px; }
 
 /* 扫描结果导入弹窗 */
 .import-list {
@@ -2012,6 +2032,8 @@ a.evidence-val:hover {
   background: var(--bg);
 }
 
+/* 卡片速审 = 主页抽屉同款布局：固定外框撑满舞台，header/footer 钉死，
+   仅 .review-card-body 内部滚动。这样内容再多，“下一项/删除”也不会位移。 */
 .review-card-frame {
   width: 820px;
   max-width: 100%;
@@ -2032,6 +2054,13 @@ a.evidence-val:hover {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow-y: auto;
+}
+
+/* 卡片各区块按自然高度排布，超出由 .review-card-body 滚动；
+   禁止 flex 压缩，否则同名条目 / 证据多时会被压扁、显示不完整。 */
+.review-card-body > * {
+  flex-shrink: 0;
 }
 
 /* 卡片速审：证据直接内嵌展示，不折叠、不截断、不内滚 */
@@ -2045,6 +2074,150 @@ a.evidence-val:hover {
   padding: 0;
   max-height: none;
   overflow: visible;
+}
+
+/* 主页抽屉：证据区照速审模式——无外框、不内滚，内容自然撑开，由 .drawer-body 整体滚动 */
+#sideDrawer .evidence-block {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+#sideDrawer .evidence-list {
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+}
+
+/* 卡片速审：同名条目合并入口 */
+.merge-block {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.merge-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.merge-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.merge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-soft-2);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-family: var(--mono);
+}
+.merge-list {
+  display: flex;
+  flex-direction: column;
+}
+.merge-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--rule);
+}
+.merge-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.merge-item-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.merge-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-item-id {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.merge-item-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.merge-item-path {
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-item-warn {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+/* 合并冲突确认弹窗 */
+.merge-confirm-lead {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.merge-confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.merge-confirm-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.merge-confirm-item .name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.merge-confirm-item .detail {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.merge-confirm-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--ink-3);
 }
 
 /* 机器别名 (多设备标识与配置) */
@@ -2729,3 +2902,24 @@ a.evidence-val:hover {
   fill: currentColor;
 }
 /* .about-star 已改为引用样式 .about-quote */
+
+/* ===== 滚动条美化：细窄圆角内嵌胶囊，随主题自适应，悬停加深 ===== */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--rule-2);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ink-3);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

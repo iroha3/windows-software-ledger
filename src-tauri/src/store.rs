@@ -61,12 +61,14 @@ pub fn evidence_dir() -> PathBuf {
     data_dir().join("evidence")
 }
 
-/// 浏览器扩展的用户层标注（备注等）。与采集证据分离，重扫不会覆盖。
+/// 浏览器扩展的用户层标注（备注等），键 = 扩展的 uuid。
+/// 与采集证据分离，重扫不会覆盖。每条记录内嵌匹配键
+/// `(browser_id, profile, ext_id)`，重扫时用它把 uuid 认回来。
 pub fn extensions_file() -> PathBuf {
     data_dir().join("extensions.json")
 }
 
-/// 读取扩展标注：始终返回对象（键 = 扩展 ID）。
+/// 读取扩展标注：键 = 扩展 uuid，始终返回对象。
 pub fn read_extensions() -> Value {
     let v = read_json(&extensions_file());
     if v.is_object() {
@@ -80,44 +82,53 @@ pub fn write_extensions(value: &Value) {
     write_json(&extensions_file(), value);
 }
 
-/// 通用文件保管箱：`data/vault/<主机名>/<kind>/<id>/`。
-/// 与扫描证据解耦，删除软件时可级联清理。
+/// 浏览器用户层：键 = 浏览器 uuid，值内嵌 `browser_id` 匹配键。
+/// 目前只为保管箱提供稳定身份，后续可承载浏览器级标注。
+pub fn browsers_file() -> PathBuf {
+    data_dir().join("browsers.json")
+}
+
+pub fn read_browsers() -> Value {
+    let v = read_json(&browsers_file());
+    if v.is_object() {
+        v
+    } else {
+        json!({})
+    }
+}
+
+pub fn write_browsers(value: &Value) {
+    write_json(&browsers_file(), value);
+}
+
+/// 通用文件保管箱：`data/vault/<kind>/<uuid>/`（不再分主机名）。
+/// 与扫描证据解耦；删除条目时整个目录移入垃圾桶，绝不物理销毁。
 pub fn vault_dir() -> PathBuf {
     data_dir().join("vault")
 }
 
-/// 软件主程序图标目录：文件按 `icon_file` 字段命名，与扫描序号无关。
-/// 扫描时从 exe 抽取，仅用于展示，不含任何敏感信息。
+/// 软删除垃圾桶：删除条目时把归档目录整体移入，避免「删一条记录」
+/// 变成「瞬间抹掉几个 G」的高风险操作。用户可在设置里查看体积并清空。
+pub fn trash_dir() -> PathBuf {
+    data_dir().join("trash")
+}
+
+/// 生成内部唯一标识（UUID v4）。`SW-ID` 只是给人看的显示号，
+/// 所有内部绑定（保管箱 / 图标 / 合并 / 删除）一律以 uuid 为准。
+pub fn new_uuid() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// 软件主程序图标目录：文件名 = `<uuid>.png`。扫描时从 exe 抽取，
+/// 仅用于展示，不含任何敏感信息。一条记录一个图标，删除 / 合并跟着记录走，
+/// 不再按软件名共享，也不再需要引用计数。
 pub fn icons_dir() -> PathBuf {
     data_dir().join("icons")
 }
 
-/// 由软件名稳定派生图标文件名，形如 `visualstudiocode-<16位hex>.png`。
-/// slug 仅用于可读性，哈希保证不同名不冲突；因此同一软件在任何机器、
-/// 任何重扫下都会得到同一文件名，跨机合并 / 台账重建都不会错位。
-pub fn icon_file_name(name: &str) -> String {
-    let key = name.trim().to_lowercase();
-    let mut slug: String = key
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    while slug.contains("--") {
-        slug = slug.replace("--", "-");
-    }
-    let slug: String = slug.trim_matches('-').chars().take(32).collect();
-    let slug = slug.trim_matches('-');
-    let slug = if slug.is_empty() { "icon" } else { slug };
-    format!("{}-{:016x}.png", slug, fnv1a64(&key))
-}
-
-/// FNV-1a 64 位哈希：仅用于生成图标的稳定文件名，非加密用途。
-fn fnv1a64(s: &str) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in s.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
+/// 图标文件名 = `<uuid>.png`，与显示号 / 软件名无关。
+pub fn icon_file_name(uuid: &str) -> String {
+    format!("{}.png", uuid)
 }
 
 /// 读取 JSON，自动剥离 PowerShell 5.1 写入的 UTF-8 BOM。
@@ -140,25 +151,9 @@ pub fn write_json(path: &Path, value: &Value) {
     }
 }
 
-/// 旧数据兼容：处置方式 `copy_config`（导出/备份配置）已下线，
-/// 读取时归并为 `copy_dir`（保留/压缩目录），使历史台账照常参与打包与导出。
-fn normalize_strategy(item: &mut Value) {
-    if let Some(obj) = item.as_object_mut() {
-        if obj.get("backup_strategy").and_then(|v| v.as_str()) == Some("copy_config") {
-            obj.insert("backup_strategy".to_string(), json!("copy_dir"));
-        }
-    }
-}
-
 pub fn read_software() -> Vec<Value> {
     match read_json(&software_file()) {
-        Value::Array(items) => items
-            .into_iter()
-            .map(|mut item| {
-                normalize_strategy(&mut item);
-                item
-            })
-            .collect(),
+        Value::Array(items) => items,
         _ => Vec::new(),
     }
 }
@@ -205,15 +200,59 @@ mod tests {
     }
 
     #[test]
-    fn icon_file_name_is_stable_and_unique() {
-        let a = icon_file_name("Visual Studio Code");
-        assert!(a.ends_with(".png"), "{a}");
-        // 大小写 / 首尾空白归一后取同一文件名
-        assert_eq!(a, icon_file_name("  visual studio code  "));
-        // 不同软件名不冲突
-        assert_ne!(icon_file_name("Git"), icon_file_name("GitHub Desktop"));
-        // 中文名也能生成合法文件名
-        assert!(icon_file_name("微信").ends_with(".png"));
+    fn icon_file_name_is_uuid_based() {
+        let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        assert_eq!(icon_file_name(uuid), "0f8fad5b-d9cb-469f-a165-70867728950e.png");
+    }
+
+    #[test]
+    fn read_software_is_a_plain_read() {
+        let base = std::env::temp_dir().join(format!("ledger_plain_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("data")).unwrap();
+        {
+            let _guard = test_support::use_root(&base);
+            fs::write(software_file(), r#"[{"id":"SW-001","name":"Git"}]"#).unwrap();
+            // 不做任何兼容处理：原样读出，不偷偷补字段 / 改值
+            let items = read_software();
+            assert_eq!(items[0]["name"], "Git");
+            assert!(items[0].get("uuid").is_none());
+            assert_eq!(read_json(&software_file()), Value::Array(items.clone()));
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn read_software_ignores_evidence() {
+        // evidence 与台账解耦：evidence 无论怎么改 / 删，read_software 都原样返回。
+        let base = std::env::temp_dir().join(format!("ledger_decouple_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("data")).unwrap();
+        {
+            let _guard = test_support::use_root(&base);
+            let guid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+            fs::write(
+                software_file(),
+                format!(
+                    r#"[{{"id":"SW-001","name":"Git","machines":[{{"machine_id":"{guid}","form":"installed"}}]}}]"#
+                ),
+            )
+            .unwrap();
+            // 故意放一个内容完全无关的 machine-info.json
+            let ev = evidence_dir().join(guid);
+            fs::create_dir_all(&ev).unwrap();
+            fs::write(
+                ev.join("machine-info.json"),
+                r#"{"machine_id":"WRONG","hostname":"NOT-PC"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_software()[0]["machines"][0]["machine_id"], guid);
+
+            // 整个 evidence 删掉，行为不变
+            fs::remove_dir_all(evidence_dir()).unwrap();
+            assert_eq!(read_software()[0]["machines"][0]["machine_id"], guid);
+        }
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

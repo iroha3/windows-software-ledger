@@ -51,7 +51,6 @@
     <div class="stat-item" data-filter-enabled="true"><span class="status-dot dot-ready"></span><span>启用</span><span class="stat-num" id="extStatOn">0</span></div>
     <div class="stat-item" data-filter-enabled="false"><span class="status-dot dot-unreviewed"></span><span>停用</span><span class="stat-num" id="extStatOff">0</span></div>
     <div class="stat-item" data-filter-intent="must"><span class="status-dot dot-must"></span><span>必须恢复</span><span class="stat-num" id="extStatMust">0</span></div>
-    <div class="stat-item" data-filter-intent="should"><span class="status-dot dot-should"></span><span>建议恢复</span><span class="stat-num" id="extStatShould">0</span></div>
     <div class="stat-item" data-filter-intent="on_demand"><span class="status-dot dot-ondemand"></span><span>用到再装</span><span class="stat-num" id="extStatOnDemand">0</span></div>
     <div class="stat-item" data-filter-intent="drop"><span class="status-dot dot-drop"></span><span>淘汰弃用</span><span class="stat-num" id="extStatDrop">0</span></div>
     <div class="stat-item" data-filter-intent="unreviewed"><span class="status-dot dot-unreviewed"></span><span>待确认</span><span class="stat-num" id="extStatUnreviewed">0</span></div>
@@ -74,7 +73,6 @@
         <select id="extIntentFilter" class="select-filter">
           <option value="all">全部保留意愿</option>
           <option value="must">必须恢复</option>
-          <option value="should">建议恢复</option>
           <option value="on_demand">用到再装</option>
           <option value="drop">淘汰弃用</option>
           <option value="unreviewed">待确认</option>
@@ -95,7 +93,6 @@
     <div class="batch-info" id="extBatchInfo">已选 0 项</div>
     <div class="batch-buttons">
       <button class="btn btn-secondary btn-sm" data-batch-intent="must"><span class="status-dot dot-must"></span>必须</button>
-      <button class="btn btn-secondary btn-sm" data-batch-intent="should"><span class="status-dot dot-should"></span>建议</button>
       <button class="btn btn-secondary btn-sm" data-batch-intent="on_demand"><span class="status-dot dot-ondemand"></span>按需</button>
       <button class="btn btn-secondary btn-sm" data-batch-intent="drop"><span class="status-dot dot-drop"></span>淘汰</button>
       <button class="btn btn-secondary btn-sm" data-batch-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
@@ -156,10 +153,9 @@
       </div>
 
       <div class="decision-panel">
-        <div class="decision-section-title"><span>重装保留意愿</span><span class="decision-hint">快捷键 1~5 切换</span></div>
+        <div class="decision-section-title"><span>重装保留意愿</span><span class="decision-hint">快捷键 1~4 切换</span></div>
         <div class="intent-segmented" id="extDrawerIntentSegmented">
           <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
-          <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
           <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
           <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
           <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
@@ -212,7 +208,7 @@
           <svg class="i sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg><span>恢复默认</span>
         </button>
       </div>
-      <div class="footer-shortcut-badge"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd><span class="badge-desc">切换意愿</span><span class="badge-sep">·</span><kbd>Esc</kbd><span class="badge-desc">关闭</span></div>
+      <div class="footer-shortcut-badge"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span class="badge-desc">切换意愿</span><span class="badge-sep">·</span><kbd>Esc</kbd><span class="badge-desc">关闭</span></div>
       <div class="drawer-footer-right">
         <button id="btnExtDrawerDone" class="btn btn-primary btn-sm">完成并关闭</button>
       </div>

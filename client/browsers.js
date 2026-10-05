@@ -19,7 +19,7 @@ const ICONS = {
   paperclip: '<svg class="i sm" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>',
 };
 
-const INTENT_LABEL = { must: '必须恢复', should: '建议恢复', on_demand: '用到再装', drop: '淘汰弃用', unreviewed: '待确认' };
+const INTENT_LABEL = { must: '必须恢复', on_demand: '用到再装', drop: '淘汰弃用', unreviewed: '待确认' };
 
 const state = {
   machines: [],          // 原始证据
@@ -107,6 +107,7 @@ function flatten() {
             browserLabel: b.label || b.id || '',
             profile: p.profile || '',
             id: ext.id || '',
+            uuid: ext.uuid || '',
             name: ext.name || '(未命名)',
             version: ext.version || '',
             enabled: ext.enabled,
@@ -155,9 +156,9 @@ function getFiltered() {
 
 const getActive = () => state.extList.find((e) => e.key === state.activeKey) || null;
 
-function applyLocal(id, fields) {
+function applyLocal(uuid, fields) {
   for (const e of state.extList) {
-    if (e.id !== id) continue;
+    if (e.uuid !== uuid) continue;
     if ('restore_intent' in fields) e.intent = fields.restore_intent;
     if ('prep_status' in fields) e.prep = fields.prep_status;
     if ('is_awesome' in fields) e.awesome = !!fields.is_awesome;
@@ -166,10 +167,18 @@ function applyLocal(id, fields) {
   }
 }
 
-async function saveExt(id, fields) {
-  applyLocal(id, fields);
+async function saveExt(uuid, fields) {
+  applyLocal(uuid, fields);
+  // 后端按 (浏览器, profile, 扩展ID) 认回实体；Chrome / Edge 同 ID 不再互相覆盖。
+  const e = state.extList.find((x) => x.uuid === uuid);
+  const payload = {
+    browser_id: e ? e.browserId : '',
+    profile: e ? e.profile : '',
+    ext_id: e ? e.id : '',
+    fields,
+  };
   try {
-    await fetch('/api/extension/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, fields }) });
+    await fetch('/api/extension/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
   }
@@ -187,15 +196,15 @@ function buildRowHtml(e) {
   const intentClass = `intent-${e.intent}`;
   const profile = cleanProfile(e.profile);
   const machineBadge = `<span class="badge-machine" title="设备ID: ${escapeHtml(e.machineId)}">${escapeHtml(getMachineDisplayName(e.machineId))}</span>`;
-  const storeCell = `<div class="ext-store-cell"><input type="text" class="cell-input ext-store-input" data-field="store_url" data-id="${escapeHtml(e.id)}" value="${escapeHtml(e.storeUrl)}" placeholder="https://…"><button type="button" class="vault-icon-btn ext-store-open" data-action="open-url" data-url="${escapeHtml(e.storeUrl)}" title="打开商店页" ${e.storeUrl ? '' : 'disabled'}>${ICONS.external}</button></div>`;
+  const storeCell = `<div class="ext-store-cell"><input type="text" class="cell-input ext-store-input" data-field="store_url" data-id="${escapeHtml(e.uuid)}" value="${escapeHtml(e.storeUrl)}" placeholder="https://…"><button type="button" class="vault-icon-btn ext-store-open" data-action="open-url" data-url="${escapeHtml(e.storeUrl)}" title="打开商店页" ${e.storeUrl ? '' : 'disabled'}>${ICONS.external}</button></div>`;
   const attach = `<button type="button" class="vault-icon-btn ext-attach-btn ${e.attachCount > 0 ? 'has-files' : ''}" data-action="attach" data-key="${escapeHtml(e.key)}" title="附件归档（可拖入或选择文件）">${ICONS.paperclip}<span class="vault-count" ${e.attachCount > 0 ? '' : 'hidden'}>${e.attachCount}</span></button>`;
-  const opts = ['must', 'should', 'on_demand', 'drop', 'unreviewed'].map((v) => `<option value="${v}" ${e.intent === v ? 'selected' : ''}>${INTENT_LABEL[v]}</option>`).join('');
+  const opts = ['must', 'on_demand', 'drop', 'unreviewed'].map((v) => `<option value="${v}" ${e.intent === v ? 'selected' : ''}>${INTENT_LABEL[v]}</option>`).join('');
 
   return `
     <tr class="${sel ? 'selected' : ''}" data-key="${escapeHtml(e.key)}">
       <td style="text-align:center;"><input type="checkbox" class="row-checkbox" data-key="${escapeHtml(e.key)}" ${sel ? 'checked' : ''}></td>
       <td style="text-align:center;">
-        <span class="awesome-star ${e.awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${escapeHtml(e.id)}" title="${e.awesome ? '取消精选' : '设为精选'}">${e.awesome ? ICONS.starFilled : ICONS.star}</span>
+        <span class="awesome-star ${e.awesome ? 'starred' : ''}" data-action="toggle-awesome" data-id="${escapeHtml(e.uuid)}" title="${e.awesome ? '取消精选' : '设为精选'}">${e.awesome ? ICONS.starFilled : ICONS.star}</span>
       </td>
       <td>
         <div class="software-name-cell">
@@ -206,14 +215,14 @@ function buildRowHtml(e) {
       <td><span class="version-badge">${escapeHtml(e.version || '—')}</span></td>
       <td>${statusHtml(e.enabled)}</td>
       <td>${machineBadge}</td>
-      <td><select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${escapeHtml(e.id)}">${opts}</select></td>
+      <td><select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${escapeHtml(e.uuid)}">${opts}</select></td>
       <td style="text-align:center;">
-        <button type="button" class="prep-badge toggle-mini ${e.prep === 'ready' ? 'prep-ready' : 'prep-todo'}" data-action="toggle-prep" data-id="${escapeHtml(e.id)}" title="点击切换：待办 / 就绪">
+        <button type="button" class="prep-badge toggle-mini ${e.prep === 'ready' ? 'prep-ready' : 'prep-todo'}" data-action="toggle-prep" data-id="${escapeHtml(e.uuid)}" title="点击切换：待办 / 就绪">
           <span class="status-dot dot-${e.prep === 'ready' ? 'ready' : 'unreviewed'}"></span>${e.prep === 'ready' ? '就绪' : '待办'}
         </button>
       </td>
       <td>${storeCell}</td>
-      <td><input type="text" class="cell-input" data-field="notes" data-id="${escapeHtml(e.id)}" value="${escapeHtml(e.notes)}" placeholder="备注..."></td>
+      <td><input type="text" class="cell-input" data-field="notes" data-id="${escapeHtml(e.uuid)}" value="${escapeHtml(e.notes)}" placeholder="备注..."></td>
       <td style="text-align:center;">${attach}</td>
     </tr>`;
 }
@@ -236,7 +245,6 @@ function renderStats() {
   $('extStatOn').innerText = c((e) => e.enabled === true);
   $('extStatOff').innerText = c((e) => e.enabled === false);
   $('extStatMust').innerText = c((e) => e.intent === 'must');
-  $('extStatShould').innerText = c((e) => e.intent === 'should');
   $('extStatOnDemand').innerText = c((e) => e.intent === 'on_demand');
   $('extStatDrop').innerText = c((e) => e.intent === 'drop');
   $('extStatUnreviewed').innerText = c((e) => e.intent === 'unreviewed');
@@ -249,7 +257,7 @@ function renderMachineTabs() {
   const tabs = [`<button class="tab-btn ${state.filters.machine === 'all' ? 'active' : ''}" data-machine="all">全部设备 (${state.extList.length})</button>`];
   for (const m of state.machines) {
     const mid = m.machine_id;
-    tabs.push(`<button class="tab-btn ${state.filters.machine === mid ? 'active' : ''}" data-machine="${escapeHtml(mid)}">${escapeHtml(getMachineDisplayName(mid))} (${counts.get(mid) || 0})</button>`);
+    tabs.push(`<button class="tab-btn ${state.filters.machine === mid ? 'active' : ''}" data-machine="${escapeHtml(mid)}">${machineDeviceIcon(mid)}${escapeHtml(getMachineDisplayName(mid))} (${counts.get(mid) || 0})</button>`);
   }
   machineTabs.innerHTML = tabs.join('');
 }
@@ -272,7 +280,7 @@ function render() {
 // ---------- 选择 / 批量 ----------
 function selectedIds() {
   const ids = new Set();
-  for (const k of state.selected) { const e = state.extList.find((x) => x.key === k); if (e && e.id) ids.add(e.id); }
+  for (const k of state.selected) { const e = state.extList.find((x) => x.key === k); if (e && e.uuid) ids.add(e.uuid); }
   return Array.from(ids);
 }
 
@@ -301,7 +309,7 @@ function openDrawer(key) {
   renderDrawer();
   drawer.classList.add('show');
   drawerOverlay.classList.add('show');
-  if (drawerVault) drawerVault.setTarget(e.id);
+  if (drawerVault) drawerVault.setTarget(e.uuid);
 }
 
 function closeDrawer() {
@@ -460,9 +468,9 @@ function bindEvents() {
   // 表格交互
   tableBody.addEventListener('click', async (ev) => {
     const toggle = ev.target.closest('[data-action="toggle-awesome"]');
-    if (toggle) { const id = toggle.dataset.id; const e = state.extList.find((x) => x.id === id); if (e) await saveExt(id, { is_awesome: !e.awesome }); renderTable(); renderStats(); if (getActive() && getActive().id === id) renderDrawer(); return; }
+    if (toggle) { const id = toggle.dataset.id; const e = state.extList.find((x) => x.uuid === id); if (e) await saveExt(id, { is_awesome: !e.awesome }); renderTable(); renderStats(); if (getActive() && getActive().uuid === id) renderDrawer(); return; }
     const prep = ev.target.closest('[data-action="toggle-prep"]');
-    if (prep) { const id = prep.dataset.id; const e = state.extList.find((x) => x.id === id); if (e) await saveExt(id, { prep_status: e.prep === 'ready' ? 'todo' : 'ready' }); renderTable(); renderStats(); if (getActive() && getActive().id === id) renderDrawer(); return; }
+    if (prep) { const id = prep.dataset.id; const e = state.extList.find((x) => x.uuid === id); if (e) await saveExt(id, { prep_status: e.prep === 'ready' ? 'todo' : 'ready' }); renderTable(); renderStats(); if (getActive() && getActive().uuid === id) renderDrawer(); return; }
     const open = ev.target.closest('[data-action="open-drawer"]');
     if (open) { openDrawer(open.dataset.key); return; }
     const attach = ev.target.closest('[data-action="attach"]');
@@ -474,7 +482,7 @@ function bindEvents() {
     const cb = ev.target.closest('.row-checkbox');
     if (cb) { if (cb.checked) state.selected.add(cb.dataset.key); else state.selected.delete(cb.dataset.key); updateBatchBar(); cb.closest('tr').classList.toggle('selected', cb.checked); return; }
     const sel = ev.target.closest('select[data-field="restore_intent"]');
-    if (sel) { await saveExt(sel.dataset.id, { restore_intent: sel.value }); renderTable(); renderStats(); if (getActive() && getActive().id === sel.dataset.id) renderDrawer(); return; }
+    if (sel) { await saveExt(sel.dataset.id, { restore_intent: sel.value }); renderTable(); renderStats(); if (getActive() && getActive().uuid === sel.dataset.id) renderDrawer(); return; }
     const note = ev.target.closest('input[data-field="notes"]');
     if (note) { await saveExt(note.dataset.id, { notes: note.value.trim() }); showToast('备注已保存', 'success', 1400); return; }
     const store = ev.target.closest('input[data-field="store_url"]');
@@ -514,32 +522,32 @@ function bindEvents() {
     if (!b || !e) return;
     e.intent = b.dataset.intent;
     renderDrawer(); renderTable(); renderStats();
-    await saveExt(e.id, { restore_intent: b.dataset.intent });
+    await saveExt(e.uuid, { restore_intent: b.dataset.intent });
   });
   $('extDrawerPrepToggle').addEventListener('click', async () => {
     const e = getActive(); if (!e) return;
     e.prep = e.prep === 'ready' ? 'todo' : 'ready';
     renderDrawer(); renderTable(); renderStats();
-    await saveExt(e.id, { prep_status: e.prep });
+    await saveExt(e.uuid, { prep_status: e.prep });
   });
   $('extDrawerAwesome').addEventListener('change', async () => {
     const e = getActive(); if (!e) return;
     e.awesome = $('extDrawerAwesome').checked;
     renderDrawer(); renderTable(); renderStats();
-    await saveExt(e.id, { is_awesome: e.awesome });
+    await saveExt(e.uuid, { is_awesome: e.awesome });
   });
   $('extDrawerNotes').addEventListener('change', async () => {
     const e = getActive(); if (!e) return;
     e.notes = $('extDrawerNotes').value.trim();
     renderTable();
-    await saveExt(e.id, { notes: e.notes });
+    await saveExt(e.uuid, { notes: e.notes });
     showToast('备注已保存', 'success', 1400);
   });
   $('btnExtReset').addEventListener('click', async () => {
     const e = getActive(); if (!e) return;
     Object.assign(e, { intent: 'unreviewed', prep: 'todo', awesome: false, notes: '' });
     renderDrawer(); renderTable(); renderStats();
-    await saveExt(e.id, { restore_intent: 'unreviewed', prep_status: 'todo', is_awesome: false, notes: '' });
+    await saveExt(e.uuid, { restore_intent: 'unreviewed', prep_status: 'todo', is_awesome: false, notes: '' });
     showToast('已恢复默认', 'info');
   });
   $('extDrawerSource').addEventListener('click', (ev) => { ev.preventDefault(); const u = ev.currentTarget.dataset.url; if (u) window.openExternal(u); });
@@ -553,9 +561,9 @@ function bindEvents() {
     }
     if (typing) return;
     if (ev.key === '/') { ev.preventDefault(); searchInput.focus(); return; }
-    if (drawer.classList.contains('show') && ['1', '2', '3', '4', '5'].includes(ev.key)) {
-      const map = { 1: 'must', 2: 'should', 3: 'on_demand', 4: 'drop', 5: 'unreviewed' };
-      const e = getActive(); if (e) { e.intent = map[ev.key]; renderDrawer(); renderTable(); renderStats(); saveExt(e.id, { restore_intent: e.intent }); }
+    if (drawer.classList.contains('show') && ['1', '2', '3', '4'].includes(ev.key)) {
+      const map = { 1: 'must', 2: 'on_demand', 3: 'drop', 4: 'unreviewed' };
+      const e = getActive(); if (e) { e.intent = map[ev.key]; renderDrawer(); renderTable(); renderStats(); saveExt(e.uuid, { restore_intent: e.intent }); }
       return;
     }
     if (ev.key === 'PageUp') { ev.preventDefault(); drawerNav(-1); }

@@ -25,9 +25,9 @@ function isPortableItem(item) {
   return (item.machines || []).some(m => m.form === 'portable');
 }
 
-// 依据恢复意愿推导处置方式：必须/建议恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
+// 依据恢复意愿推导处置方式：必须恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
 function deriveStrategy(intent, portable) {
-  if (intent === 'must' || intent === 'should') return portable ? 'copy_dir' : 'redownload';
+  if (intent === 'must') return portable ? 'copy_dir' : 'redownload';
   return 'none';
 }
 
@@ -78,13 +78,10 @@ const selectAllCheckbox = document.getElementById('selectAllCheckbox');
 const batchBar = document.getElementById('batchBar');
 const batchInfo = document.getElementById('batchInfo');
 const btnBatchMust = document.getElementById('btnBatchMust');
-const btnBatchShould = document.getElementById('btnBatchShould');
 const btnBatchOnDemand = document.getElementById('btnBatchOnDemand');
 const btnBatchDrop = document.getElementById('btnBatchDrop');
 const btnBatchReset = document.getElementById('btnBatchReset');
 const btnBatchReady = document.getElementById('btnBatchReady');
-const btnBatchConfig = document.getElementById('btnBatchConfig');
-const batchConfigLabel = document.getElementById('batchConfigLabel');
 const btnBatchMerge = document.getElementById('btnBatchMerge');
 const btnBatchDelete = document.getElementById('btnBatchDelete');
 const btnBatchLLM = document.getElementById('btnBatchLLM');
@@ -259,7 +256,6 @@ function renderStats(stats) {
   if (!stats) return;
   document.getElementById('statTotal').innerText = stats.total || 0;
   document.getElementById('statMust').innerText = stats.must || 0;
-  document.getElementById('statShould').innerText = stats.should || 0;
   document.getElementById('statOnDemand').innerText = stats.on_demand || 0;
   document.getElementById('statDrop').innerText = stats.drop || 0;
   document.getElementById('statUnreviewed').innerText = stats.unreviewed || 0;
@@ -273,7 +269,7 @@ function renderMachineTabs(machines) {
   for (const m of machines) {
     const count = softwareList.filter(s => s.machines.some(sm => sm.machine_id === m)).length;
     const displayName = getMachineDisplayName(m);
-    html += `<button class="tab-btn ${activeMachine === m ? 'active' : ''}" data-machine="${m}" title="设备ID: ${m}">${escapeHtml(displayName)} (${count})</button>`;
+    html += `<button class="tab-btn ${activeMachine === m ? 'active' : ''}" data-machine="${m}" title="设备ID: ${m}">${machineDeviceIcon(m)}${escapeHtml(displayName)} (${count})</button>`;
   }
   machineTabs.innerHTML = html;
 }
@@ -320,8 +316,9 @@ function getFilteredSoftware() {
       const verMatch = (item.version || '').toLowerCase().includes(query);
       const urlMatch = (item.download_url || '').toLowerCase().includes(query);
       const notesMatch = (item.config_notes || '').toLowerCase().includes(query);
+      const idMatch = (item.id || '').toLowerCase().includes(query);
       const pathMatch = item.machines.some(m => (m.install_location || m.path || '').toLowerCase().includes(query));
-      if (!nameMatch && !verMatch && !urlMatch && !notesMatch && !pathMatch) return false;
+      if (!nameMatch && !verMatch && !urlMatch && !notesMatch && !idMatch && !pathMatch) return false;
     }
 
     return true;
@@ -383,7 +380,6 @@ function buildRowHtml(item) {
       <td>
         <select class="badge-select ${intentClass}" data-field="restore_intent" data-id="${item.id}">
           <option value="must" ${item.restore_intent === 'must' ? 'selected' : ''}>必须恢复</option>
-          <option value="should" ${item.restore_intent === 'should' ? 'selected' : ''}>建议恢复</option>
           <option value="on_demand" ${item.restore_intent === 'on_demand' ? 'selected' : ''}>用到再装</option>
           <option value="drop" ${item.restore_intent === 'drop' ? 'selected' : ''}>淘汰弃用</option>
           <option value="unreviewed" ${(!item.restore_intent || item.restore_intent === 'unreviewed') ? 'selected' : ''}>待确认</option>
@@ -444,10 +440,6 @@ function updateBatchBar() {
   if (selectedIds.size > 0) {
     batchBar.classList.add('show');
     batchInfo.innerText = `已选 ${selectedIds.size} 项`;
-    const items = softwareList.filter(s => selectedIds.has(s.id));
-    const allHaveConfig = items.length > 0 && items.every(s => s.has_config);
-    if (batchConfigLabel) batchConfigLabel.innerText = allHaveConfig ? '设为无配置' : '设为有配置';
-    if (btnBatchConfig) btnBatchConfig.title = allHaveConfig ? '快捷键: 7 (批量标记为无配置)' : '快捷键: 7 (批量标记为有配置)';
   } else {
     batchBar.classList.remove('show');
   }
@@ -511,8 +503,8 @@ function bindKeyboardShortcuts() {
           return;
         }
 
-        // 数字键 1~5 快速切换当前卡片意愿
-        const drawerIntentMap = { '1': 'must', '2': 'should', '3': 'on_demand', '4': 'drop', '5': 'unreviewed' };
+        // 数字键 1~4 快速切换当前卡片意愿
+        const drawerIntentMap = { '1': 'must', '2': 'on_demand', '3': 'drop', '4': 'unreviewed' };
         if (drawerIntentMap[e.key]) {
           e.preventDefault();
           const targetIntent = drawerIntentMap[e.key];
@@ -525,8 +517,8 @@ function bindKeyboardShortcuts() {
           return;
         }
 
-        // 6 键快速切换准备就绪状态
-        if (e.key === '6') {
+        // 5 键快速切换准备就绪状态
+        if (e.key === '5') {
           e.preventDefault();
           const prepEl = document.getElementById('drawerPrepStatus');
           const nextPrep = prepEl.value === 'ready' ? 'todo' : 'ready';
@@ -569,32 +561,25 @@ function bindKeyboardShortcuts() {
       showToast(`已标记选中的 ${selectedIds.size} 项为 必须恢复`, 'success');
     } else if (key === '2' || code === 'Digit2' || code === 'Numpad2') {
       e.preventDefault();
-      batchUpdate({ restore_intent: 'should' });
-      showToast(`已标记选中的 ${selectedIds.size} 项为 建议恢复`, 'info');
-    } else if (key === '3' || code === 'Digit3' || code === 'Numpad3') {
-      e.preventDefault();
       batchUpdate({ restore_intent: 'on_demand' });
       showToast(`已标记选中的 ${selectedIds.size} 项为 用到再装`, 'info');
-    } else if (key === '4' || code === 'Digit4' || code === 'Numpad4') {
+    } else if (key === '3' || code === 'Digit3' || code === 'Numpad3') {
       e.preventDefault();
       batchUpdate({ restore_intent: 'drop' });
       showToast(`已标记选中的 ${selectedIds.size} 项为 淘汰弃用`, 'warning');
-    } else if (key === '5' || code === 'Digit5' || code === 'Numpad5') {
-      e.preventDefault();
-      batchResetDefault();
-    } else if (key === '6' || code === 'Digit6' || code === 'Numpad6') {
+    } else if (key === '4' || code === 'Digit4' || code === 'Numpad4') {
       e.preventDefault();
       batchUpdate({ prep_status: 'ready' });
       showToast(`已标记选中的 ${selectedIds.size} 项为 已就绪`, 'success');
-    } else if (key === '7' || code === 'Digit7' || code === 'Numpad7') {
-      e.preventDefault();
-      batchConfigToggle();
-    } else if (key === '8' || code === 'Digit8' || code === 'Numpad8') {
+    } else if (key === '5' || code === 'Digit5' || code === 'Numpad5') {
       e.preventDefault();
       handleBatchLLM();
-    } else if (key === '9' || code === 'Digit9' || code === 'Numpad9') {
+    } else if (key === '6' || code === 'Digit6' || code === 'Numpad6') {
       e.preventDefault();
       batchMerge();
+    } else if (key === '7' || code === 'Digit7' || code === 'Numpad7') {
+      e.preventDefault();
+      batchResetDefault();
     } else if (key === 'Escape') {
       e.preventDefault();
       selectedIds.clear();
@@ -700,6 +685,8 @@ async function performDrawerAutoSave() {
   };
 
   Object.assign(activeItem, updates);
+  // 改名可能引入/消除同名条目，实时刷新合并入口。
+  renderDrawerMergeBlock();
   const titleEl = document.getElementById('drawerTitle');
   if (titleEl) titleEl.innerText = activeItem.name;
 
@@ -707,7 +694,7 @@ async function performDrawerAutoSave() {
     await fetch('/api/software/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: activeItem.id, updates })
+      body: JSON.stringify({ uuid: activeItem.uuid, updates })
     });
     renderTable();
     await fetchStatus();
@@ -727,6 +714,154 @@ function flushDrawerSave() {
 }
 
 // 侧边抽屉管理
+// ---------------------------------------------------------------------------
+// 同名条目合并（主页抽屉入口）
+// 锚点 = 当前抽屉条目；谓词与后端 find_known 对齐：名称去空白 + 小写后相等。
+// ---------------------------------------------------------------------------
+
+const MERGE_INTENT_LABEL = {
+  must: '必须恢复', on_demand: '用到再装',
+  drop: '淘汰弃用', unreviewed: '待确认'
+};
+
+function sameNameKey(name) {
+  return (name || '').trim().toLowerCase();
+}
+
+function findSameNameItems(item) {
+  if (!item) return [];
+  const key = sameNameKey(item.name);
+  if (!key) return [];
+  return softwareList.filter(s => s.id !== item.id && sameNameKey(s.name) === key);
+}
+
+// 是否带有非默认评档（合并后会被丢弃，需弹窗确认）
+function hasNonDefaultDecision(item) {
+  if (!item) return false;
+  const intent = item.restore_intent || 'unreviewed';
+  const strategy = item.backup_strategy || 'none';
+  const prep = item.prep_status || 'todo';
+  return intent !== 'unreviewed' || strategy !== 'none' || prep === 'ready' || !!item.is_awesome;
+}
+
+function decisionSummary(item) {
+  const parts = ['意愿: ' + (MERGE_INTENT_LABEL[item.restore_intent || 'unreviewed'] || '待确认')];
+  const strategy = item.backup_strategy || 'none';
+  if (strategy !== 'none') {
+    const sm = { copy_dir: '保留/压缩目录', redownload: '重新下载', sync_account: '账号同步' };
+    parts.push('处置: ' + (sm[strategy] || strategy));
+  }
+  if ((item.prep_status || 'todo') === 'ready') parts.push('已就绪');
+  if (item.has_config) parts.push('有配置');
+  if (item.is_awesome) parts.push('精选');
+  return parts.join(' · ');
+}
+
+function renderDrawerMergeBlock() {
+  const block = document.getElementById('drawerMergeBlock');
+  const list = document.getElementById('drawerMergeList');
+  if (!block || !list) return;
+  block.style.display = 'none';
+  list.innerHTML = '';
+
+  const items = findSameNameItems(activeItem);
+  if (items.length === 0) return;
+
+  block.style.display = '';
+  const count = document.getElementById('drawerMergeCount');
+  if (count) count.innerText = String(items.length);
+  list.innerHTML = items.map(s => {
+    const machineChipsHtml = machineChips(s.machines, m => getMachineDisplayName(m.machine_id));
+    const path = (s.machines || []).map(m => m.install_location || m.path).find(Boolean) || '';
+    const version = (s.version || '').trim();
+    const conflict = hasNonDefaultDecision(s);
+    const intent = MERGE_INTENT_LABEL[s.restore_intent || 'unreviewed'] || '待确认';
+    return `
+      <div class="merge-item">
+        <div class="merge-item-info">
+          <div class="merge-item-title">
+            <span class="merge-item-name">${escapeHtml(s.name)}</span>
+            <span class="merge-item-id">${escapeHtml(s.id)}</span>
+          </div>
+          <div class="merge-item-meta">${machineChipsHtml} · ${escapeHtml(s.type || 'desktop')}${version ? ` · v${escapeHtml(version)}` : ''} · 意愿: ${escapeHtml(intent)}${conflict ? '<span class="merge-item-warn">已评档</span>' : ''}</div>
+          ${path ? `<div class="merge-item-path" title="${escapeHtml(path)}">${escapeHtml(path)}</div>` : ''}
+        </div>
+        <button class="btn btn-secondary btn-sm" type="button" data-action="merge-one" data-id="${escapeHtml(s.id)}">并入</button>
+      </div>`;
+  }).join('');
+}
+
+// 把选中的同名条目并入当前抽屉条目（锚点）。
+async function mergeIntoSelf(sourceIds) {
+  if (!activeItem || !sourceIds || sourceIds.length === 0) return;
+  const sources = sourceIds.map(id => softwareList.find(s => s.id === id)).filter(Boolean);
+  if (sources.length === 0) return;
+
+  const conflicts = sources.filter(hasNonDefaultDecision);
+  if (conflicts.length > 0) {
+    const ok = await confirmMergeConflicts(conflicts);
+    if (!ok) return;
+  }
+
+  const targetId = activeItem.id;
+  const targetUuid = activeItem.uuid;
+  const mergeUuids = sources.map(s => s.uuid);
+  // 抽屉编辑为防抖自动保存，合并前先落盘，避免读旧 software.json 导致评档回退。
+  if (pendingDrawerSave) {
+    clearTimeout(autoSaveTimer);
+    await performDrawerAutoSave();
+  }
+  const targetName = activeItem ? activeItem.name : '';
+
+  try {
+    const res = await fetch('/api/software/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUuid, mergeUuids })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      showToast(data.message || '合并失败', 'error');
+      return;
+    }
+    showToast(`已将 ${mergeUuids.length} 项合并至【${targetName}】`, 'success');
+    await loadSoftware();
+    openDrawer(targetId);
+  } catch (e) {
+    showToast('合并请求异常: ' + e.message, 'error');
+  }
+}
+
+function confirmMergeConflicts(conflicts) {
+  const modal = document.getElementById('mergeConfirmModal');
+  if (!modal) return Promise.resolve(true);
+  const listEl = document.getElementById('mergeConfirmList');
+  if (listEl) {
+    listEl.innerHTML = conflicts.map(s => `
+      <div class="merge-confirm-item">
+        <div class="name">${escapeHtml(s.name)} <span class="merge-item-id">${escapeHtml(s.id)}</span></div>
+        <div class="detail">${escapeHtml(decisionSummary(s))}</div>
+      </div>`).join('');
+  }
+  modal.classList.add('show');
+  return new Promise(resolve => {
+    const done = (result) => {
+      modal.classList.remove('show');
+      modal.removeEventListener('click', onClick);
+      window.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    };
+    const onClick = (e) => {
+      if (e.target === modal) return done(false);
+      if (e.target.closest('#btnMergeConfirm')) return done(true);
+      if (e.target.closest('#btnMergeCancel') || e.target.closest('#btnMergeCancelX')) return done(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    modal.addEventListener('click', onClick);
+    window.addEventListener('keydown', onKey, true);
+  });
+}
+
 function openDrawer(id) {
   flushDrawerSave();
   activeItem = softwareList.find(s => s.id === id);
@@ -746,7 +881,7 @@ function openDrawer(id) {
   document.getElementById('drawerType').value = activeItem.type || 'desktop';
   renderDrawerPrepToggle(activeItem.prep_status || 'todo');
   renderDrawerHasConfigToggle(activeItem.has_config);
-  if (drawerVault) drawerVault.setTarget(activeItem.id);
+  if (drawerVault) drawerVault.setTarget(activeItem.uuid);
   if (window.DeleteConfirm) window.DeleteConfirm.disarmAll();
   document.getElementById('drawerUrl').value = activeItem.download_url || '';
 
@@ -781,13 +916,15 @@ function openDrawer(id) {
   listEl.innerHTML = activeItem.machines.map(m => `
     <div class="machine-item-card">
       <div style="font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 5px;">
-        ${ICONS.device} ${escapeHtml(getMachineDisplayName(m.machine_id))} <span class="machine-raw-tag">(${m.machine_id}) · ${m.form}</span>
+        <span class="machine-icon" style="--mc:${machineColor(m.machine_id)}">${ICONS.device}</span> ${escapeHtml(getMachineDisplayName(m.machine_id))} <span class="machine-raw-tag">${m.form}</span>
       </div>
       <div>路径: <code>${m.install_location || m.path || '未记录路径'}</code></div>
       ${m.version ? `<div>版本: <code>${m.version}</code></div>` : ''}
       ${m.publisher ? `<div>发布者: ${m.publisher}</div>` : ''}
     </div>
   `).join('') || '<div style="color: var(--ink-3)">暂无关联机器信息</div>';
+
+  renderDrawerMergeBlock();
 
   sideDrawer.classList.add('show');
   drawerOverlay.classList.add('show');
@@ -804,11 +941,12 @@ async function deleteCurrentItem() {
   if (!activeItem) return;
   const name = activeItem.name;
   const id = activeItem.id;
+  const uuid = activeItem.uuid;
   softwareList = softwareList.filter(s => s.id !== id);
   await fetch('/api/software/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: [id] })
+    body: JSON.stringify({ ids: [uuid] })
   });
 
   closeDrawer();
@@ -1065,17 +1203,19 @@ function bindEvents() {
     });
   }
 
-  // 折叠展开机器证据
-  const evidenceHeader = document.getElementById('evidenceHeader');
-  if (evidenceHeader) {
-    evidenceHeader.addEventListener('click', () => {
-      const list = document.getElementById('drawerMachinesList');
-      const icon = document.getElementById('evidenceToggleIcon');
-      if (list) {
-        const isHidden = list.style.display === 'none';
-        list.style.display = isHidden ? 'flex' : 'none';
-        if (icon) icon.innerText = isHidden ? '▼' : '▶';
-      }
+  // 同名条目合并：逐条「并入」与「全部并入」
+  const drawerMergeList = document.getElementById('drawerMergeList');
+  if (drawerMergeList) {
+    drawerMergeList.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action="merge-one"]');
+      if (!btn) return;
+      mergeIntoSelf([btn.dataset.id]);
+    });
+  }
+  const drawerMergeAll = document.getElementById('drawerMergeAll');
+  if (drawerMergeAll) {
+    drawerMergeAll.addEventListener('click', () => {
+      mergeIntoSelf(findSameNameItems(activeItem).map(s => s.id));
     });
   }
 
@@ -1107,10 +1247,6 @@ function bindEvents() {
     batchUpdate({ restore_intent: 'must' });
     showToast('已设为必须恢复', 'success');
   });
-  btnBatchShould.addEventListener('click', () => {
-    batchUpdate({ restore_intent: 'should' });
-    showToast('已设为建议恢复', 'info');
-  });
   if (btnBatchOnDemand) {
     btnBatchOnDemand.addEventListener('click', () => {
       batchUpdate({ restore_intent: 'on_demand' });
@@ -1126,7 +1262,6 @@ function bindEvents() {
     batchUpdate({ prep_status: 'ready' });
     showToast('已标记为已就绪', 'success');
   });
-  btnBatchConfig.addEventListener('click', batchConfigToggle);
   if (window.DeleteConfirm) window.DeleteConfirm.register(btnBatchDelete, executeBatchDelete);
   btnBatchMerge.addEventListener('click', batchMerge);
   btnBatchLLM.addEventListener('click', handleBatchLLM);
@@ -1210,7 +1345,7 @@ async function updateItemField(id, updates) {
     await fetch('/api/software/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, updates })
+      body: JSON.stringify({ uuid: item ? item.uuid : '', updates })
     });
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
@@ -1220,7 +1355,7 @@ async function updateItemField(id, updates) {
 // 批量修改
 async function batchUpdate(updates) {
   if (selectedIds.size === 0) return;
-  const ids = Array.from(selectedIds);
+  const ids = softwareList.filter(s => selectedIds.has(s.id)).map(s => s.uuid);
 
   // 意愿变更会由后端按形态推导处置方式，本地不能只套用 updates，否则下拉会不同步。
   const derivesStrategy = updates.restore_intent && !updates.backup_strategy;
@@ -1244,16 +1379,6 @@ async function batchUpdate(updates) {
   updateBatchBar();
 }
 
-// 批量切换有无配置：若选中项已全部有配置则清空，否则统一标记为有配置
-function batchConfigToggle() {
-  if (selectedIds.size === 0) return;
-  const items = softwareList.filter(s => selectedIds.has(s.id));
-  const allHaveConfig = items.length > 0 && items.every(s => s.has_config);
-  const next = !allHaveConfig;
-  batchUpdate({ has_config: next });
-  showToast(`已将 ${items.length} 项标记为「${next ? '有配置' : '无配置'}」`, 'info');
-}
-
 // 恢复默认 / 重置
 function batchResetDefault() {
   if (selectedIds.size === 0) return;
@@ -1273,7 +1398,7 @@ function batchResetDefault() {
 async function executeBatchDelete() {
   if (selectedIds.size === 0) return;
   const count = selectedIds.size;
-  const ids = Array.from(selectedIds);
+  const ids = softwareList.filter(s => selectedIds.has(s.id)).map(s => s.uuid);
   softwareList = softwareList.filter(s => !selectedIds.has(s.id));
 
   await fetch('/api/software/delete', {
@@ -1294,22 +1419,24 @@ async function batchMerge() {
     showToast('请勾选至少两项要合并的软件条目', 'warning');
     return;
   }
-  const ids = Array.from(selectedIds);
-  const targetId = ids[0];
-  const mergeIds = ids.slice(1);
-  const targetItem = softwareList.find(s => s.id === targetId);
+  const items = Array.from(selectedIds)
+    .map(id => softwareList.find(s => s.id === id))
+    .filter(Boolean);
+  const targetItem = items[0];
+  const targetUuid = targetItem.uuid;
+  const mergeUuids = items.slice(1).map(s => s.uuid);
 
   const res = await fetch('/api/software/merge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ targetId, mergeIds })
+    body: JSON.stringify({ targetUuid, mergeUuids })
   });
   const data = await res.json();
   if (data.success) {
     selectedIds.clear();
     await loadSoftware();
     await fetchStatus();
-    showToast(`已将 ${mergeIds.length} 项合并至【${targetItem.name}】`, 'success');
+    showToast(`已将 ${mergeUuids.length} 项合并至【${targetItem.name}】`, 'success');
   }
 }
 

@@ -5,6 +5,39 @@
 //   - 只搬运用户手动放入的文件，绝不自动采集敏感内容
 //   - 默认收起，点 pill 就地展开；也可无 pill，由外部调 expand()
 //   - 保存 / 删除用与全站一致的线性图标，文件名完整显示不截断
+
+// ---------- 机器配色（全局，供主页/卡片/浏览器页共用） ----------
+// 每台机器按 machine_id 哈希到固定色相，同一台机器到哪都是同一个颜色。
+function machineColor(id) {
+  const s = String(id == null ? '' : id);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 62% 48%)`;
+}
+
+function machineChipDot(id) {
+  return `<i class="machine-chip-dot" style="--mc:${machineColor(id)}"></i>`;
+}
+
+// 带机器色的电脑图标（页签等需要机器标识的地方用）。
+function machineDeviceIcon(id) {
+  return `<span class="machine-icon" style="--mc:${machineColor(id)}"><svg class="i sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>`;
+}
+
+// 把 [{machine_id,...}] 渲染成带色标签；labelOf(machine) 决定显示名。
+function machineChips(machines, labelOf) {
+  const list = machines || [];
+  if (!list.length) return '<span class="machine-chip-none">无机器记录</span>';
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+  return list.map((m) => {
+    const id = typeof m === 'string' ? m : (m.machine_id || '');
+    const label = typeof m === 'string' ? m : (labelOf ? labelOf(m) : (m.machine_id || ''));
+    return `<span class="machine-chip" style="--mc:${machineColor(id)}">${machineChipDot(id)}${esc(label)}</span>`;
+  }).join('');
+}
+
 (function () {
   const $ = (id) => document.getElementById(id);
 
@@ -44,7 +77,6 @@
     const kind = opts.kind;
     let id = opts.id || null;
     let files = [];
-    let machine = '';
     let dropOff = null;
 
     function setExpanded(expanded) {
@@ -61,9 +93,8 @@
 
     function renderSub() {
       if (!subEl) return;
-      subEl.textContent = machine
-        ? `data/vault/${machine}/${kind}/${id || ''}/`
-        : '';
+      // 归档目录以实体 uuid 为键，不再分主机名。
+      subEl.textContent = id ? `data/vault/${kind}/${id}/` : '';
     }
 
     function render() {
@@ -90,7 +121,6 @@
       try {
         const res = await api('/api/vault/list', { kind, id });
         files = (res && res.files) || [];
-        machine = (res && res.machine) || machine;
       } catch (e) {
         files = [];
       }

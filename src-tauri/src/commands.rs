@@ -25,10 +25,10 @@ fn item_is_portable(item: &Value) -> bool {
 }
 
 /// 依据恢复意愿 + 形态推导处置方式：
-/// 必须/建议恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
+/// 必须恢复 → 绿色版压缩目录、安装版重新下载；其余 → 无需操作。
 fn derive_strategy(intent: &str, portable: bool) -> &'static str {
     match intent {
-        "must" | "should" => {
+        "must" => {
             if portable {
                 "copy_dir"
             } else {
@@ -148,7 +148,6 @@ pub fn get_status() -> Value {
     let stats = json!({
         "total": software.len(),
         "must": count(&|s| as_str(s, "restore_intent") == "must"),
-        "should": count(&|s| as_str(s, "restore_intent") == "should"),
         "on_demand": count(&|s| as_str(s, "restore_intent") == "on_demand"),
         "drop": count(&|s| as_str(s, "restore_intent") == "drop"),
         "unreviewed": count(&|s| {
@@ -156,10 +155,7 @@ pub fn get_status() -> Value {
             i.is_empty() || i == "unreviewed"
         }),
         "awesome": count(&|s| s.get("is_awesome").and_then(|v| v.as_bool()).unwrap_or(false)),
-        "backupTasks": count(&|s| {
-            let st = as_str(s, "backup_strategy");
-            st == "copy_dir" || st == "copy_config"
-        }),
+        "backupTasks": count(&|s| as_str(s, "backup_strategy") == "copy_dir"),
         "ready": count(&|s| as_str(s, "prep_status") == "ready")
     });
 
@@ -251,7 +247,11 @@ pub fn get_dev_env() -> Value {
 #[tauri::command]
 pub fn get_browser_extensions() -> Value {
     let root = store::evidence_dir();
-    let user_map = store::read_extensions();
+    // 用户层：扩展 / 浏览器均按 uuid 存，匹配键内嵌。重扫时据此把 uuid 认回来。
+    let mut ext_map = store::read_extensions();
+    let mut browser_map = store::read_browsers();
+    let mut ext_changed = false;
+    let mut browser_changed = false;
     let mut machines: Vec<Value> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&root) {
         for entry in entries.flatten() {
@@ -265,26 +265,46 @@ pub fn get_browser_extensions() -> Value {
             }
             let data = store::read_json(&file);
             let mut browsers = data.get("browsers").cloned().unwrap_or(json!([]));
-            // 注入用户层字段（备注 / 保留意愿 / 就绪 / 精选，按扩展 ID），重扫不丢失
-            if let (Value::Array(bs), Value::Object(users)) = (&mut browsers, &user_map) {
+            if let Value::Array(bs) = &mut browsers {
                 for b in bs.iter_mut() {
-                    if let Some(profiles) = b.get_mut("profiles").and_then(|p| p.as_array_mut()) {
-                        for p in profiles.iter_mut() {
-                            if let Some(exts) = p.get_mut("extensions").and_then(|e| e.as_array_mut()) {
-                                for ext in exts.iter_mut() {
-                                    if let Some(obj) = ext.as_object_mut() {
-                                        let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                        if let Some(user) = users.get(&id).and_then(|v| v.as_object()) {
-                                            for (k, v) in user {
-                                                if k != "updated_at" {
-                                                    obj.insert(k.clone(), v.clone());
-                                                }
-                                            }
-                                        }
-                                        obj.insert("vault_count".to_string(), json!(vault_file_count("ext", &id)));
+                    let browser_id = b
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| b.get("label").and_then(|v| v.as_str()))
+                        .unwrap_or("")
+                        .to_string();
+                    let (browser_uuid, created) = resolve_browser_uuid(&mut browser_map, &browser_id);
+                    browser_changed |= created;
+                    if let Some(obj) = b.as_object_mut() {
+                        obj.insert("uuid".to_string(), json!(browser_uuid));
+                    }
+                    let Some(profiles) = b.get_mut("profiles").and_then(|p| p.as_array_mut()) else {
+                        continue;
+                    };
+                    for p in profiles.iter_mut() {
+                        let profile = p.get("profile").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let Some(exts) = p.get_mut("extensions").and_then(|e| e.as_array_mut()) else {
+                            continue;
+                        };
+                        for ext in exts.iter_mut() {
+                            let Some(obj) = ext.as_object_mut() else {
+                                continue;
+                            };
+                            let ext_id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let (uuid, created) =
+                                resolve_ext_uuid(&mut ext_map, &browser_id, &profile, &ext_id);
+                            ext_changed |= created;
+                            // 注入用户层字段（备注 / 保留意愿 / 就绪 / 精选），重扫不丢失
+                            if let Some(user) = ext_map.get(uuid.as_str()).and_then(|v| v.as_object()) {
+                                for (k, v) in user {
+                                    if matches!(k.as_str(), "updated_at" | "browser_id" | "profile" | "ext_id") {
+                                        continue;
                                     }
+                                    obj.insert(k.clone(), v.clone());
                                 }
                             }
+                            obj.insert("uuid".to_string(), json!(uuid.clone()));
+                            obj.insert("vault_count".to_string(), json!(vault_file_count("ext", &uuid)));
                         }
                     }
                 }
@@ -303,6 +323,12 @@ pub fn get_browser_extensions() -> Value {
                 "browsers": browsers,
             }));
         }
+    }
+    if ext_changed {
+        store::write_extensions(&ext_map);
+    }
+    if browser_changed {
+        store::write_browsers(&browser_map);
     }
     machines.sort_by(|a, b| as_str(a, "machine_id").cmp(&as_str(b, "machine_id")));
     json!({ "success": true, "machines": machines, "vault_machine": current_machine() })
@@ -336,11 +362,86 @@ fn safe_component(raw: &str) -> String {
     }
 }
 
+/// 保管箱目录：`data/vault/<kind>/<uuid>/`（不再分主机名，data 不追求人类可读）。
+/// `id` 参数一律是实体的 uuid（软件 / 扩展 / 浏览器）。
 fn vault_target_dir(kind: &str, id: &str) -> PathBuf {
     store::vault_dir()
-        .join(current_machine())
         .join(safe_component(kind))
         .join(safe_component(id))
+}
+
+/// 把文件/目录移入垃圾桶（软删除）：单独放进 `trash/<stamp>-<rand>/`，
+/// 并用 `meta.json` 记下原始相对路径，恢复时精确还原。同盘 rename；
+/// 失败则回滚、原样保留，绝不销毁。
+fn move_to_trash(src: &std::path::Path, original_rel: &str) -> bool {
+    if !src.exists() {
+        return true;
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d%H%M%S");
+    let rand = store::new_uuid();
+    let slot = store::trash_dir().join(format!("{}-{}", stamp, &rand[..8.min(rand.len())]));
+    if std::fs::create_dir_all(&slot).is_err() {
+        return false;
+    }
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let meta = json!({ "original": original_rel, "name": name });
+    let _ = std::fs::write(
+        slot.join("meta.json"),
+        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+    );
+    if std::fs::rename(src, slot.join(&name)).is_ok() {
+        true
+    } else {
+        let _ = std::fs::remove_dir_all(&slot);
+        false
+    }
+}
+
+/// 按 `(browser_id, profile, ext_id)` 在扩展用户层里认回 uuid；认不到才铸新。
+/// 返回 (uuid, 是否新建)。扩展 ID 只在单个浏览器内唯一，必须带上浏览器维度。
+fn resolve_ext_uuid(
+    map: &mut Value,
+    browser_id: &str,
+    profile: &str,
+    ext_id: &str,
+) -> (String, bool) {
+    if let Some(root) = map.as_object() {
+        for (uuid, v) in root {
+            if v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id
+                && v.get("profile").and_then(|x| x.as_str()).unwrap_or("") == profile
+                && v.get("ext_id").and_then(|x| x.as_str()).unwrap_or("") == ext_id
+            {
+                return (uuid.clone(), false);
+            }
+        }
+    }
+    let uuid = store::new_uuid();
+    if let Some(root) = map.as_object_mut() {
+        root.insert(
+            uuid.clone(),
+            json!({ "browser_id": browser_id, "profile": profile, "ext_id": ext_id }),
+        );
+    }
+    (uuid, true)
+}
+
+/// 按 `browser_id` 在浏览器用户层里认回 uuid；认不到才铸新。返回 (uuid, 是否新建)。
+fn resolve_browser_uuid(map: &mut Value, browser_id: &str) -> (String, bool) {
+    if let Some(root) = map.as_object() {
+        for (uuid, v) in root {
+            if v.get("browser_id").and_then(|x| x.as_str()).unwrap_or("") == browser_id {
+                return (uuid.clone(), false);
+            }
+        }
+    }
+    let uuid = store::new_uuid();
+    if let Some(root) = map.as_object_mut() {
+        root.insert(uuid.clone(), json!({ "browser_id": browser_id }));
+    }
+    (uuid, true)
 }
 
 /// 统计某保管箱目录下的文件数量（用于表格上的附件角标）。
@@ -379,23 +480,28 @@ pub fn vault_list(kind: String, id: String) -> Value {
     json!({ "success": true, "machine": machine, "files": files })
 }
 
-/// 保存某条扩展的用户层字段（data/extensions.json，按扩展 ID 持久化）。
+/// 保存某条扩展的用户层字段（data/extensions.json，按 uuid 持久化）。
+/// 前端只给 `(browser_id, profile, ext_id)` 匹配键，uuid 由后端认回 / 铸新。
 /// 传入的字段会与已有字段合并（不覆盖未提及的键）。
 #[tauri::command]
-pub fn update_extension(id: String, fields: Value) -> Value {
-    if id.is_empty() {
+pub fn update_extension(payload: Value) -> Value {
+    let browser_id = as_str(&payload, "browser_id");
+    let profile = as_str(&payload, "profile");
+    let ext_id = as_str(&payload, "ext_id");
+    if ext_id.is_empty() {
         return json!({ "success": false, "error": "缺少扩展 ID" });
     }
-    let Value::Object(incoming) = fields else {
+    let Value::Object(incoming) = payload.get("fields").cloned().unwrap_or(json!({})) else {
         return json!({ "success": false, "error": "字段格式错误" });
     };
     let mut map = store::read_extensions();
+    let (uuid, _) = resolve_ext_uuid(&mut map, &browser_id, &profile, &ext_id);
     let now = chrono::DateTime::<chrono::Local>::from(std::time::SystemTime::now()).to_rfc3339();
     {
         let Some(root) = map.as_object_mut() else {
             return json!({ "success": false, "error": "标注存储损坏" });
         };
-        let entry = root.entry(id).or_insert_with(|| json!({}));
+        let entry = root.entry(uuid.clone()).or_insert_with(|| json!({}));
         let Some(eobj) = entry.as_object_mut() else {
             return json!({ "success": false, "error": "标注存储损坏" });
         };
@@ -404,10 +510,13 @@ pub fn update_extension(id: String, fields: Value) -> Value {
                 eobj.insert(k, v);
             }
         }
+        eobj.insert("browser_id".to_string(), json!(browser_id));
+        eobj.insert("profile".to_string(), json!(profile));
+        eobj.insert("ext_id".to_string(), json!(ext_id));
         eobj.insert("updated_at".to_string(), json!(now));
     }
     store::write_extensions(&map);
-    json!({ "success": true })
+    json!({ "success": true, "uuid": uuid })
 }
 
 #[tauri::command]
@@ -470,14 +579,14 @@ pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Val
 
 #[tauri::command]
 pub fn update_software(payload: Value) -> Value {
-    let id = as_str(&payload, "id");
+    let uuid = as_str(&payload, "uuid");
     let updates = payload.get("updates").cloned().unwrap_or(json!({}));
+    if uuid.is_empty() {
+        return json!({ "success": false, "message": "Item not found" });
+    }
     let mut software = store::read_software();
 
-    let Some(idx) = software
-        .iter()
-        .position(|s| as_str(s, "id") == id)
-    else {
+    let Some(idx) = software.iter().position(|s| as_str(s, "uuid") == uuid) else {
         return json!({ "success": false, "message": "Item not found" });
     };
 
@@ -504,7 +613,7 @@ pub fn batch_update(payload: Value) -> Value {
     let mut software = store::read_software();
     let mut count = 0;
     for item in software.iter_mut() {
-        if ids.contains(&as_str(item, "id")) {
+        if ids.iter().any(|k| as_str(item, "uuid") == *k) {
             if let (Value::Object(obj), Value::Object(upd)) = (&mut *item, &updates) {
                 for (k, v) in upd {
                     obj.insert(k.clone(), v.clone());
@@ -529,11 +638,15 @@ pub fn delete_software(payload: Value) -> Value {
     let mut software = store::read_software();
     let mut ignored = store::read_ignored();
 
+    // 按 uuid 定位待删条目
+    let doomed: Vec<Value> = ids
+        .iter()
+        .filter_map(|k| software.iter().find(|s| as_str(s, "uuid") == *k).cloned())
+        .collect();
+    let doomed_uuids: Vec<String> = doomed.iter().map(|s| as_str(s, "uuid")).collect();
+
     // 删除即为墓碑：记录规范化名称与路径，重扫时默认不勾选，避免垃圾复活。
-    for id in &ids {
-        let Some(item) = software.iter().find(|s| as_str(s, "id") == *id) else {
-            continue;
-        };
+    for item in &doomed {
         let name = as_str(item, "name");
         let key = name.to_lowercase().trim().to_string();
         let mut paths: Vec<String> = Vec::new();
@@ -564,26 +677,22 @@ pub fn delete_software(payload: Value) -> Value {
         }
     }
 
-    // 先记下待删条目引用的图标文件（删后条目就找不到了）
-    let icon_files: Vec<String> = ids
-        .iter()
-        .filter_map(|id| software.iter().find(|s| as_str(s, "id") == *id))
-        .map(|s| as_str(s, "icon_file"))
-        .filter(|f| !f.is_empty())
-        .collect();
+    software.retain(|s| !doomed_uuids.contains(&as_str(s, "uuid")));
 
-    software.retain(|s| !ids.contains(&as_str(s, "id")));
-    // 级联清理该软件的配置归档与图标，不留孤儿文件
-    for id in &ids {
-        let _ = std::fs::remove_dir_all(vault_target_dir("soft", id));
-    }
-    for f in &icon_files {
-        // 若该文件仍被其余条目引用则保留（防共用文件被误删）
-        let used = software.iter().any(|s| as_str(s, "icon_file") == *f);
-        if !used {
-            let _ = std::fs::remove_file(store::icons_dir().join(safe_component(f)));
+    // 软删除归档：整个 `data/vault/soft/<uuid>/` 移入垃圾桶，绝不当场抹掉。
+    // 图标每条记录一个（`<uuid>.png`），体积可忽略，直接删。
+    for uuid in &doomed_uuids {
+        if !uuid.is_empty() {
+            let _ = move_to_trash(
+                &vault_target_dir("soft", uuid),
+                &format!("vault/soft/{}", safe_component(uuid)),
+            );
+            let _ = std::fs::remove_file(
+                store::icons_dir().join(format!("{}.png", safe_component(uuid))),
+            );
         }
     }
+
     store::write_software(&software);
     store::write_ignored(&ignored);
     json!({ "success": true, "remaining": software.len() })
@@ -615,7 +724,7 @@ pub fn batch_add(payload: Value) -> Value {
         .max()
         .unwrap_or(0);
 
-    let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+    let hostname = current_machine();
 
     let mut new_items: Vec<Value> = Vec::new();
     for raw_name in names {
@@ -626,6 +735,7 @@ pub fn batch_add(payload: Value) -> Value {
         current_id += 1;
         let item = json!({
             "id": format!("SW-{:03}", current_id),
+            "uuid": store::new_uuid(),
             "name": clean,
             "version": "",
             "category": "系统工具",
@@ -652,45 +762,59 @@ pub fn batch_add(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn merge_software(payload: Value) -> Value {
-    let target_id = as_str(&payload, "targetId");
-    let merge_ids: Vec<String> = payload
-        .get("mergeIds")
+    let mut software = store::read_software();
+
+    // 锚点 / 被并项一律按 uuid（内部唯一标识）。
+    let target_uuid = as_str(&payload, "targetUuid");
+    if target_uuid.is_empty() {
+        return json!({ "success": false, "message": "Target not found" });
+    }
+    let merge_uuids: Vec<String> = payload
+        .get("mergeUuids")
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    let mut software = store::read_software();
-    let Some(target_idx) = software.iter().position(|s| as_str(s, "id") == target_id) else {
+    let Some(target_idx) = software.iter().position(|s| as_str(s, "uuid") == target_uuid) else {
         return json!({ "success": false, "message": "Target not found" });
     };
 
     // 收集需要合并的机器与字段
     let merge_items: Vec<Value> = software
         .iter()
-        .filter(|s| merge_ids.contains(&as_str(s, "id")))
+        .filter(|s| merge_uuids.contains(&as_str(s, "uuid")))
         .cloned()
         .collect();
 
     for item in &merge_items {
         if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
             for m in ms {
-                let already = software[target_idx]
-                    .get("machines")
-                    .and_then(|x| x.as_array())
-                    .map(|arr| {
-                        arr.iter().any(|tm| {
-                            as_str(tm, "machine_id") == as_str(m, "machine_id")
-                                && as_str(tm, "install_location") == as_str(m, "install_location")
-                        })
-                    })
-                    .unwrap_or(false);
-                if !already {
-                    if let Some(arr) = software[target_idx]
-                        .get_mut("machines")
-                        .and_then(|x| x.as_array_mut())
-                    {
-                        arr.push(m.clone());
+                let mid = as_str(m, "machine_id");
+                let Some(arr) = software[target_idx]
+                    .get_mut("machines")
+                    .and_then(|x| x.as_array_mut())
+                else {
+                    continue;
+                };
+                // 同一台机器只保留一条：锚点已有则只补齐缺失字段，不再重复追加。
+                if let Some(existing) = arr.iter_mut().find(|tm| as_str(tm, "machine_id") == mid) {
+                    if as_str(existing, "install_location").is_empty() {
+                        let loc = as_str(m, "install_location");
+                        if !loc.is_empty() {
+                            existing["install_location"] = json!(loc);
+                        }
                     }
+                    if as_str(existing, "version").is_empty() {
+                        let v = as_str(m, "version");
+                        if !v.is_empty() {
+                            existing["version"] = json!(v);
+                        }
+                    }
+                    if as_str(m, "form") == "portable" {
+                        existing["form"] = json!("portable");
+                    }
+                } else {
+                    arr.push(m.clone());
                 }
             }
         }
@@ -717,46 +841,70 @@ pub fn merge_software(payload: Value) -> Value {
         }
     }
 
-    // 被合并条目引用的图标
-    let merged_icons: Vec<String> = software
-        .iter()
-        .filter(|s| merge_ids.contains(&as_str(s, "id")))
-        .map(|s| as_str(s, "icon_file"))
-        .filter(|f| !f.is_empty())
-        .collect();
-
-    // 合并结果要留得住图标：target（第一个选中）自己有就保留；
-    // 否则按勾选顺序采用被合并项里第一个可用的图标，避免合并后变成无图标。
+    // 合并结果要留得住图标：锚点自己有就保留；否则从第一个有图标的子项复制过来。
     if as_str(&software[target_idx], "icon_file").is_empty() {
-        for mid in &merge_ids {
-            let f = software
+        for mu in &merge_uuids {
+            let icon = software
                 .iter()
-                .find(|s| as_str(s, "id") == *mid)
+                .find(|s| as_str(s, "uuid") == *mu)
                 .map(|s| as_str(s, "icon_file"))
                 .unwrap_or_default();
-            if !f.is_empty() {
-                software[target_idx]["icon_file"] = json!(f);
+            if !icon.is_empty() {
+                let src = store::icons_dir().join(safe_component(&icon));
+                let dest_file = store::icon_file_name(&target_uuid);
+                let dest = store::icons_dir().join(safe_component(&dest_file));
+                if std::fs::copy(&src, &dest).is_ok() {
+                    software[target_idx]["icon_file"] = json!(dest_file);
+                }
                 break;
             }
         }
     }
 
-    software.retain(|s| !merge_ids.contains(&as_str(s, "id")));
+    software.retain(|s| !merge_uuids.contains(&as_str(s, "uuid")));
 
-    // 清理被合并条目的图标，但不删仍被其余条目引用的文件（防共用文件被误删）
-    let still_used: Vec<String> = software
-        .iter()
-        .map(|s| as_str(s, "icon_file"))
-        .filter(|f| !f.is_empty())
-        .collect();
-    for f in &merged_icons {
-        if !still_used.iter().any(|r| r == f) {
-            let _ = std::fs::remove_file(store::icons_dir().join(safe_component(f)));
+    // 删除被合并条目的图标（每条记录一个，无共享）
+    for mu in &merge_uuids {
+        if !mu.is_empty() {
+            let _ = std::fs::remove_file(
+                store::icons_dir().join(format!("{}.png", safe_component(mu))),
+            );
         }
     }
+
+    // 归档合并：子项文件搬入锚点目录；同名时锚点优先，子项同名文件进垃圾桶。
+    let target_dir = vault_target_dir("soft", &target_uuid);
+    for mu in &merge_uuids {
+        let child_dir = vault_target_dir("soft", mu);
+        if !child_dir.exists() {
+            continue;
+        }
+        let _ = std::fs::create_dir_all(&target_dir);
+        if let Ok(entries) = std::fs::read_dir(&child_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let fname = e.file_name().to_string_lossy().to_string();
+                let dest = target_dir.join(e.file_name());
+                if dest.exists() {
+                    let _ = move_to_trash(
+                        &p,
+                        &format!("vault/soft/{}/{}", safe_component(mu), fname),
+                    );
+                } else {
+                    let _ = std::fs::rename(&p, &dest);
+                }
+            }
+        }
+        // 剩余空目录 / 未处理项整体进垃圾桶
+        let _ = move_to_trash(&child_dir, &format!("vault/soft/{}", safe_component(mu)));
+    }
+
     let target = software
         .iter()
-        .find(|s| as_str(s, "id") == target_id)
+        .find(|s| as_str(s, "uuid") == target_uuid)
         .cloned()
         .unwrap_or(Value::Null);
     store::write_software(&software);
@@ -815,7 +963,7 @@ pub async fn llm_analyze(payload: Value) -> Value {
 枚举约束说明：
 - category: 必须从 [开发工具, 系统工具, 浏览器与网络, 媒体娱乐, 办公与笔记, 通讯与社交, 其他] 中选一个
 - type: 必须从 [desktop, portable, cli, runtime] 中选一个
-- restore_intent: 必须从 [must, should, on_demand, drop] 中选一个
+- restore_intent: 必须从 [must, on_demand, drop] 中选一个
 - download_url: 软件官网或可靠下载页
 - config_notes: 简要说明配置文件通常存放在何处（如 AppData、~/.config 或安装目录），或者是否依赖云同步
 "#
@@ -894,6 +1042,7 @@ fn run_powershell(
     script: &std::path::Path,
     output_dir: &std::path::Path,
     custom_dirs: &str,
+    machine_id: &str,
 ) -> Result<String, String> {
     let mut last_err = String::new();
     for exe in ["pwsh", "powershell"] {
@@ -904,7 +1053,9 @@ fn run_powershell(
             .arg("-File")
             .arg(script)
             .arg("-OutputDir")
-            .arg(output_dir);
+            .arg(output_dir)
+            .arg("-MachineId")
+            .arg(machine_id);
         if !custom_dirs.is_empty() {
             cmd.arg("-CustomPortableDirs").arg(custom_dirs);
         }
@@ -944,7 +1095,8 @@ fn remove_dir_retry(dir: &std::path::Path) {
 /// 采集本机证据到 `data/evidence/<主机名>/`，脚本本身仍在系统临时目录释放执行。
 /// 仅覆盖证据 JSON，保留 `screenshots/`（用户手动放的截图）。
 fn collect_evidence() -> Result<String, String> {
-    let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "UNKNOWN".to_string());
+    // 机器 id 就是主机名（不引入额外稳定标识）。
+    let machine = current_machine();
     let evidence_dir = store::evidence_dir().join(&machine);
     std::fs::create_dir_all(&evidence_dir).map_err(|e| format!("无法创建证据目录: {}", e))?;
 
@@ -982,7 +1134,7 @@ fn collect_evidence() -> Result<String, String> {
         .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
         .unwrap_or_default();
 
-    let result = run_powershell(&script, &evidence_dir, &dirs);
+    let result = run_powershell(&script, &evidence_dir, &dirs, &machine);
     remove_dir_retry(&script_dir);
     result?;
     Ok(machine)
@@ -1010,14 +1162,14 @@ fn fill_known_icons(software: &mut [Value], pending: &Value) -> Vec<(String, Str
         ) else {
             continue;
         };
-        let Some(idx) = software.iter().position(|s| as_str(s, "id") == id) else {
+        let Some(idx) = software.iter().position(|s| as_str(s, "uuid") == id) else {
             continue;
         };
         let existing = as_str(&software[idx], "icon_file");
         if !existing.is_empty() && store::icons_dir().join(safe_component(&existing)).exists() {
             continue;
         }
-        let file = store::icon_file_name(&as_str(&software[idx], "name"));
+        let file = store::icon_file_name(id);
         if let Some(obj) = software[idx].as_object_mut() {
             obj.insert("icon_file".to_string(), json!(file.clone()));
         }
@@ -1169,14 +1321,14 @@ mod tests {
         let _guard = crate::store::test_support::use_root(&root);
 
         let seed = json!([
-            { "id": "SW-001", "name": "A", "restore_intent": "must", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "backup_strategy": "none", "prep_status": "todo" },
-            { "id": "SW-002", "name": "B", "restore_intent": "unreviewed", "version": "1.0", "machines": [{ "machine_id": "M2", "install_location": "D:\\B" }], "backup_strategy": "copy_dir", "prep_status": "todo" }
+            { "id": "SW-001", "uuid": "uuid-a", "name": "A", "restore_intent": "must", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "B", "restore_intent": "unreviewed", "version": "1.0", "machines": [{ "machine_id": "M2", "install_location": "D:\\B" }], "backup_strategy": "copy_dir", "prep_status": "todo" }
         ]);
         store::write_software(seed.as_array().unwrap());
 
         assert_eq!(get_software().as_array().unwrap().len(), 2);
 
-        let r = update_software(json!({ "id": "SW-001", "updates": { "restore_intent": "should", "has_config": true } }));
+        let r = update_software(json!({ "uuid": "uuid-a", "updates": { "restore_intent": "on_demand", "has_config": true } }));
         assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
         let updated = get_software();
         let a = updated
@@ -1185,13 +1337,13 @@ mod tests {
             .iter()
             .find(|i| i["id"] == "SW-001")
             .unwrap();
-        assert_eq!(a["restore_intent"], "should");
+        assert_eq!(a["restore_intent"], "on_demand");
         assert_eq!(a["has_config"], true);
 
-        let r = batch_update(json!({ "ids": ["SW-001", "SW-002"], "updates": { "prep_status": "ready" } }));
+        let r = batch_update(json!({ "ids": ["uuid-a", "uuid-b"], "updates": { "prep_status": "ready" } }));
         assert_eq!(r["count"], 2);
 
-        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b"] }));
         assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
         let merged = get_software();
         let arr = merged.as_array().unwrap();
@@ -1211,7 +1363,7 @@ mod tests {
         assert_eq!(after.as_array().unwrap().len(), 3);
         assert_eq!(after[0]["name"], "D");
 
-        let del = delete_software(json!({ "ids": ["SW-001"] }));
+        let del = delete_software(json!({ "ids": ["uuid-a"] }));
         assert_eq!(del["remaining"], 2);
 
         let ex = export_markdown();
@@ -1232,24 +1384,24 @@ mod tests {
         let _guard = crate::store::test_support::use_root(&root);
 
         let seed = json!([
-            { "id": "SW-001", "name": "A", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "icon_file": "a.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
-            { "id": "SW-002", "name": "B", "machines": [{ "machine_id": "M1", "install_location": "C:\\B" }], "icon_file": "b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+            { "id": "SW-001", "uuid": "uuid-a", "name": "A", "machines": [{ "machine_id": "M1", "install_location": "C:\\A" }], "icon_file": "uuid-a.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "B", "machines": [{ "machine_id": "M1", "install_location": "C:\\B" }], "icon_file": "uuid-b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
         ]);
         store::write_software(seed.as_array().unwrap());
         fs::create_dir_all(store::icons_dir()).unwrap();
-        fs::write(store::icons_dir().join("a.png"), b"a").unwrap();
-        fs::write(store::icons_dir().join("b.png"), b"b").unwrap();
+        fs::write(store::icons_dir().join("uuid-a.png"), b"a").unwrap();
+        fs::write(store::icons_dir().join("uuid-b.png"), b"b").unwrap();
 
-        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b"] }));
         assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
 
         // target（第一个选中）的图标必须保留
         let sw = store::read_software();
         assert_eq!(sw.len(), 1);
-        assert_eq!(sw[0]["icon_file"], "a.png");
-        assert!(store::icons_dir().join("a.png").exists(), "target 图标不应被删");
+        assert_eq!(sw[0]["icon_file"], "uuid-a.png");
+        assert!(store::icons_dir().join("uuid-a.png").exists(), "target 图标不应被删");
         // 被合并条目的图标清理掉
-        assert!(!store::icons_dir().join("b.png").exists(), "被合并条目的图标应清理");
+        assert!(!store::icons_dir().join("uuid-b.png").exists(), "被合并条目的图标应清理");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1261,22 +1413,24 @@ mod tests {
         fs::create_dir_all(root.join("data")).unwrap();
         let _guard = crate::store::test_support::use_root(&root);
 
-        // 跨机器：同一软件在 A / B 机各一条，软件名相同 -> icon_file 同名（共享同一文件）
+        // 跨机器：同一软件在 A / B 机各一条（各自 uuid、各自图标）
         let seed = json!([
-            { "id": "SW-001", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-A", "install_location": "C:\\A" }], "icon_file": "vscode-x.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
-            { "id": "SW-002", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-B", "install_location": "D:\\B" }], "icon_file": "vscode-x.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+            { "id": "SW-001", "uuid": "uuid-a", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-A", "install_location": "C:\\A" }], "icon_file": "uuid-a.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "Visual Studio Code", "machines": [{ "machine_id": "M-B", "install_location": "D:\\B" }], "icon_file": "uuid-b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
         ]);
         store::write_software(seed.as_array().unwrap());
         fs::create_dir_all(store::icons_dir()).unwrap();
-        fs::write(store::icons_dir().join("vscode-x.png"), b"ico").unwrap();
+        fs::write(store::icons_dir().join("uuid-a.png"), b"ico").unwrap();
+        fs::write(store::icons_dir().join("uuid-b.png"), b"ico").unwrap();
 
-        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b"] }));
         assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
 
         let sw = store::read_software();
         assert_eq!(sw.len(), 1);
-        assert_eq!(sw[0]["icon_file"], "vscode-x.png");
-        assert!(store::icons_dir().join("vscode-x.png").exists(), "共享图标文件不应被删");
+        assert_eq!(sw[0]["icon_file"], "uuid-a.png");
+        assert!(store::icons_dir().join("uuid-a.png").exists(), "锚点图标应保留");
+        assert!(!store::icons_dir().join("uuid-b.png").exists(), "被并条目图标应清理");
         assert_eq!(sw[0]["machines"].as_array().unwrap().len(), 2);
 
         let _ = fs::remove_dir_all(&root);
@@ -1291,21 +1445,22 @@ mod tests {
 
         // target 无图标，被合并项有图标
         let seed = json!([
-            { "id": "SW-001", "name": "A", "machines": [{ "machine_id": "M1" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
-            { "id": "SW-002", "name": "B", "machines": [{ "machine_id": "M1" }], "icon_file": "b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+            { "id": "SW-001", "uuid": "uuid-a", "name": "A", "machines": [{ "machine_id": "M1" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "B", "machines": [{ "machine_id": "M1" }], "icon_file": "uuid-b.png", "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
         ]);
         store::write_software(seed.as_array().unwrap());
         fs::create_dir_all(store::icons_dir()).unwrap();
-        fs::write(store::icons_dir().join("b.png"), b"b").unwrap();
+        fs::write(store::icons_dir().join("uuid-b.png"), b"b").unwrap();
 
-        let r = merge_software(json!({ "targetId": "SW-001", "mergeIds": ["SW-002"] }));
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b"] }));
         assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
 
         let sw = store::read_software();
         assert_eq!(sw.len(), 1);
-        // 合并结果采用被合并项的图标，且文件保留
-        assert_eq!(sw[0]["icon_file"], "b.png");
-        assert!(store::icons_dir().join("b.png").exists(), "被采用的图标不应被删");
+        // 锚点无图标：从子项复制到锚点的 uuid 文件名下，子项图标清理
+        assert_eq!(sw[0]["icon_file"], "uuid-a.png");
+        assert!(store::icons_dir().join("uuid-a.png").exists(), "采用后的图标应落在锚点 uuid 下");
+        assert!(!store::icons_dir().join("uuid-b.png").exists(), "子项图标应清理");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1450,24 +1605,97 @@ mod tests {
     }
 
     #[test]
+    fn delete_software_soft_deletes_vault_into_trash() {
+        let root = std::env::temp_dir().join(format!("ledger_softdel_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let seed = json!([
+            { "id": "SW-001", "uuid": "uuid-a", "name": "A", "machines": [], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+        let vdir = vault_target_dir("soft", "uuid-a");
+        fs::create_dir_all(&vdir).unwrap();
+        fs::write(vdir.join("cfg.ini"), b"x").unwrap();
+
+        let r = delete_software(json!({ "ids": ["uuid-a"] }));
+        assert_eq!(r["success"], true);
+        assert!(!vdir.exists(), "原归档目录应被移走");
+        // 软删除：`data/trash/<slot>/` 内留 meta.json + 目录本体，未物理销毁。
+        let soft = fs::read_dir(store::trash_dir())
+            .map(|rd| {
+                rd.flatten().any(|e| {
+                    let meta = store::read_json(&e.path().join("meta.json"));
+                    as_str(&meta, "original").contains("uuid-a")
+                        && e.path().join(as_str(&meta, "name")).exists()
+                })
+            })
+            .unwrap_or(false);
+        assert!(soft, "归档应连同 meta.json 一起留在 data/trash/ 下");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn merge_collapses_same_machine() {
+        let root = std::env::temp_dir().join(format!("ledger_merge_machine_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        // 同一台机器上同名两条（注册表 + 快捷方式，路径不同）
+        let seed = json!([
+            { "id": "SW-001", "uuid": "uuid-a", "name": "A", "machines": [{ "machine_id": "M1", "form": "installed", "install_location": "C:\\A" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "A", "machines": [{ "machine_id": "M1", "form": "shortcut", "install_location": "C:\\A\\a.exe" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b"] }));
+        assert_eq!(r["success"], true);
+        let sw = store::read_software();
+        assert_eq!(sw.len(), 1);
+        assert_eq!(
+            sw[0]["machines"].as_array().unwrap().len(),
+            1,
+            "同一台机器合并后应只剩一条"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn extension_notes_roundtrip_and_machine_in_vault_list() {
         let root = std::env::temp_dir().join(format!("ledger_ext_notes_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let _guard = crate::store::test_support::use_root(&root);
 
-        let saved = update_extension(
-            "uBlock0@raymondhill.net".into(),
-            json!({ "notes": "广告拦截，装完必开", "restore_intent": "must" }),
-        );
+        let saved = update_extension(json!({
+            "browser_id": "edge",
+            "profile": "Default",
+            "ext_id": "uBlock0@raymondhill.net",
+            "fields": { "notes": "广告拦截，装完必开", "restore_intent": "must" }
+        }));
         assert_eq!(saved["success"], true);
+        let uuid = saved["uuid"].as_str().unwrap().to_string();
 
         let stored = crate::store::read_extensions();
-        assert_eq!(stored["uBlock0@raymondhill.net"]["notes"].as_str(), Some("广告拦截，装完必开"));
-        assert_eq!(stored["uBlock0@raymondhill.net"]["restore_intent"].as_str(), Some("must"));
+        let entry = stored.get(uuid.as_str()).unwrap();
+        assert_eq!(entry["notes"].as_str(), Some("广告拦截，装完必开"));
+        assert_eq!(entry["restore_intent"].as_str(), Some("must"));
 
-        // vault_list 必须返回真实机器名，前端才能在面板里显示 data/vault/<机器>/...
-        let listed = vault_list("ext".into(), "uBlock0@raymondhill.net".into());
+        // 同一个扩展 ID 在 Chrome / Edge 下是不同实体（uuid 不同），不再互相覆盖
+        let chrome = update_extension(json!({
+            "browser_id": "chrome",
+            "profile": "Default",
+            "ext_id": "uBlock0@raymondhill.net",
+            "fields": {}
+        }));
+        assert_ne!(chrome["uuid"].as_str().unwrap(), uuid);
+
+        // vault_list 必须返回真实机器名
+        let listed = vault_list("ext".into(), uuid.clone());
         assert!(listed["machine"].as_str().map(|m| !m.is_empty()).unwrap_or(false));
 
         let _ = fs::remove_dir_all(&root);

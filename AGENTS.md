@@ -23,7 +23,7 @@ client/                 前端（直接就是产物，无打包）
 src-tauri/src/
   lib.rs                    Tauri Builder + command 注册表（新增命令要在这里登记）
   commands.rs               所有 #[tauri::command]：CRUD / 扫描 / LLM / 归档 / 导出
-  store.rs                  数据落盘：data/ 路径、读写 JSON、旧数据兼容
+  store.rs                  数据落盘：data/ 路径、读写 JSON（纯读，不做兼容）
   ingest.rs                 扫描候选合并进 software.json（去重 / 墓碑 / 便携判定）
   exporter.rs               生成《重装恢复清单》《精选资产库》Markdown
   main.rs
@@ -67,12 +67,13 @@ SPEC.md                   产品范围与数据模型
 
 ## 数据模型要点（详见 SPEC.md）
 
-- `restore_intent`：`must` / `should` / `on_demand` / `drop` / `unreviewed`
+- `restore_intent`：`must` / `on_demand` / `drop` / `unreviewed`
 - `type`：`desktop` / `portable` / `cli` / `runtime`
 - `backup_strategy`：`copy_dir` / `redownload` / `sync_account` / `none`
-- **处置方式是推导出来的，不是让 LLM 猜的**：默认 `none`；评 `must` / `should` 时按形态给默认值——绿色/便携 → `copy_dir`，否则 → `redownload`。规则实现在 `commands.rs::derive_strategy` + 前端 `deriveStrategy()`，入口有单条（表格/抽屉/卡片）与批量。LLM 只负责 `category` / `type` / `restore_intent` / `download_url` / `config_notes`，**不输出 `backup_strategy`**。
+- **处置方式是推导出来的，不是让 LLM 猜的**：默认 `none`；评 `must` 时按形态给默认值——绿色/便携 → `copy_dir`，否则 → `redownload`。规则实现在 `commands.rs::derive_strategy` + 前端 `deriveStrategy()`，入口有单条（表格/抽屉/卡片）与批量。LLM 只负责 `category` / `type` / `restore_intent` / `download_url` / `config_notes`，**不输出 `backup_strategy`**。
 - 便携判定：`type == "portable"` 或任一机器分布 `form == "portable"`。
-- 历史数据兼容：读取时把已下线的 `copy_config` 归并为 `copy_dir`（`store.rs::normalize_strategy`）。
+- **扫描认回匹配键 = 机器 + 安装路径（bin path）**（`ingest.rs::find_known`）：**同名不算同一实体**，路径不变就不换 uuid；仅当候选本身没任何路径时才退回「同机器 + 同名」。删除墓碑同理按路径精确命中（`tombstone_match`）。
+- **不做旧版本兼容**：这一系列都是破坏性更新。`store::read_software` 是**纯读**——不补 uuid、不归并字段、不读 evidence。**uuid 是所有内部绑定的硬前提**（匹配 / 删除 / 合并一律只认 uuid，不再回退 SW-ID）。
 
 ## 约定与地雷
 
@@ -81,7 +82,7 @@ SPEC.md                   产品范围与数据模型
 - **不要往主 `tauri.conf.json` 写 `devUrl`**。dev 专属配置在 `src-tauri/tauri.dev.conf.json`，由 `tauri dev --config` 合并。原因见 BUILD.md。
 - **LLM 端点**：任意 OpenAI 兼容的 `/chat/completions`。DeepSeek 默认开思考模式，代码检测到 `api.deepseek.com` 时显式下发 `thinking:{type:"disabled"}`；这个参数**只对 DeepSeek 发**，否则 OpenAI/本地端点会因未知字段报 400。LLM 配置可全部留空（表示不启用 AI），不应阻塞保存。
 - **安全红线**：采集与扩展读取**只读元数据**，绝不碰 `~/.ssh`、凭据、`.npmrc` token、浏览器 Cookie/密码、扩展 `storage.local`。保管箱（`data/vault/`）只能用户手动拖入，**绝不自动采集**。
-- 改动数据结构（`software.json` 字段）时，考虑老数据兼容，别让用户重扫。
+- 改动数据结构（`software.json` 字段）时**直接改，不写兼容层**；旧 `data/` 不保证可用。
 - 提交前跑 `./scripts/cargo-msvc.bat check`（本机缺 MSVC 时此项会失败，属环境问题，非代码问题）。
 
 ## 快速定位
@@ -94,5 +95,5 @@ SPEC.md                   产品范围与数据模型
 | 新增/修改后端接口 | `src-tauri/src/commands.rs` + `lib.rs` + `client/tauri-shim.js` |
 | 扫描/去重/导入规则 | `src-tauri/src/ingest.rs`、`scripts/collect.ps1` |
 | 导出文档格式 | `src-tauri/src/exporter.rs` |
-| 数据路径 / 旧数据兼容 | `src-tauri/src/store.rs` |
+| 数据路径 / 数据落盘 | `src-tauri/src/store.rs` |
 | LLM 提示词 | `src-tauri/src/commands.rs`（`llm_analyze`）、`scripts/test_llm.js` |

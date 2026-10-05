@@ -64,7 +64,7 @@
       case '/api/browser-extensions':
         return invoke('get_browser_extensions');
       case '/api/extension/update':
-        return invoke('update_extension', { id: body.id, fields: body.fields || {} });
+        return invoke('update_extension', { payload: body });
       case '/api/vault/list':
         return invoke('vault_list', { kind: body.kind, id: body.id });
       case '/api/vault/add':

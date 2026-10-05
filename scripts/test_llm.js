@@ -35,7 +35,7 @@ const prompt = `你是一个 Windows 软件与系统重装迁移专家。请根�
 枚举约束说明：
 - category: 必须从 [开发工具, 系统工具, 浏览器与网络, 媒体娱乐, 办公与笔记, 通讯与社交, 其他] 中选一个
 - type: 必须从 [desktop, portable, cli, runtime] 中选一个
-- restore_intent: 必须从 [must, should, on_demand, drop] 中选一个
+- restore_intent: 必须从 [must, on_demand, drop] 中选一个
 - download_url: 软件官网或可靠下载页
 - config_notes: 简要说明配置文件通常存放在何处（如 AppData、~/.config 或安装目录），或者是否依赖云同步
 `;

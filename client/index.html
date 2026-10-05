@@ -74,10 +74,6 @@
       <span class="status-dot dot-must"></span><span>必须恢复</span>
       <span class="stat-num" id="statMust">0</span>
     </div>
-    <div class="stat-item" data-filter-intent="should">
-      <span class="status-dot dot-should"></span><span>建议恢复</span>
-      <span class="stat-num" id="statShould">0</span>
-    </div>
     <div class="stat-item" data-filter-intent="on_demand">
       <span class="status-dot dot-ondemand"></span><span>用到再装</span>
       <span class="stat-num" id="statOnDemand">0</span>
@@ -140,7 +136,6 @@
         <select id="intentFilter" class="select-filter">
           <option value="all">全部恢复意愿</option>
           <option value="must">必须恢复</option>
-          <option value="should">建议恢复</option>
           <option value="on_demand">用到再装</option>
           <option value="drop">淘汰弃用</option>
           <option value="unreviewed">待确认</option>
@@ -167,20 +162,18 @@
     </div>
   </div>
 
-  <!-- 批量操作浮条 (支持快捷键 1~8 与双击 Delete，浮动在底部) -->
+  <!-- 批量操作浮条 (支持快捷键 1~7 与 Delete，浮动在底部) -->
   <div class="batch-bar" id="batchBar">
     <div class="batch-info" id="batchInfo">已选 0 项</div>
     <div class="batch-progress" id="batchProgress" hidden><i id="batchProgressFill"></i></div>
     <div class="batch-buttons">
       <button class="btn btn-secondary btn-sm" id="btnBatchMust" title="快捷键: 1"><span class="kbd">1</span> <span class="status-dot dot-must"></span>必须</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchShould" title="快捷键: 2"><span class="kbd">2</span> <span class="status-dot dot-should"></span>建议</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchOnDemand" title="快捷键: 3"><span class="kbd">3</span> <span class="status-dot dot-ondemand"></span>按需</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchDrop" title="快捷键: 4"><span class="kbd">4</span> <span class="status-dot dot-drop"></span>淘汰</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchReset" title="快捷键: 5 (清空决策、官网与描述，恢复默认)"><span class="kbd">5</span> 恢复默认</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchReady" title="快捷键: 6"><span class="kbd">6</span> 就绪</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchConfig" title="快捷键: 7 (批量设置有无配置)"><span class="kbd">7</span> <span id="batchConfigLabel">设为有配置</span></button>
-      <button class="btn btn-secondary btn-sm btn-batch-ai" id="btnBatchLLM" title="快捷键: 8 (调用 LLM 智能预判)"><span class="kbd">8</span> <svg class="i sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> AI预判</button>
-      <button class="btn btn-secondary btn-sm" id="btnBatchMerge" title="快捷键: 9"><span class="kbd">9</span> <svg class="i sm" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg> 合并</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchOnDemand" title="快捷键: 2"><span class="kbd">2</span> <span class="status-dot dot-ondemand"></span>按需</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchDrop" title="快捷键: 3"><span class="kbd">3</span> <span class="status-dot dot-drop"></span>淘汰</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchReady" title="快捷键: 4"><span class="kbd">4</span> 就绪</button>
+      <button class="btn btn-secondary btn-sm btn-batch-ai" id="btnBatchLLM" title="快捷键: 5 (调用 LLM 智能预判)"><span class="kbd">5</span> <svg class="i sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> AI预判</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchMerge" title="快捷键: 6"><span class="kbd">6</span> <svg class="i sm" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg> 合并</button>
+      <button class="btn btn-secondary btn-sm" id="btnBatchReset" title="快捷键: 7 (清空决策、官网与描述，恢复默认)"><span class="kbd">7</span> 恢复默认</button>
       <button class="btn btn-danger btn-sm btn-delete" id="btnBatchDelete" title="删除勾选项（再点一次确认，Delete 同）"><span class="kbd">Del</span> <svg class="i sm del-icon-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> 删除</button>
     </div>
   </div>
@@ -295,13 +288,12 @@
       <div class="decision-panel">
         <div class="decision-section-title">
           <span>迁移意愿决策</span>
-          <span class="decision-hint">快捷键 1~5 键切换意愿</span>
+          <span class="decision-hint">快捷键 1~4 键切换意愿</span>
         </div>
 
         <!-- 触觉化意愿大胶囊单选器 -->
         <div class="intent-segmented" id="drawerIntentSegmented">
           <button type="button" class="intent-seg-btn" data-intent="must"><span class="status-dot dot-must"></span>必须恢复</button>
-          <button type="button" class="intent-seg-btn" data-intent="should"><span class="status-dot dot-should"></span>建议恢复</button>
           <button type="button" class="intent-seg-btn" data-intent="on_demand"><span class="status-dot dot-ondemand"></span>用到再装</button>
           <button type="button" class="intent-seg-btn" data-intent="drop"><span class="status-dot dot-drop"></span>淘汰弃用</button>
           <button type="button" class="intent-seg-btn" data-intent="unreviewed"><span class="status-dot dot-unreviewed"></span>待确认</button>
@@ -309,7 +301,6 @@
         <!-- 保持原有隐藏 select，保障系统数据与事件无缝协同 -->
         <select id="drawerIntent" style="display:none;">
           <option value="must">必须恢复</option>
-          <option value="should">建议恢复</option>
           <option value="on_demand">用到再装</option>
           <option value="drop">淘汰弃用</option>
           <option value="unreviewed">待确认</option>
@@ -378,13 +369,22 @@
         </div>
       </div>
 
-      <!-- 4. 机器来源证据 (Level 4: 弱化折叠呈现) -->
+      <!-- 4. 机器来源证据（直接展示，不折叠） -->
       <div class="evidence-block">
-        <div class="evidence-header" id="evidenceHeader">
-          <span>所在机器与原始路径证据</span>
-          <span id="evidenceToggleIcon" style="font-size: 10px; color: var(--ink-3);">▼</span>
-        </div>
         <div id="drawerMachinesList" class="evidence-list"></div>
+      </div>
+
+      <!-- 5. 同名条目合并入口（无同名条目时整块隐藏） -->
+      <div class="merge-block" id="drawerMergeBlock" style="display: none;">
+        <div class="merge-block-head">
+          <span class="merge-block-title">
+            <svg class="i sm" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>
+            同名条目
+            <span class="merge-count" id="drawerMergeCount">0</span>
+          </span>
+          <button id="drawerMergeAll" class="btn btn-secondary btn-sm" type="button" title="将以下全部同名条目并入当前软件（以当前为准）">全部并入</button>
+        </div>
+        <div class="merge-list" id="drawerMergeList"></div>
       </div>
     </div>
 
@@ -439,7 +439,6 @@ ffmpeg, ripgrep, jq, pandoc
           <label style="font-size: 12px; color: var(--ink-2); font-weight: 600;">默认恢复意愿：</label>
           <select id="batchAddIntent" class="select-filter">
             <option value="must">必须恢复</option>
-            <option value="should">建议恢复</option>
             <option value="on_demand">用到再装</option>
             <option value="unreviewed">待确认</option>
           </select>
@@ -589,8 +588,8 @@ ffmpeg, ripgrep, jq, pandoc
         <div class="about-section">
           <h4>快捷键</h4>
           <div class="about-keys">
-            <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span class="desc">意愿：必须 / 建议 / 按需 / 淘汰 / 待确认</span></div>
-            <div class="about-key-row"><span class="keys"><kbd>6</kbd><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd></span><span class="desc">就绪 / 配置 / AI 预判 / 合并（需先勾选）</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span class="desc">意愿：必须 / 按需 / 淘汰 / 待确认</span></div>
+            <div class="about-key-row"><span class="keys"><kbd>5</kbd><kbd>6</kbd><kbd>7</kbd></span><span class="desc">就绪 / AI 预判 / 合并（需先勾选）</span></div>
             <div class="about-key-row"><span class="keys"><kbd>/</kbd></span><span class="desc">聚焦搜索框</span></div>
             <div class="about-key-row"><span class="keys"><kbd>Esc</kbd></span><span class="desc">取消勾选 / 关闭抽屉</span></div>
             <div class="about-key-row"><span class="keys"><kbd>PageUp</kbd><kbd>PageDown</kbd></span><span class="desc">抽屉 / 速审中连续切卡</span></div>
@@ -602,6 +601,30 @@ ffmpeg, ripgrep, jq, pandoc
             <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）、ignored.json（已删墓碑）、evidence/（采集证据与截图）</span></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 合并冲突确认弹窗：待并入项带有非默认评档时提示会被丢弃 -->
+  <div class="modal-overlay" id="mergeConfirmModal">
+    <div class="modal-content" style="width: 480px;">
+      <div class="modal-header">
+        <h3 style="color: var(--ink); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>
+          确认合并
+        </h3>
+        <button class="btn btn-secondary btn-sm" id="btnMergeCancelX" type="button">
+          <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="merge-confirm-lead">以下同名条目已有评档，并入后 <b>以当前软件为准</b>，其评档将被丢弃：</p>
+        <div class="merge-confirm-list" id="mergeConfirmList"></div>
+        <p class="merge-confirm-note">机器来源会叠加到当前条目；版本、官网、图标等空缺处会被补齐。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btnMergeCancel" type="button">取消</button>
+        <button class="btn btn-primary" id="btnMergeConfirm" type="button">仍然合并</button>
       </div>
     </div>
   </div>

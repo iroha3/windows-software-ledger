@@ -9,7 +9,6 @@ fn s<'a>(v: &'a Value, key: &str) -> &'a str {
 fn intent_label(intent: &str) -> &'static str {
     match intent {
         "must" => "🔴 必须恢复 (Must Restore)",
-        "should" => "🟡 建议恢复 (Should Restore)",
         "on_demand" => "🔵 用到再装 (On Demand)",
         "drop" => "⚫ 淘汰弃用 (Drop / Deprecate)",
         _ => "⚪ 待确认 (Unreviewed)",
@@ -19,7 +18,6 @@ fn intent_label(intent: &str) -> &'static str {
 fn strategy_label(strategy: &str) -> &'static str {
     match strategy {
         "copy_dir" => "📦 保留/压缩整个目录",
-        "copy_config" => "⚙️ 手动导出/备份配置",
         "redownload" => "🌐 重新下载安装",
         "sync_account" => "☁️ 账号登录同步",
         _ => "➖ 无需操作",
@@ -135,7 +133,6 @@ pub fn export_checklists() -> Value {
     let items = store::read_software();
 
     let mut must: Vec<&Value> = Vec::new();
-    let mut should: Vec<&Value> = Vec::new();
     let mut on_demand: Vec<&Value> = Vec::new();
     let mut unreviewed: Vec<&Value> = Vec::new();
     let mut drop: Vec<&Value> = Vec::new();
@@ -145,13 +142,12 @@ pub fn export_checklists() -> Value {
     for item in &items {
         match s(item, "restore_intent") {
             "must" => must.push(item),
-            "should" => should.push(item),
             "on_demand" => on_demand.push(item),
             "drop" => drop.push(item),
             _ => unreviewed.push(item),
         }
         let strategy = s(item, "backup_strategy");
-        if strategy == "copy_dir" || strategy == "copy_config" {
+        if strategy == "copy_dir" {
             backup_tasks.push(item);
         }
         if item.get("is_awesome").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -202,8 +198,8 @@ pub fn export_checklists() -> Value {
         String::new(),
         format!("> 生成时间: {}  ", now),
         format!(
-            "> 统计概览: 软件总数 **{}** | 必须恢复 **{}** | 建议恢复 **{}** | 用到再装 **{}** | 待确认 **{}** | 待备份资产 **{}**",
-            items.len(), must.len(), should.len(), on_demand.len(), unreviewed.len(), backup_tasks.len()
+            "> 统计概览: 软件总数 **{}** | 必须恢复 **{}** | 用到再装 **{}** | 待确认 **{}** | 待备份资产 **{}**",
+            items.len(), must.len(), on_demand.len(), unreviewed.len(), backup_tasks.len()
         ),
         String::new(),
         "---".to_string(),
@@ -218,15 +214,11 @@ pub fn export_checklists() -> Value {
         String::new(),
         if must.is_empty() { "*暂无必须恢复的软件*".to_string() } else { render_group_checklist(&must) },
         String::new(),
-        format!("## 二、{}", intent_label("should")),
-        String::new(),
-        if should.is_empty() { "*暂无建议恢复的软件*".to_string() } else { render_group_checklist(&should) },
-        String::new(),
-        format!("## 三、{}", intent_label("on_demand")),
+        format!("## 二、{}", intent_label("on_demand")),
         String::new(),
         if on_demand.is_empty() { "*暂无*".to_string() } else { render_compact_list(&on_demand) },
         String::new(),
-        format!("## 四、{}", intent_label("drop")),
+        format!("## 三、{}", intent_label("drop")),
         String::new(),
         if drop.is_empty() { "*暂无*".to_string() } else { render_drop_list(&drop) },
     ];
@@ -257,7 +249,6 @@ pub fn export_checklists() -> Value {
         "stats": {
             "total": items.len(),
             "must": must.len(),
-            "should": should.len(),
             "backupTasks": backup_tasks.len(),
             "awesome": awesome_items.len()
         }
