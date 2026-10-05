@@ -26,6 +26,7 @@
   - **高价值文档导出**：
     1. `RECOVERY_CHECKLIST.md`：按优先级分组的重装恢复检查清单（含下载链接、配置导出位置与验证备忘）。
     2. `AWESOME_LIST.md`：个人精选工作流软件清单。
+    3. `SOFTWARE_LEDGER.xlsx`：整份软件清单的 Excel 表格（单表，含名称/分类/版本/形态/机器分布/意愿/处置/进度/链接/备忘；冻结首行 + 自动筛选 + 加粗表头）。由 `src-tauri/src/xlsx.rs` 零依赖（手写 ZIP + OOXML）生成。
   - **开发环境复现**：扫描时用只读命令白名单采集 Python / Rust / VS Code 扩展 / Git / Node / Go / .NET 的全局包、工具链、源/镜像配置与全局配置；包列表与配置原文落到 `evidence/<设备>/dev-env/`，页面给出引用这些文件的短恢复命令（避免逐包罗列）；作为独立页面按设备折叠展示，不写入软件清单。
 
 ---
@@ -55,7 +56,8 @@
         ▼
 [阶段 4: 交付物导出 (Export)]
   ├─ 一键导出 RECOVERY_CHECKLIST.md (重装恢复执行备忘单)
-  └─ 一键导出 AWESOME_LIST.md (精选软件库)
+  ├─ 一键导出 AWESOME_LIST.md (精选软件库)
+  └─ 一键导出 SOFTWARE_LEDGER.xlsx (软件清单表格)
 ```
 
 ---
@@ -194,6 +196,18 @@
 
 `scan_preview` 只解析候选，`scan_commit` 只写入勾选项。若导入前台账为空（首次全量扫描），导入的条目**不标记 `is_new`**；台账非空时，勾选导入的条目 `is_new = true`。删除的条目写入 `data/ignored.json` 作墓志铭，重扫默认不勾选，手动再勾选可复活。
 
+#### WebDAV 同步（单写者模型）
+
+不追求真正的分布式合并，而是用「同一时刻只有一台机器编辑」把并发消掉。
+
+- **会话锁**：远端 `lock.json` 租约（`{owner, host, acquired_at, expires_at}`，15 分钟）。开软件抢锁并拉取，关软件推送并释放（Rust `on_window_event` 拦截关闭）；心跳每 5 分钟续租。抢不到锁 = 本机只读：顶部横幅提示，且**前后端双层禁用编辑**（前端禁用编辑控件、关闭 WebDAV 时隐藏同步入口；后端 `commands.rs` 对全部写命令直接拒绝），可强制接管。同机旧实例残留的租约视为自家锁，可直接接管。异常退出后租约到期自动可被接管。
+- **传输**：远端镜像 `data/`（排除 `trash/`、`.sync/`、`webdav.json`），并维护 `manifest.json`（每个文件的 sha256 / size / mtime）。本地 `.sync/manifest.json` 是上次同步基线，`.sync/index.json` 是指纹缓存（size+mtime 未变则复用 hash，避免重算几个 G）。只用 GET / PUT / DELETE / MKCOL / MOVE，不用 PROPFIND，因此无 XML 依赖。
+- **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `machine_id` 并集）。
+- **新旧判据**：每条记录 `updated_at`（回退 `created_at`）。冲突时较新者为准，空字段由旧记录补齐。
+- **强制覆盖（高级）**：`本地覆盖远端` / `远端覆盖本地`，覆盖前自动快照（远端 → `_backup/<时间戳>/`，本地 → `data/trash/sync-<时间戳>/`）。
+- **凭据**：`data/webdav.json` 仅存本地，不参与同步；`llm_api_key` 随 `config.json` 同步。`scan_directories` 按主机名分键。
+- **兼容**：远端 `manifest.json` 携带 `schema_version`，不匹配直接拒绝（不做兼容层）。
+
 ---
 
 ## 4. 技术栈选型与系统架构
@@ -217,7 +231,7 @@
     - 单元格即时编辑（名称、官网、备注等）。
     - 快速切换意愿/处置下拉状态。
     - 一键合并重复条目、一键删除无效条目。
-    - 一键导出 Markdown 恢复手册。
+    - 一键导出 Markdown 恢复手册与 Excel 软件表格（`.xlsx`）。
     - 开发环境复现页（`dev_env.html`）：按设备折叠展示开发环境声明式清单（含落盘文件列表）与引用这些文件的短恢复命令，只读、不改动软件清单。
 
 > 历史 Bun 中台版本（Node.js 本地服务 + 浏览器前端）完整保留在 `bun` 分支。

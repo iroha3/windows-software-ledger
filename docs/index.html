@@ -128,7 +128,7 @@ footer a { color: var(--ink-2); }
       <a class="btn primary" href="https://github.com/iroha3/windows-software-ledger/releases/latest/download/windows-software-ledger-windows-x64.zip">下载 Windows 版 ↓</a>
       <a class="btn line" href="https://github.com/iroha3/windows-software-ledger">查看源码 · GitHub</a>
     </div>
-    <p class="note">Windows 10 / 11 · 绿色便携，清单只存在你自己的电脑上 · AGPL-3.0 开源</p>
+    <p class="note">Windows 10 / 11 · 绿色便携，清单默认只存在你自己的电脑上，可选自建 WebDAV 同步 · AGPL-3.0 开源</p>
     <figure class="shot"><img src="home.png" alt="软件备份台账主页：顶部统计、机器分栏与逐行软件清单" loading="eager"></figure>
   </div>
 </div>
@@ -145,7 +145,8 @@ footer a { color: var(--ink-2); }
     <div><h3>多机器视图与合并</h3><p>记录每款软件出现在哪台机器、装在哪里；重复条目一键合并，汇总各机器路径。</p></div>
     <div><h3>浏览器扩展台账</h3><p>扩展单独一页：装了什么、在哪个浏览器、还启不启用，一眼看全；不读你的 Cookie 和密码。</p></div>
     <div><h3>开发环境复现</h3><p>pip、npm、Rust、VS Code 扩展、Go、.NET 都按设备列好，换电脑时照着敲一遍就装回来。</p></div>
-    <div><h3>Markdown 导出</h3><p>一键生成《重装恢复清单》与《精选资产库》两份落地文档，照着做就行。</p></div>
+    <div><h3>多机同步（可选）</h3><p>填入自建 WebDAV 地址即可把台账同步到网盘；同一时刻只有一台机器可写，其余只读，不会互相覆盖。</p></div>
+    <div><h3>Markdown 与 Excel 导出</h3><p>一键生成《重装恢复清单》与《精选资产库》两份文档，另可导出整份软件清单为 Excel 表格。</p></div>
   </div>
 </div></section>
 
@@ -206,7 +207,7 @@ footer a { color: var(--ink-2); }
   <div class="row flip">
     <div class="text">
       <h3>最后拿到两份能照着做的文档</h3>
-      <p>点一下「导出清单」，直接生成两份 Markdown：</p>
+      <p>点一下「导出清单」，直接生成两份 Markdown，或将整份清单导出为 Excel 表格：</p>
       <div class="quote">《重装恢复清单》——按优先级分组，每条带官网链接、配置导出位置与验证备忘。<small>《精选资产库》——你真正依赖的那批软件，以及它们在你的工作流里扮演的角色。</small></div>
     </div>
     <div class="panel">
@@ -240,10 +241,11 @@ footer a { color: var(--ink-2); }
 
 <section class="faq"><div class="wrap">
   <h2>常见问题</h2>
-  <details><summary>需要联网吗？会上传我的数据吗？</summary><p>扫描、整理、导出全部在本地完成，不联网。只有在你开启可选的「AI 辅助预判」时，才会把软件名称发给你自己填写的模型端点（本地 LM Studio，或 DeepSeek / OpenAI 兼容 API）。</p></details>
-  <details><summary>数据存在哪？换台电脑怎么办？</summary><p>全部在 exe 同目录的 <code>data/</code> 里，只有两个文件：<code>software.json</code> 与 <code>config.json</code>。不写注册表、不写 AppData，整个文件夹拷走就是迁移。</p></details>
+  <details><summary>需要联网吗？会上传我的数据吗？</summary><p>扫描、整理、导出全部在本地完成，默认不联网。联网只发生在你主动开启的可选功能：AI 辅助预判（把软件名发给你自己填写的模型端点，本地 LM Studio 或 DeepSeek / OpenAI 兼容 API），以及多机同步（连接你自己配置的 WebDAV）。</p></details>
+  <details><summary>数据存在哪？换台电脑怎么办？</summary><p>全部在 exe 同目录的 <code>data/</code> 里：台账 <code>software.json</code>、设置 <code>config.json</code>，以及图标、配置归档、扫描证据等子目录。不写注册表、不写 AppData，整个文件夹拷走就是迁移。</p></details>
   <details><summary>要装 Python / Node / 数据库吗？</summary><p>都不用。单个 exe 绿色运行，系统只需 Windows 10 / 11（精简系统可能需补一个 WebView2 Runtime）。</p></details>
   <details><summary>它和「手动记 Excel」有什么区别？</summary><p>清单自动生成、可反复扫描增量更新；每条都带机器分布、安装路径、官网链接与配置备忘，还带恢复意愿和准备进度——导出的不是一张表，而是一张能照着执行的重装清单。</p></details>
+  <details><summary>被 Windows Defender 报毒 / 拦截了怎么办？</summary><p>大概率是<b>误报</b>。这个工具会枚举已安装软件、把内嵌的 PowerShell 采集脚本释放到临时目录执行，还可能连接你配置的 WebDAV 做多机同步——这些行为在杀软的启发式规则里，和恶意软件高度相似。本项目 <b>完全开源、没有加壳混淆</b>，代码都在 <a href="https://github.com/iroha3/windows-software-ledger">GitHub</a> 上可逐行查看，你也可以直接自行编译。被拦时给 exe 加一条白名单即可；<b>如果不放心，请不要使用</b>——我们宁可你把家底记在自己的表格里，也不想让你承担任何风险。</p></details>
   <details><summary>收费吗？</summary><p>免费开源，基于 AGPL-3.0 许可。觉得有用的话，去 <a href="https://github.com/iroha3/windows-software-ledger">给个 Star</a> 就是最大的支持。</p></details>
 </div></section>
 

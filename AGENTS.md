@@ -22,10 +22,13 @@ client/                 前端（直接就是产物，无打包）
   style.css  browser-icons/
 src-tauri/src/
   lib.rs                    Tauri Builder + command 注册表（新增命令要在这里登记）
-  commands.rs               所有 #[tauri::command]：CRUD / 扫描 / LLM / 归档 / 导出
+  commands.rs               所有 #[tauri::command]：CRUD / 扫描 / LLM / 归档 / 导出 / 同步入口
   store.rs                  数据落盘：data/ 路径、读写 JSON（纯读，不做兼容）
   ingest.rs                 扫描候选合并进 software.json（去重 / 墓碑 / 便携判定）
-  exporter.rs               生成《重装恢复清单》《精选资产库》Markdown
+  exporter.rs               生成《重装恢复清单》《精选资产库》Markdown；软件清单表格数据（xlsx 用）
+  xlsx.rs                   零依赖 xlsx 生成器（手写 ZIP + OOXML，仅存储不压缩）
+  webdav.rs                 WebDAV 传输层（GET/PUT/DELETE/MKCOL/MOVE，不用 PROPFIND）
+  sync.rs                   同步引擎：会话锁 / manifest / 并集拉取 / 镜像推送 / 强制覆盖
   main.rs
 scripts/                  独立辅助脚本，不参与应用运行时（见下）
 src-tauri/Cargo.toml      ★版本号唯一来源
@@ -59,7 +62,18 @@ SPEC.md                   产品范围与数据模型
 
 **数据根目录**：永远是 **exe 所在目录** 下的 `data/`（`store.rs::app_root`）。没有环境变量覆盖、不向上查找、不依赖标记文件。`cargo run` 调试时落在 `src-tauri/target/debug/data/`。`data/` 已 gitignore。
 
-**持久化**：全部是 `data/` 下的美化 JSON，直接读写，无数据库。主要文件：`software.json`、`config.json`、`ignored.json`（删除墓碑）、`extensions.json`（扩展标注）、`icons/`、`vault/`、`evidence/`。
+**持久化**：全部是 `data/` 下的美化 JSON，直接读写，无数据库。主要文件：`software.json`、`config.json`、`ignored.json`（删除墓碑）、`extensions.json`（扩展标注）、`browsers.json`、`icons/`、`vault/`、`evidence/`。同步相关：`webdav.json`（账户凭据，**仅本地**）、`.sync/`（基线 manifest 与指纹缓存，**仅本地**）。
+
+**WebDAV 同步（单写者模型）**：同一时刻只有一台机器能编辑，靠远端 `lock.json` 会话租约实现。
+
+- 开软件抢锁并拉取；关软件（Rust `on_window_event`）推送并释放；抢不到 = 只读镜像 + 横幅。只读是**双层硬限制**：前端禁用编辑控件（`body.sync-readonly`）、关闭 WebDAV 时隐藏同步入口；后端对所有写命令 `deny_if_read_only()` 直接拒绝（卡片速审 / 浏览器页同样生效）。同机旧实例的残留租约可直接接管。
+- 因为不存在并发编辑，常态是**镜像**（只传 hash 变的文件，删除/合并自然传播），不需要 3 路 diff。
+- 唯一需要合并的是**首次接入**（本地基线为空）：双方按 uuid 并集，所以「先扫描再配 WebDAV」不丢数据。
+- JSON 台账按 3 路判断：只有双方相对基线都改了才语义合并；单侧改动直接取该侧（避免「本地删除」被并集复活）。
+- 记录的新旧判据是 `updated_at`（回退 `created_at`）；所有写入路径都要 `store::touch`。
+- 两个强制按钮（本地覆盖远端 / 远端覆盖本地）会先自动快照（远端 → `_backup/<ts>/`，本地 → `data/trash/sync-<ts>/`）。
+- 不同步 `trash/`、`.sync/`、`webdav.json`；远端 manifest 带 `schema_version`，不匹配直接拒绝（不做兼容）。
+- `scan_directories` **按主机名分键**，每台机只读自己那份，全量镜像也不会互相覆盖。
 
 **版本号**：只在 `src-tauri/Cargo.toml` 的 `[package] version`。`.github/workflows/release.yml` 在推送到 `master` 时读它——若对应 tag 不存在就自动构建并发 Release，已存在则整条跳过。**要发版必须升版本号**，否则 CI 不会动。
 
@@ -95,5 +109,7 @@ SPEC.md                   产品范围与数据模型
 | 新增/修改后端接口 | `src-tauri/src/commands.rs` + `lib.rs` + `client/tauri-shim.js` |
 | 扫描/去重/导入规则 | `src-tauri/src/ingest.rs`、`scripts/collect.ps1` |
 | 导出文档格式 | `src-tauri/src/exporter.rs` |
+| xlsx 生成（导出 Excel） | `src-tauri/src/xlsx.rs` |
+| WebDAV 同步 / 会话锁 / 合并规则 | `src-tauri/src/sync.rs`、`src-tauri/src/webdav.rs` |
 | 数据路径 / 数据落盘 | `src-tauri/src/store.rs` |
 | LLM 提示词 | `src-tauri/src/commands.rs`（`llm_analyze`）、`scripts/test_llm.js` |

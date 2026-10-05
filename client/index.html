@@ -18,6 +18,9 @@
   <!-- Toast 提示容器 -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- 同步横幅：另一台机器持锁时提示本机只读 -->
+  <div id="syncBanner" class="sync-banner" style="display:none;"></div>
+
   <!-- 顶部导航栏 -->
   <header>
     <div class="logo-section">
@@ -47,6 +50,11 @@
       </a>
 
       <div class="header-divider"></div>
+
+      <button id="btnSync" class="btn btn-secondary" title="立即与 WebDAV 同步（或强制覆盖）">
+        <svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        <span>同步</span>
+      </button>
 
       <!-- 2. 数据录入与导出主工作流动作组 -->
       <button id="btnScanLocal" class="btn btn-secondary" title="执行 PowerShell 采集本机软件，预览后勾选导入">
@@ -499,6 +507,33 @@ ffmpeg, ripgrep, jq, pandoc
         <div class="drawer-field">
           <label>API Key (本地模型可留空，云端模型自动发送 Bearer 令牌)</label>
           <input type="password" id="configLlmKey" placeholder="sk-..." autocomplete="off">
+        </div>
+
+        <div style="border-top: 1px solid var(--rule); padding-top: 12px; display:flex; flex-direction:column; gap:10px;">
+          <label style="font-size: 11.5px; color: var(--ink-3); font-weight: 600; display:block;">WebDAV 同步（单写者：开软件抢锁拉取，关软件推送并释放）</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+            <input type="checkbox" id="configWebdavEnabled">
+            启用 WebDAV 同步
+          </label>
+          <div class="drawer-field">
+            <label>WebDAV 地址</label>
+            <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
+          </div>
+          <div style="display:flex; gap:10px;">
+            <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
+            <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
+            <span class="hint" id="webdavStatus">未检测</span>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
+          </div>
+          <span class="hint">凭据仅保存在本机 data/webdav.json，不会上传。强制覆盖前会自动快照，可回滚。</span>
         </div>
       </div>
       <div class="modal-footer">

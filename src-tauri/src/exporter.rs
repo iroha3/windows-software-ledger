@@ -124,6 +124,83 @@ fn render_awesome_list(items: &[&Value]) -> String {
     out.join("\n")
 }
 
+fn type_label(t: &str) -> &'static str {
+    match t {
+        "desktop" => "常规安装",
+        "portable" => "绿色便携",
+        "cli" => "命令行",
+        "runtime" => "运行时",
+        _ => "",
+    }
+}
+
+fn prep_label(p: &str) -> &'static str {
+    if p == "ready" { "已就绪" } else { "待准备" }
+}
+
+/// 软件清单的表格化数据：首行表头，供 xlsx 导出使用。
+pub fn export_xlsx_rows() -> Vec<Vec<String>> {
+    let items = store::read_software();
+    let cfg = store::get_config();
+    let aliases = cfg.get("machine_aliases").and_then(|v| v.as_object());
+
+    let mut rows: Vec<Vec<String>> = vec![vec![
+        "软件名称".into(),
+        "分类".into(),
+        "版本号".into(),
+        "形态".into(),
+        "所在机器".into(),
+        "恢复意愿".into(),
+        "处置方式".into(),
+        "准备进度".into(),
+        "精选".into(),
+        "官网 / 下载链接".into(),
+        "备份备忘与配置说明".into(),
+    ]];
+
+    for item in &items {
+        // 机器分布：优先显示别名，附上安装路径；多台机器换行展示
+        let mut machines: Vec<String> = Vec::new();
+        if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
+            for m in ms {
+                let mid = s(m, "machine_id");
+                let loc = {
+                    let a = s(m, "install_location");
+                    if a.is_empty() { s(m, "path") } else { a }
+                };
+                let display = aliases
+                    .and_then(|a| a.get(mid))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(mid);
+                if loc.is_empty() {
+                    machines.push(display.to_string());
+                } else {
+                    machines.push(format!("{}：{}", display, loc));
+                }
+            }
+        }
+        let awesome = if item.get("is_awesome").and_then(|v| v.as_bool()).unwrap_or(false) {
+            "★"
+        } else {
+            ""
+        };
+        rows.push(vec![
+            s(item, "name").to_string(),
+            s(item, "category").to_string(),
+            s(item, "version").to_string(),
+            type_label(s(item, "type")).to_string(),
+            machines.join("\n"),
+            intent_label(s(item, "restore_intent")).to_string(),
+            strategy_label(s(item, "backup_strategy")).to_string(),
+            prep_label(s(item, "prep_status")).to_string(),
+            awesome.to_string(),
+            s(item, "download_url").to_string(),
+            s(item, "config_notes").to_string(),
+        ]);
+    }
+    rows
+}
+
 pub fn export_checklists() -> Value {
     let software_path = store::software_file();
     if !software_path.exists() {

@@ -101,6 +101,66 @@ pub fn write_browsers(value: &Value) {
     write_json(&browsers_file(), value);
 }
 
+/// 给实体打上 `updated_at`：同步合并时用它判断新旧（优先于 created_at）。
+pub fn touch(item: &mut Value) {
+    if let Some(o) = item.as_object_mut() {
+        o.insert(
+            "updated_at".to_string(),
+            json!(chrono::Local::now().to_rfc3339()),
+        );
+    }
+}
+
+/// WebDAV 账户与地址：`data/webdav.json`。**本地文件，绝不参与同步**
+/// （推上去等于「用存密码的文件去存密码」）。
+pub fn webdav_file() -> PathBuf {
+    data_dir().join("webdav.json")
+}
+
+pub fn default_webdav_config() -> Value {
+    json!({
+        "enabled": false,
+        "url": "",
+        "username": "",
+        "password": ""
+    })
+}
+
+/// 读取 WebDAV 配置，缺失字段回退默认值。
+pub fn get_webdav_config() -> Value {
+    let mut cfg = default_webdav_config();
+    if let (Value::Object(base), Value::Object(over)) = (&mut cfg, read_json(&webdav_file())) {
+        for (k, v) in over {
+            base.insert(k, v);
+        }
+    }
+    cfg
+}
+
+pub fn save_webdav_config(value: &Value) {
+    write_json(&webdav_file(), value);
+}
+
+/// 同步辅助目录：`data/.sync/`。**本地文件，绝不参与同步**。
+pub fn sync_dir() -> PathBuf {
+    data_dir().join(".sync")
+}
+
+/// 本地基线 manifest：上次同步完成时双方一致的状态。
+pub fn baseline_manifest_file() -> PathBuf {
+    sync_dir().join("manifest.json")
+}
+
+/// 本地文件指纹缓存：避免每次同步都对几个 G 的归档重算 sha256。
+pub fn file_index_file() -> PathBuf {
+    sync_dir().join("index.json")
+}
+
+/// 上次同步结果（本地展示用）。
+pub fn last_sync_file() -> PathBuf {
+    sync_dir().join("last.json")
+}
+
 /// 通用文件保管箱：`data/vault/<kind>/<uuid>/`（不再分主机名）。
 /// 与扫描证据解耦；删除条目时整个目录移入垃圾桶，绝不物理销毁。
 pub fn vault_dir() -> PathBuf {
@@ -180,7 +240,8 @@ pub fn default_config() -> Value {
         "llm_url": "",
         "llm_model": "",
         "llm_api_key": "",
-        "scan_directories": [],
+        // 扫描目录按主机名分键：每台机器只读自己那份，全量镜像也不会互相覆盖。
+        "scan_directories": {},
         "machine_aliases": {}
     })
 }
@@ -194,7 +255,7 @@ mod tests {
         // 默认配置不得预置具体机器 / 用户目录 / LLM 端点，否则便携拷机会泄漏 A 机信息。
         let cfg = default_config();
         assert_eq!(cfg["machine_aliases"], json!({}));
-        assert_eq!(cfg["scan_directories"], json!([]));
+        assert_eq!(cfg["scan_directories"], json!({}));
         assert_eq!(cfg["llm_url"], "");
         assert_eq!(cfg["llm_model"], "");
     }

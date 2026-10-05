@@ -186,6 +186,7 @@ fn add_or_update(
         }
         // 已存在的条目：不再按便携形态覆盖处置方式，交由评档推导。
         update_machine(item, machine);
+        crate::store::touch(item);
         if icon_path.is_empty() {
             return;
         }
@@ -217,6 +218,7 @@ fn add_or_update(
         "created_at": chrono::Local::now().to_rfc3339(),
     });
     update_machine(&mut item, machine);
+    crate::store::touch(&mut item);
     index.insert(key, items.len());
     items.push(item);
 }
@@ -595,6 +597,7 @@ pub fn apply_selected(
         if !icon_file.is_empty() {
             icons.push((icon_file, icon_src));
         }
+        crate::store::touch(&mut item);
         if cand.get("kind").and_then(|v| v.as_str()) == Some("deleted_before") {
             revived_keys.push(key.to_string());
         }

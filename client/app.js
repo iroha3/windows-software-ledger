@@ -8,6 +8,11 @@ let selectedIds = new Set();
 let activeMachine = 'all';
 let activeItem = null;
 let machineAliases = {};
+let currentMachine = '';
+let scanDirsByMachine = {};
+let syncLockedByOther = null;
+let webdavEnabled = false; // WebDAV 是否已启用（关闭时隐藏同步入口）
+let readOnly = false;      // 只读镜像：另一台机器持锁时为 true，禁止一切编辑
 let drawerVault = null; // 抽屉的配置归档组件实例
 
 const REPO_URL = 'https://github.com/iroha3/windows-software-ledger';
@@ -126,6 +131,18 @@ const configLlmUrl = document.getElementById('configLlmUrl');
 const configLlmModel = document.getElementById('configLlmModel');
 const configLlmKey = document.getElementById('configLlmKey');
 const btnSaveConfig = document.getElementById('btnSaveConfig');
+const btnSync = document.getElementById('btnSync');
+const syncBanner = document.getElementById('syncBanner');
+const configWebdavEnabled = document.getElementById('configWebdavEnabled');
+const configWebdavUrl = document.getElementById('configWebdavUrl');
+const configWebdavUser = document.getElementById('configWebdavUser');
+const configWebdavPass = document.getElementById('configWebdavPass');
+const btnWebdavTest = document.getElementById('btnWebdavTest');
+const btnSyncNow = document.getElementById('btnSyncNow');
+const btnSyncUnlock = document.getElementById('btnSyncUnlock');
+const btnForcePush = document.getElementById('btnForcePush');
+const btnForcePull = document.getElementById('btnForcePull');
+const webdavStatus = document.getElementById('webdavStatus');
 
 // Toast 非阻塞消息提示系统 (使用纯净 SVG 图标)
 function showToast(message, type = 'info', duration = 2500) {
@@ -164,10 +181,202 @@ async function init() {
   bindEvents();
   bindKeyboardShortcuts();
   enableWheelSelect();
-  // 首次运行 / 清单为空时自动扫描本机，省去手动点一次
-  if (softwareList.length === 0) {
+  // WebDAV：先拉取远端最新，再决定是否需要扫描本机
+  await initSync();
+  // 首次运行 / 清单为空时自动扫描本机，省去手动点一次；
+  // 只读镜像下不自动扫描（避免刚启动就报「本机只读」）。
+  if (softwareList.length === 0 && !readOnly) {
     handleScanLocal();
   }
+}
+
+// ---------------------------------------------------------------------------
+// WebDAV 同步（单写者会话锁：开软件抢锁拉取，关软件由 Rust 窗口事件推送并释放）
+// ---------------------------------------------------------------------------
+
+function setSyncBusy(busy) {
+  if (btnSync) {
+    btnSync.disabled = busy;
+    const label = btnSync.querySelector('span');
+    if (label) label.textContent = busy ? '同步中…' : '同步';
+  }
+  if (btnSyncNow) btnSyncNow.disabled = busy || !webdavEnabled;
+}
+
+// 关闭 WebDAV 时隐藏同步入口；开启时恢复。
+function applyWebdavUi(enabled) {
+  webdavEnabled = !!enabled;
+  if (btnSync) btnSync.style.display = webdavEnabled ? '' : 'none';
+  [btnSyncNow, btnSyncUnlock, btnForcePush, btnForcePull].forEach(b => {
+    if (b) b.disabled = !webdavEnabled;
+  });
+  if (!webdavEnabled) {
+    readOnly = false;
+    syncLockedByOther = null;
+    applyReadOnly();
+    renderSyncBanner();
+  }
+}
+
+// 只读镜像：禁用所有编辑控件（后端也会拒绝写命令，二者互为兵底）。
+function applyReadOnly() {
+  document.body.classList.toggle('sync-readonly', readOnly);
+}
+
+function describeSync(sync) {
+  const s = (sync && sync.summary) || {};
+  const parts = [];
+  if (s.downloaded) parts.push(`下载 ${s.downloaded}`);
+  if (s.uploaded) parts.push(`上传 ${s.uploaded}`);
+  if (s.deletedLocal) parts.push(`本地删 ${s.deletedLocal}`);
+  if (s.deletedRemote) parts.push(`远端删 ${s.deletedRemote}`);
+  if (s.merged) parts.push(`合并台账 ${s.merged}`);
+  if (s.conflicts) parts.push(`冲突 ${s.conflicts}`);
+  return parts.length ? parts.join('，') : '已是最新';
+}
+
+function toastSyncResult(sync) {
+  if (!sync || sync.enabled === false) return;
+  if (sync.success) showToast('同步完成：' + describeSync(sync), 'success', 4000);
+  else if (sync.error) showToast('同步失败：' + sync.error, 'error', 5000);
+}
+
+async function initSync() {
+  let wd = {};
+  try {
+    wd = await (await fetch('/api/webdav/config')).json();
+  } catch (e) { return; }
+  const usable = !!wd.enabled && !!wd.url;
+  applyWebdavUi(usable);
+  if (!usable) return;
+  // 续租由后端线程负责，前端只发起会话
+  await startSyncSession();
+}
+
+async function startSyncSession() {
+  setSyncBusy(true);
+  try {
+    const res = await (await fetch('/api/sync/session-start')).json();
+    if (res.success && res.acquired) {
+      syncLockedByOther = null;
+      readOnly = false;
+      applyReadOnly();
+      renderSyncBanner();
+      await fetchStatus();
+      await loadSoftware();
+      toastSyncResult(res.sync);
+    } else if (res.success && res.acquired === false) {
+      syncLockedByOther = res.lock || {};
+      readOnly = true;
+      applyReadOnly();
+      renderSyncBanner();
+      showToast('另一台设备正在编辑，本机只读；可在同步菜单强制接管', 'warning', 5000);
+    } else if (res.error) {
+      showToast('同步失败：' + res.error, 'error', 5000);
+    }
+  } catch (e) {
+    showToast('同步失败：' + e.message, 'error', 5000);
+  } finally {
+    setSyncBusy(false);
+  }
+}
+
+async function doSync(mode) {
+  setSyncBusy(true);
+  try {
+    const res = await (await fetch('/api/sync/now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    })).json();
+    if (res.locked) {
+      syncLockedByOther = res.lock || {};
+      readOnly = true;
+      applyReadOnly();
+      renderSyncBanner();
+      showToast(res.error || '另一台设备正在同步', 'warning', 4000);
+    } else if (res.success) {
+      syncLockedByOther = null;
+      readOnly = false;
+      applyReadOnly();
+      renderSyncBanner();
+      toastSyncResult(res.sync);
+      refreshSyncStatus();
+    } else if (res.error) {
+      showToast('同步失败：' + res.error, 'error', 5000);
+    }
+  } catch (e) {
+    showToast('同步失败：' + e.message, 'error', 5000);
+  } finally {
+    setSyncBusy(false);
+  }
+}
+
+async function testWebdav() {
+  if (webdavStatus) webdavStatus.textContent = '测试中…';
+  try {
+    // 先落盘再测，保证测的是当前填写的地址/凭据
+    await fetch('/api/webdav/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: !!(configWebdavEnabled && configWebdavEnabled.checked),
+        url: configWebdavUrl ? configWebdavUrl.value.trim() : '',
+        username: configWebdavUser ? configWebdavUser.value.trim() : '',
+        password: configWebdavPass ? configWebdavPass.value : ''
+      })
+    });
+    const res = await (await fetch('/api/webdav/test', { method: 'POST' })).json();
+    if (res.success) {
+      if (webdavStatus) webdavStatus.textContent = '连接正常';
+      showToast('WebDAV 连接正常', 'success');
+    } else {
+      if (webdavStatus) webdavStatus.textContent = '连接失败';
+      showToast('连接失败：' + (res.error || '未知错误'), 'error', 5000);
+    }
+  } catch (e) {
+    if (webdavStatus) webdavStatus.textContent = '连接失败';
+    showToast('连接失败：' + e.message, 'error');
+  }
+}
+
+async function forceUnlock() {
+  if (!window.confirm('强制解除远端同步锁？仅在确认另一台设备已停止同步时使用。')) return;
+  try {
+    await fetch('/api/sync/unlock', { method: 'POST' });
+    syncLockedByOther = null;
+    renderSyncBanner();
+    showToast('已强制解锁，正在获取编辑权…', 'info');
+    await startSyncSession();
+  } catch (e) {
+    showToast('强制解锁失败：' + e.message, 'error');
+  }
+}
+
+async function refreshSyncStatus() {
+  try {
+    const st = await (await fetch('/api/sync/status')).json();
+    if (!webdavStatus) return;
+    if (!st.enabled) webdavStatus.textContent = '未启用';
+    else if (st.we_hold) webdavStatus.textContent = '本机持有同步锁';
+    else if (st.host) webdavStatus.textContent = `由 ${st.host} 持有（本机只读）`;
+    else webdavStatus.textContent = '空闲';
+  } catch (e) { /* 忽略 */ }
+}
+
+function renderSyncBanner() {
+  if (!syncBanner) return;
+  if (!syncLockedByOther) {
+    syncBanner.style.display = 'none';
+    syncBanner.innerHTML = '';
+    return;
+  }
+  const host = syncLockedByOther.host || '另一台设备';
+  syncBanner.style.display = 'flex';
+  syncBanner.innerHTML = `<span>${escapeHtml(host)} 正在编辑，本机只读，已禁用编辑。</span>`
+    + `<button class="btn btn-secondary btn-sm" id="bannerUnlock">强制接管</button>`;
+  const btn = document.getElementById('bannerUnlock');
+  if (btn) btn.addEventListener('click', forceUnlock);
 }
 
 // 主页卡片（侧边抽屉）内悬浮滚轮切换处置方式：原生 <select> 在 WebView 中对滚轮无响应，
@@ -218,6 +427,7 @@ async function fetchStatus() {
     const data = await res.json();
     machinesList = data.machines || [];
     machineAliases = data.machine_aliases || {};
+    currentMachine = data.current_machine || '';
     availablePaths = data.availablePaths || [];
     renderStats(data.stats);
     renderMachineTabs(data.machines);
@@ -1296,6 +1506,18 @@ function bindEvents() {
   btnConfig.addEventListener('click', openConfigModal);
   btnSaveConfig.addEventListener('click', saveConfigModal);
 
+  // WebDAV 同步
+  if (btnSync) btnSync.addEventListener('click', () => doSync('auto'));
+  if (btnWebdavTest) btnWebdavTest.addEventListener('click', testWebdav);
+  if (btnSyncNow) btnSyncNow.addEventListener('click', () => doSync('auto'));
+  if (btnSyncUnlock) btnSyncUnlock.addEventListener('click', forceUnlock);
+  if (btnForcePush) btnForcePush.addEventListener('click', () => {
+    if (window.confirm('将用本机数据覆盖 WebDAV 远端（远端现状自动备份到 _backup/）。确定继续？')) doSync('push');
+  });
+  if (btnForcePull) btnForcePull.addEventListener('click', () => {
+    if (window.confirm('将用 WebDAV 远端覆盖本机（本机现状自动移入 data/trash/）。确定继续？')) doSync('pull');
+  });
+
   // 关于弹窗
   const btnAbout = document.getElementById('btnAbout');
   if (btnAbout) btnAbout.addEventListener('click', openAboutModal);
@@ -1731,6 +1953,34 @@ async function saveExportFile(which) {
 
 window.saveExportFile = saveExportFile;
 
+// 导出软件清单为 Excel 表格（.xlsx）
+async function saveXlsxFile() {
+  if (typeof window.dialogSave !== 'function') {
+    showToast('当前环境不支持另存为', 'warning');
+    return;
+  }
+  const dest = await window.dialogSave({
+    defaultPath: 'SOFTWARE_LEDGER.xlsx',
+    title: '保存 Excel 表格到…',
+    filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
+  });
+  if (!dest) return;
+  try {
+    const res = await fetch('/api/export/xlsx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dest })
+    });
+    const data = await res.json();
+    if (data.success) showToast('已保存: ' + dest, 'success');
+    else showToast('保存失败: ' + (data.error || ''), 'error');
+  } catch (e) {
+    showToast('保存异常: ' + e.message, 'error');
+  }
+}
+
+window.saveXlsxFile = saveXlsxFile;
+
 // 导出 Markdown
 async function handleExport() {
   btnExport.disabled = true;
@@ -1745,7 +1995,7 @@ async function handleExport() {
       const modalBody = document.getElementById('exportModalBody');
       modalBody.innerHTML = `
         <p style="margin-bottom: 12px; color: var(--ink-2);">
-          两份清单已生成，点击右侧按钮<strong>选择保存路径</strong>：
+          清单已生成，点击右侧按钮<strong>选择保存路径</strong>（Excel 为整份软件表格）：
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
           <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
@@ -1763,6 +2013,15 @@ async function handleExport() {
               <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">${escapeHtml(data.awesomeFilename || 'AWESOME_LIST.md')}</div>
             </div>
             <button class="btn btn-secondary btn-sm" onclick="saveExportFile('awesome')">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 另存为…
+            </button>
+          </div>
+          <div style="background: var(--surface-2); padding: 10px 14px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 600; color: var(--ink);">📊 Excel 软件表格</div>
+              <div style="font-size: 11.5px; color: var(--ink-3); font-family: var(--mono);">SOFTWARE_LEDGER.xlsx</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="saveXlsxFile()">
               <svg class="i sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 另存为…
             </button>
           </div>
@@ -1847,8 +2106,9 @@ async function openConfigModal() {
     configLlmModel.value = cfg.llm_model || '';
     configLlmKey.value = cfg.llm_api_key || '';
     const scanDirsEl = document.getElementById('configScanDirs');
+    scanDirsByMachine = (cfg.scan_directories && !Array.isArray(cfg.scan_directories)) ? cfg.scan_directories : {};
     if (scanDirsEl) {
-      scanDirsEl.value = (cfg.scan_directories || []).join('\n');
+      scanDirsEl.value = ((scanDirsByMachine[currentMachine] || []).join('\n'));
     }
 
     // 渲染机器别名列表
@@ -1865,7 +2125,18 @@ async function openConfigModal() {
       `).join('');
     }
 
+    // 读取 WebDAV 配置（data/webdav.json，仅本地）
+    try {
+      const wd = await (await fetch('/api/webdav/config')).json();
+      if (configWebdavEnabled) configWebdavEnabled.checked = !!wd.enabled;
+      if (configWebdavUrl) configWebdavUrl.value = wd.url || '';
+      if (configWebdavUser) configWebdavUser.value = wd.username || '';
+      if (configWebdavPass) configWebdavPass.value = wd.password || '';
+      applyWebdavUi(!!wd.enabled && !!wd.url);
+    } catch (e) { /* 忽略：未配置时也允许打开设置 */ }
+
     configModal.classList.add('show');
+    refreshSyncStatus();
   } catch (e) {
     showToast('读取配置失败', 'error');
   }
@@ -1876,7 +2147,10 @@ async function saveConfigModal() {
   const llm_model = configLlmModel.value.trim();
   const llm_api_key = configLlmKey.value.trim();
   const scanDirsEl = document.getElementById('configScanDirs');
-  const scan_directories = scanDirsEl ? scanDirsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  const dirs = scanDirsEl ? scanDirsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  // 扫描目录按主机名分键，保留其它机器的条目
+  const scan_directories = Object.assign({}, scanDirsByMachine);
+  if (currentMachine) scan_directories[currentMachine] = dirs;
   
   const machine_aliases = {};
   document.querySelectorAll('#configMachineAliasesList .machine-alias-input').forEach(input => {
@@ -1902,11 +2176,27 @@ async function saveConfigModal() {
     });
     const data = await res.json();
     if (data.success) {
+      // 单独保存 WebDAV 凭据（本地文件，不进 config.json）
+      try {
+        await fetch('/api/webdav/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabled: !!(configWebdavEnabled && configWebdavEnabled.checked),
+            url: configWebdavUrl ? configWebdavUrl.value.trim() : '',
+            username: configWebdavUser ? configWebdavUser.value.trim() : '',
+            password: configWebdavPass ? configWebdavPass.value : ''
+          })
+        });
+      } catch (e) {}
+      scanDirsByMachine = scan_directories;
       machineAliases = machine_aliases;
       configModal.classList.remove('show');
       renderTable();
       renderMachineTabs(machinesList);
       showToast('设置与设备别名已保存生效！', 'success');
+      // 若刚启用 WebDAV，立即开始会话同步
+      await initSync();
     }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');

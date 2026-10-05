@@ -1,6 +1,6 @@
 [package]
 name = "windows-software-ledger"
-version = "2.0.0"
+version = "2.1.0"
 description = "软件备份台账"
 authors = ["iroha3"]
 license = "AGPL-3.0"
@@ -19,11 +19,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 chrono = "0.4"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 opener = "0.7"
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
 
 [profile.release]
 panic = "abort"

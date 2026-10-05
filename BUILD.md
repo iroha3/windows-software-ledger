@@ -66,6 +66,17 @@ scripts\cargo-msvc.bat build --release
 scripts\cargo-msvc.bat test
 ```
 
+联网冒烟测试（验证与真实 WebDAV 的推送 / 并集接入 / 删除传播 / 锁互斥 / 强制覆盖）默认 `#[ignore]`，且凭据只从环境变量读，不会写进仓库。
+
+> ⚠️ **安全护栏**：测试会镜像推送（会删远端多余文件）。`LEDGER_TEST_WEBDAV_URL` 的路径**必须含 `ledgertest`**（指向专用测试目录）才会运行，否则自动跳过，以免误删真实备份。
+
+```bat
+set LEDGER_TEST_WEBDAV_URL=http://192.168.1.10:5244/dav/backup/ledgertest
+set LEDGER_TEST_WEBDAV_USER=webdav
+set LEDGER_TEST_WEBDAV_PASS=******
+scripts\cargo-msvc.bat test -- --ignored
+```
+
 ## 数据目录约定
 
 数据根目录规则只有一条：**永远是可执行文件所在目录**。

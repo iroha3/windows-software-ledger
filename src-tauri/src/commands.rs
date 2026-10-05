@@ -1,13 +1,36 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use base64::Engine;
+use tauri::Manager;
 
 use crate::exporter::export_checklists;
 use crate::ingest::{apply_selected, build_candidates, known_icon_refreshes};
 use crate::store;
+
+// ---------------------------------------------------------------------------
+// 只读镜像（同步）
+//
+// 另一台机器持有会话锁时，本机进入只读：所有写命令直接拒绝。
+// 放在后端是为了覆盖所有页面（卡片速审 / 浏览器页等），而不只是主页。
+// ---------------------------------------------------------------------------
+
+static READ_ONLY: AtomicBool = AtomicBool::new(false);
+
+pub fn set_read_only(v: bool) {
+    READ_ONLY.store(v, Ordering::SeqCst);
+}
+
+fn deny_if_read_only() -> Option<Value> {
+    if READ_ONLY.load(Ordering::SeqCst) {
+        Some(json!({ "success": false, "error": "本机只读：另一台机器正在编辑，无法修改数据" }))
+    } else {
+        None
+    }
+}
 
 fn as_str(v: &Value, key: &str) -> String {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
@@ -65,6 +88,9 @@ pub fn get_config() -> Value {
 
 #[tauri::command]
 pub fn save_config(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let mut current = store::get_config();
     if let (Value::Object(base), Value::Object(over)) = (&mut current, &payload) {
         for (k, v) in over {
@@ -73,6 +99,212 @@ pub fn save_config(payload: Value) -> Value {
     }
     store::save_config(&current);
     json!({ "success": true, "config": current })
+}
+
+// ---------------------------------------------------------------------------
+// WebDAV 同步
+//
+// 单写者会话锁：开软件抢锁并拉取，关软件推送并释放；抢不到锁则本机只读。
+// 全部网络/文件操作在 spawn_blocking 里跑，避免卡住 UI 线程。
+// ---------------------------------------------------------------------------
+
+/// 进程级同步状态：owner 是「主机名#实例短号」，held 表示当前是否持有会话锁。
+pub struct SyncState {
+    pub owner: String,
+    pub held: AtomicBool,
+}
+
+impl SyncState {
+    pub fn new() -> Self {
+        let short = store::new_uuid();
+        Self {
+            owner: format!("{}#{}", current_machine(), &short[..8]),
+            held: AtomicBool::new(false),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_webdav_config() -> Value {
+    store::get_webdav_config()
+}
+
+#[tauri::command]
+pub fn save_webdav_config(payload: Value) -> Value {
+    let mut current = store::get_webdav_config();
+    if let (Value::Object(base), Value::Object(over)) = (&mut current, &payload) {
+        for (k, v) in over {
+            base.insert(k.clone(), v.clone());
+        }
+    }
+    store::save_webdav_config(&current);
+    json!({ "success": true, "config": current })
+}
+
+#[tauri::command]
+pub async fn webdav_test() -> Value {
+    match tauri::async_runtime::spawn_blocking(crate::sync::test_connection).await {
+        Ok(v) => v,
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 开软件时调用：抢会话锁；抢到则拉取远端并保持锁，未抢到则返回持有者信息（本机只读）。
+#[tauri::command]
+pub async fn sync_session_start(app: tauri::AppHandle) -> Value {
+    let (owner, host) = {
+        let state = app.state::<SyncState>();
+        (state.owner.clone(), current_machine())
+    };
+    let owner2 = owner.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let lock = crate::sync::try_acquire(&owner2, &host);
+        if lock.get("success").and_then(|v| v.as_bool()) != Some(true) {
+            // 未启用 WebDAV（或地址不全）时不限制编辑；网络错误则保持原状态。
+            if lock.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+                set_read_only(false);
+            }
+            return lock;
+        }
+        if lock.get("acquired").and_then(|v| v.as_bool()) != Some(true) {
+            set_read_only(true);
+            return json!({
+                "success": true,
+                "acquired": false,
+                "lock": lock.get("lock").cloned().unwrap_or(Value::Null)
+            });
+        }
+        set_read_only(false);
+        let sync = crate::sync::run_sync(crate::sync::SyncMode::Normal);
+        json!({ "success": true, "acquired": true, "sync": sync })
+    })
+    .await;
+    match res {
+        Ok(v) => {
+            if v.get("acquired").and_then(|x| x.as_bool()) == Some(true) {
+                app.state::<SyncState>().held.store(true, Ordering::SeqCst);
+            }
+            v
+        }
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 关软件时调用：最后一次推送后释放会话锁。
+#[tauri::command]
+pub async fn sync_session_end(app: tauri::AppHandle) -> Value {
+    let (owner, was_held) = {
+        let state = app.state::<SyncState>();
+        (state.owner.clone(), state.held.swap(false, Ordering::SeqCst))
+    };
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        // 只读机（未持锁）绝不推送，否则会覆盖持锁机的改动。
+        if !was_held {
+            return json!({ "success": true, "skipped": true });
+        }
+        let sync = crate::sync::run_sync(crate::sync::SyncMode::Normal);
+        let release = crate::sync::release(&owner);
+        json!({ "success": true, "sync": sync, "release": release })
+    })
+    .await;
+    match res {
+        Ok(v) => v,
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 前端定时调用，续租会话锁（每 5 分钟）。
+#[tauri::command]
+pub async fn sync_heartbeat(app: tauri::AppHandle) -> Value {
+    let (owner, held) = {
+        let state = app.state::<SyncState>();
+        (state.owner.clone(), state.held.load(Ordering::SeqCst))
+    };
+    if !held {
+        return json!({ "success": true, "held": false });
+    }
+    let host = current_machine();
+    match tauri::async_runtime::spawn_blocking(move || crate::sync::renew(&owner, &host)).await {
+        Ok(v) => v,
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 手动同步。mode: `auto`（默认）/ `push`（本地覆盖远端）/ `pull`（远端覆盖本地）。
+#[tauri::command]
+pub async fn sync_now(mode: String, app: tauri::AppHandle) -> Value {
+    let owner = app.state::<SyncState>().owner.clone();
+    let host = current_machine();
+    let sync_mode = match mode.as_str() {
+        "push" => crate::sync::SyncMode::ForcePush,
+        "pull" => crate::sync::SyncMode::ForcePull,
+        _ => crate::sync::SyncMode::Normal,
+    };
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let lock = crate::sync::try_acquire(&owner, &host);
+        if lock.get("success").and_then(|v| v.as_bool()) != Some(true) {
+            if lock.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+                set_read_only(false);
+            }
+            return lock;
+        }
+        if lock.get("acquired").and_then(|v| v.as_bool()) != Some(true) {
+            set_read_only(true);
+            return json!({
+                "success": false,
+                "locked": true,
+                "error": "另一台机器正在同步，无法执行",
+                "lock": lock.get("lock").cloned().unwrap_or(Value::Null)
+            });
+        }
+        set_read_only(false);
+        let sync = crate::sync::run_sync(sync_mode);
+        let ok = sync.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        json!({ "success": ok, "acquired": true, "sync": sync })
+    })
+    .await;
+    match res {
+        Ok(v) => {
+            if v.get("acquired").and_then(|x| x.as_bool()) == Some(true) {
+                app.state::<SyncState>().held.store(true, Ordering::SeqCst);
+            }
+            v
+        }
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 强制解除远端会话锁（另一台机器卡死时用）。
+#[tauri::command]
+pub async fn sync_unlock(app: tauri::AppHandle) -> Value {
+    app.state::<SyncState>().held.store(false, Ordering::SeqCst);
+    // 解除远端锁后本机不再受只读限制（随后会重新尝试抢锁）。
+    set_read_only(false);
+    match tauri::async_runtime::spawn_blocking(crate::sync::unlock).await {
+        Ok(v) => v,
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
+/// 查询锁状态与上次同步结果（供设置页展示）。
+#[tauri::command]
+pub async fn sync_status(app: tauri::AppHandle) -> Value {
+    let (owner, owner_resp, held) = {
+        let state = app.state::<SyncState>();
+        (state.owner.clone(), state.owner.clone(), state.held.load(Ordering::SeqCst))
+    };
+    let last = store::read_json(&store::last_sync_file());
+    match tauri::async_runtime::spawn_blocking(move || crate::sync::lock_status(&owner)).await {
+        Ok(mut v) => {
+            if let Some(o) = v.as_object_mut() {
+                o.insert("we_hold".to_string(), json!(held));
+                o.insert("owner".to_string(), json!(owner_resp));
+                o.insert("last".to_string(), last);
+            }
+            v
+        }
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +395,8 @@ pub fn get_status() -> Value {
         "machines": machines,
         "stats": stats,
         "availablePaths": available_paths,
-        "machine_aliases": aliases
+        "machine_aliases": aliases,
+        "current_machine": current_machine()
     })
 }
 
@@ -348,7 +581,7 @@ pub fn get_browser_extensions() -> Value {
 // 只存用户手动放入的文件，绝不自动采集。
 // ---------------------------------------------------------------------------
 
-fn current_machine() -> String {
+pub fn current_machine() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "UNKNOWN".to_string())
@@ -508,6 +741,9 @@ pub fn vault_list(kind: String, id: String) -> Value {
 /// 缺 machine_id 时退回本机。传入字段与已有字段合并（不覆盖未提及的键）。
 #[tauri::command]
 pub fn update_extension(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let machine_id = {
         let m = as_str(&payload, "machine_id");
         if m.is_empty() {
@@ -553,6 +789,9 @@ pub fn update_extension(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn vault_add(kind: String, id: String, paths: Vec<String>) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let dir = vault_target_dir(&kind, &id);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return json!({ "success": false, "error": format!("无法创建归档目录: {}", e) });
@@ -581,6 +820,9 @@ pub fn vault_add(kind: String, id: String, paths: Vec<String>) -> Value {
 
 #[tauri::command]
 pub fn vault_delete(kind: String, id: String, name: String) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let dir = vault_target_dir(&kind, &id);
     let name = safe_component(&name);
     let target = dir.join(&name);
@@ -611,6 +853,9 @@ pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Val
 
 #[tauri::command]
 pub fn update_software(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let uuid = as_str(&payload, "uuid");
     let updates = payload.get("updates").cloned().unwrap_or(json!({}));
     if uuid.is_empty() {
@@ -628,6 +873,7 @@ pub fn update_software(payload: Value) -> Value {
         }
     }
     apply_derived_strategy(&mut software[idx], &updates);
+    store::touch(&mut software[idx]);
     let item = software[idx].clone();
     store::write_software(&software);
     json!({ "success": true, "item": item })
@@ -635,6 +881,9 @@ pub fn update_software(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn batch_update(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let ids: Vec<String> = payload
         .get("ids")
         .and_then(|v| v.as_array())
@@ -652,6 +901,7 @@ pub fn batch_update(payload: Value) -> Value {
                 }
             }
             apply_derived_strategy(item, &updates);
+            store::touch(item);
             count += 1;
         }
     }
@@ -661,6 +911,9 @@ pub fn batch_update(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn delete_software(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let ids: Vec<String> = payload
         .get("ids")
         .and_then(|v| v.as_array())
@@ -732,6 +985,9 @@ pub fn delete_software(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn batch_add(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let names: Vec<String> = payload
         .get("names")
         .and_then(|v| v.as_array())
@@ -782,7 +1038,8 @@ pub fn batch_add(payload: Value) -> Value {
             "is_awesome": false,
             "awesome_role": "",
             "is_new": true,
-            "created_at": chrono::Local::now().to_rfc3339()
+            "created_at": chrono::Local::now().to_rfc3339(),
+            "updated_at": chrono::Local::now().to_rfc3339()
         });
         new_items.push(item.clone());
         software.insert(0, item);
@@ -794,6 +1051,9 @@ pub fn batch_add(payload: Value) -> Value {
 
 #[tauri::command]
 pub fn merge_software(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let mut software = store::read_software();
 
     // 锚点 / 被并项一律按 uuid（内部唯一标识）。
@@ -893,6 +1153,7 @@ pub fn merge_software(payload: Value) -> Value {
         }
     }
 
+    store::touch(&mut software[target_idx]);
     software.retain(|s| !merge_uuids.contains(&as_str(s, "uuid")));
 
     // 删除被合并条目的图标（每条记录一个，无共享）
@@ -1160,11 +1421,20 @@ fn collect_evidence() -> Result<String, String> {
     std::fs::write(&script, body).map_err(|e| format!("无法释放采集脚本: {}", e))?;
 
     let cfg = store::get_config();
+    // 扫描目录按主机名分键（每台机只读自己那份）；兼容旧版扁平数组。
     let dirs = cfg
         .get("scan_directories")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
-        .unwrap_or_default();
+        .and_then(|v| {
+            if let Some(arr) = v.as_array() {
+                Some(arr.iter().filter_map(|x| x.as_str()).map(String::from).collect::<Vec<_>>())
+            } else {
+                v.get(&machine).and_then(|x| x.as_array()).map(|a| {
+                    a.iter().filter_map(|x| x.as_str()).map(String::from).collect::<Vec<_>>()
+                })
+            }
+        })
+        .unwrap_or_default()
+        .join(",");
 
     let result = run_powershell(&script, &evidence_dir, &dirs, &machine);
     remove_dir_retry(&script_dir);
@@ -1248,6 +1518,9 @@ fn scan_preview_blocking() -> Value {
 
 #[tauri::command]
 pub async fn scan_preview() -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     match tauri::async_runtime::spawn_blocking(scan_preview_blocking).await {
         Ok(v) => v,
         Err(e) => json!({ "success": false, "error": e.to_string() }),
@@ -1257,6 +1530,9 @@ pub async fn scan_preview() -> Value {
 /// 扫描第二步：只把勾选的候选写入 software.json。
 #[tauri::command]
 pub fn scan_commit(payload: Value) -> Value {
+    if let Some(v) = deny_if_read_only() {
+        return v;
+    }
     let selected_keys: Vec<String> = payload
         .get("selectedKeys")
         .and_then(|v| v.as_array())
@@ -1300,6 +1576,25 @@ pub fn scan_commit(payload: Value) -> Value {
 #[tauri::command]
 pub fn export_markdown() -> Value {
     export_checklists()
+}
+
+/// 导出软件清单为 xlsx（零依赖手写，直接写盘）。
+#[tauri::command]
+pub fn export_xlsx(dest: String) -> Value {
+    let rows = crate::exporter::export_xlsx_rows();
+    let widths = [22.0, 14.0, 12.0, 10.0, 34.0, 20.0, 22.0, 12.0, 8.0, 36.0, 46.0];
+    let bytes = crate::xlsx::build(&rows, "软件清单", &widths);
+    if let Some(parent) = std::path::Path::new(&dest).parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return json!({ "success": false, "error": format!("创建目录失败: {}", e) });
+            }
+        }
+    }
+    match std::fs::write(&dest, bytes) {
+        Ok(_) => json!({ "success": true, "path": dest }),
+        Err(e) => json!({ "success": false, "error": format!("写入失败: {}", e) }),
+    }
 }
 
 /// 把导出清单写到用户选定的路径（原生另存为对话框返回的 dest）。

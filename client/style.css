@@ -2923,3 +2923,47 @@ a.evidence-val:hover {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* WebDAV 同步横幅：另一台设备持锁时提示本机只读 */
+.sync-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #fdf3d8;
+  color: #8a6d1a;
+  border-bottom: 1px solid #f0e0a8;
+  font-size: 12.5px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+[data-theme="dark"] .sync-banner {
+  background: #3a3218;
+  color: #e8d48a;
+  border-bottom-color: #55491f;
+}
+
+/* 只读镜像：禁用可编辑控件（后端也会拒绝写命令，二者互为兵底） */
+body.sync-readonly #tableBody input,
+body.sync-readonly #tableBody select,
+body.sync-readonly #sideDrawer input,
+body.sync-readonly #sideDrawer select,
+body.sync-readonly #sideDrawer textarea,
+body.sync-readonly .row-checkbox,
+body.sync-readonly #selectAllCheckbox,
+body.sync-readonly #btnScanLocal,
+body.sync-readonly #btnAddSoftware,
+body.sync-readonly #btnDeleteCurrent,
+body.sync-readonly #btnDrawerLLM,
+body.sync-readonly #drawerVaultAdd,
+body.sync-readonly #btnBatchDelete,
+body.sync-readonly #btnBatchMerge,
+body.sync-readonly #btnBatchLLM {
+  pointer-events: none !important;
+  opacity: 0.5;
+}
+body.sync-readonly #batchBar {
+  display: none !important;
+}
