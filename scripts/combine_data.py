@@ -10,7 +10,8 @@
 - icons / vault / evidence：按 uuid / 主机名并集拷入，已存在的不覆盖。
 - extensions.json / browsers.json：与软件同样，**纯并集、不按匹配键合并**，只按 uuid 去重。
   同一条扩展分别装在两台机器上就保留为两条，各自独立。
-- ignored.json：墓碑并集去重；config.json 保留 A。
+- ignored.json：墓碑并集去重；config.json 的 `machine_aliases` 取并集（母本优先），
+  LLM / 扫描目录等其余字段保留母本。
 
 用法：
   python scripts/combine_data.py <A机 data> <B机 data> --out <产出 data>
@@ -224,11 +225,19 @@ def combine_trash(base_dir, inc_dir):
 
 
 def combine_config(base_dir, inc_dir):
+    """config.json：machine_aliases 取并集（母本优先），其余字段保留母本。"""
     dst = Path(base_dir) / "config.json"
-    if not dst.exists():
-        src = Path(inc_dir) / "config.json"
-        if src.is_file():
-            shutil.copy2(src, dst)
+    base = load_json(dst, None)
+    inc = load_json(Path(inc_dir) / "config.json", None)
+    if not isinstance(base, dict):
+        if isinstance(inc, dict):
+            dump_json(dst, inc)
+        return
+    if isinstance(inc, dict):
+        aliases = dict(inc.get("machine_aliases") or {})
+        aliases.update(base.get("machine_aliases") or {})  # 母本优先
+        base["machine_aliases"] = aliases
+        dump_json(dst, base)
 
 
 def combine(base_dir, inc_dir):
