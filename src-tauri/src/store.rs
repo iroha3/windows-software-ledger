@@ -1,6 +1,16 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+/// 进程内「读-改-写」串行锁。写命令改为异步后在 tokio 线程池上跑，
+/// 不再由 WebView 主线程串行排队，用它避免同进程内两次写互相覆盖。
+/// （MCP 是独立进程，跨进程靠原子写兜底。）
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+pub fn lock_writes() -> MutexGuard<'static, ()> {
+    WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// 数据根目录 = 可执行文件所在目录。
 /// 便携发布：exe 与 `data/` 放同一个文件夹，`data/` 首次运行自动创建。

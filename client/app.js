@@ -191,7 +191,7 @@ async function init() {
   enableWheelSelect();
   // WebDAV：先拉取远端最新，再决定是否需要扫描本机
   await initSync();
-  startLedgerWatch();
+  await syncLedgerWatch();
   // 首次运行 / 清单为空时自动扫描本机，省去手动点一次；
   // 只读镜像下不自动扫描（避免刚启动就报「本机只读」）。
   if (softwareList.length === 0 && !readOnly) {
@@ -236,6 +236,7 @@ function applyWebdavUi(enabled) {
 // 只读镜像：禁用所有编辑控件（后端也会拒绝写命令，二者互为兵底）。
 function applyReadOnly() {
   document.body.classList.toggle('sync-readonly', readOnly);
+  syncLedgerWatch(); // 只读镜像下本机不会用 MCP 写，无需轮询
 }
 
 function describeSync(sync) {
@@ -431,9 +432,9 @@ async function fetchStatus() {
     renderStats(data.stats);
     renderMachineTabs(data.machines);
     renderPathFilter(availablePaths);
-    if (softwareList.length > 0) {
-      renderTable();
-    }
+    // 这里刻意不重渲染表格：状态刷新被大量单行编辑（下拉改意愿/处置）调用，
+    // 整表重建会拆掉用户正在操作的 <select>（下拉自己缩回、点了没反应）。
+    // 需要重渲染的路径都会自己调 renderTable()/loadSoftware()。
   } catch (e) {
     console.error('Failed to fetch status:', e);
   }
@@ -469,6 +470,22 @@ async function loadSoftware() {
 let ledgerRevision = null;
 let ledgerWatchTimer = null;
 
+// 自己写入的标记：本地改动同样会 bump 版本指纹，不标记就会被误判成「外部更新」。
+// 直接包一层 fetch：凡是对台账的写请求都记一笔（后端还会改 updated_at、
+// 按意愿推导 backup_strategy，所以不能拿内存内容去比对）。
+let selfWriteAt = 0;
+(function markSelfWrites() {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    if (method === 'POST' && /\/api\/(software|scan|sync)\//.test(url)) {
+      selfWriteAt = Date.now();
+    }
+    return origFetch(input, init);
+  };
+})();
+
 // 正在编辑 / 有弹窗时先不刷新，避免打断输入或吞掉未保存的改动。
 function isEditingBusy() {
   if (sideDrawer && sideDrawer.classList.contains('show')) return true;
@@ -477,33 +494,50 @@ function isEditingBusy() {
 }
 
 async function pollLedgerRevision() {
+  if (document.hidden) return; // 窗口在后台不干活，回到前台时补一次
   try {
     const data = await (await fetch('/api/ledger-revision')).json();
     const rev = data.revision;
     if (ledgerRevision === null) { ledgerRevision = rev; return; }
     if (rev === ledgerRevision) return;
-    // 已变动；正在编辑就先记着，等空闲后的下一轮再刷。
+    // 自己刚写的：界面已就地更新过，直接记下指纹即可。
+    // 不能重刷——整表重建会拆掉用户正在拖的下拉。
+    const self = (Date.now() - selfWriteAt) < 5000;
+    if (self) { ledgerRevision = rev; return; }
+    // 外部（MCP）写入：正在编辑/开弹窗就先等，别打断；空闲时再刷并提示。
     if (isEditingBusy()) return;
     ledgerRevision = rev;
-    const before = JSON.stringify(softwareList);
     await loadSoftware();
     await fetchStatus();
-    // 数据真的不同才提示，避免自己写入后重复弹窗。
-    if (JSON.stringify(softwareList) !== before) {
-      showToast('台账已被外部更新，已自动刷新', 'success', 3000);
-    }
+    showToast('台账已被外部更新，已自动刷新', 'success', 3000);
   } catch (e) { /* 轮询失败静默重试 */ }
+}
+
+function stopLedgerWatch() {
+  if (ledgerWatchTimer) { clearInterval(ledgerWatchTimer); ledgerWatchTimer = null; }
 }
 
 function startLedgerWatch() {
   if (ledgerWatchTimer) return;
-  // 先取一次基线，之后定期比对
-  fetch('/api/ledger-revision')
-    .then(r => r.json())
-    .then(d => { ledgerRevision = d.revision; })
-    .catch(() => {});
+  ledgerRevision = null; // 重新取基线，避免刚开启的那一轮误报
+  pollLedgerRevision();
   ledgerWatchTimer = setInterval(pollLedgerRevision, 2000);
 }
+
+// 只有开了 MCP 写入，才可能有「外部写入者」，才值得盯台账变化；
+// 写开关关着又没同步拉取时，台账不会被别人动，别白轮询。
+async function syncLedgerWatch() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    if (cfg.mcp_write_enabled && !readOnly) startLedgerWatch();
+    else stopLedgerWatch();
+  } catch (e) { /* 读不到配置就不轮询 */ }
+}
+
+// 窗口切回前台时立刻补一次，避免后台期间错过的变更没反映
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollLedgerRevision();
+});
 
 function renderStats(stats) {
   if (!stats) return;
@@ -2340,6 +2374,8 @@ async function saveConfigModal() {
       showToast('设置与设备别名已保存生效！', 'success');
       // 若刚启用 WebDAV，立即开始会话同步
       await initSync();
+      // 开关了 MCP 写入则开始/停止台账轮询
+      await syncLedgerWatch();
     }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');

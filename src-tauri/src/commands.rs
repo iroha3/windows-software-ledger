@@ -84,12 +84,12 @@ fn apply_derived_strategy(item: &mut Value, updates: &Value) {
 // 配置
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_config() -> Value {
     store::get_config()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_config(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
@@ -127,12 +127,12 @@ impl SyncState {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_webdav_config() -> Value {
     store::get_webdav_config()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_webdav_config(payload: Value) -> Value {
     let mut current = store::get_webdav_config();
     if let (Value::Object(base), Value::Object(over)) = (&mut current, &payload) {
@@ -315,14 +315,14 @@ pub async fn sync_status(app: tauri::AppHandle) -> Value {
 // ---------------------------------------------------------------------------
 
 /// 应用版本号（唯一来源：src-tauri/Cargo.toml）。关于弹窗动态读取，避免各页面硬编码漂移。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_version() -> Value {
     json!({ "version": env!("CARGO_PKG_VERSION") })
 }
 
 /// MCP（agent 集成）配置信息：返回当前 exe 绝对路径，供设置页生成各客户端的配置片段。
 /// 数据目录始终是 exe 同级的 data/，所以客户端只认这个 exe 路径就够了。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_mcp_info() -> Value {
     let exe = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
@@ -341,12 +341,12 @@ pub fn get_mcp_info() -> Value {
 }
 
 /// 台账数据版本指纹：供前端轮询，检测到外部（如 MCP 写工具）改动后自动刷新表格。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_ledger_revision() -> Value {
     json!({ "revision": store::ledger_revision() })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_status() -> Value {
     let software = store::read_software();
 
@@ -439,7 +439,7 @@ pub fn get_status() -> Value {
 // 软件清单 CRUD
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_software() -> Value {
     let mut items = store::read_software();
     // 图标以 data URI 注入（文件本体在 data/icons/，由条目的 icon_file 字段指向），
@@ -473,7 +473,7 @@ fn icon_data_uri(file: &str) -> Option<String> {
 }
 
 /// 汇总各机器采集到的开发环境清单（只读证据，不参与软件清单）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_dev_env() -> Value {
     let root = store::evidence_dir();
     let mut machines: Vec<Value> = Vec::new();
@@ -512,7 +512,7 @@ pub fn get_dev_env() -> Value {
 // 浏览器扩展（只读元数据聚合）
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_browser_extensions() -> Value {
     collect_browser_extensions(true)
 }
@@ -752,7 +752,7 @@ fn vault_file_count(kind: &str, id: &str) -> u64 {
         .unwrap_or(0)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_list(kind: String, id: String) -> Value {
     let dir = vault_target_dir(&kind, &id);
     let mut files: Vec<Value> = Vec::new();
@@ -784,7 +784,7 @@ pub fn vault_list(kind: String, id: String) -> Value {
 /// 保存某条扩展的用户层字段（data/extensions.json，按 uuid 持久化）。
 /// 前端给 `(machine_id, browser_id, profile, ext_id)` 匹配键，uuid 由后端认回 / 铸新。
 /// 缺 machine_id 时退回本机。传入字段与已有字段合并（不覆盖未提及的键）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_extension(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
@@ -832,7 +832,7 @@ pub fn update_extension(payload: Value) -> Value {
     json!({ "success": true, "uuid": uuid })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_add(kind: String, id: String, paths: Vec<String>) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
@@ -863,7 +863,7 @@ pub fn vault_add(kind: String, id: String, paths: Vec<String>) -> Value {
     json!({ "success": true, "added": added, "skipped": skipped })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_delete(kind: String, id: String, name: String) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
@@ -880,7 +880,7 @@ pub fn vault_delete(kind: String, id: String, name: String) -> Value {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Value {
     let dir = vault_target_dir(&kind, &id);
     let name = safe_component(&name);
@@ -896,11 +896,12 @@ pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Val
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_software(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let uuid = as_str(&payload, "uuid");
     let updates = payload.get("updates").cloned().unwrap_or(json!({}));
     if uuid.is_empty() {
@@ -924,11 +925,12 @@ pub fn update_software(payload: Value) -> Value {
     json!({ "success": true, "item": item })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn batch_update(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let ids: Vec<String> = payload
         .get("ids")
         .and_then(|v| v.as_array())
@@ -954,11 +956,12 @@ pub fn batch_update(payload: Value) -> Value {
     json!({ "success": true, "count": count })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_software(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let ids: Vec<String> = payload
         .get("ids")
         .and_then(|v| v.as_array())
@@ -1028,11 +1031,12 @@ pub fn delete_software(payload: Value) -> Value {
     json!({ "success": true, "remaining": software.len() })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn batch_add(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let names: Vec<String> = payload
         .get("names")
         .and_then(|v| v.as_array())
@@ -1094,11 +1098,12 @@ pub fn batch_add(payload: Value) -> Value {
     json!({ "success": true, "items": new_items })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn merge_software(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let mut software = store::read_software();
 
     // 锚点 / 被并项一律按 uuid（内部唯一标识）。
@@ -1573,11 +1578,12 @@ pub async fn scan_preview() -> Value {
 }
 
 /// 扫描第二步：只把勾选的候选写入 software.json。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scan_commit(payload: Value) -> Value {
     if let Some(v) = deny_if_read_only() {
         return v;
     }
+    let _w = store::lock_writes();
     let selected_keys: Vec<String> = payload
         .get("selectedKeys")
         .and_then(|v| v.as_array())
@@ -1618,13 +1624,13 @@ pub fn scan_commit(payload: Value) -> Value {
     json!({ "success": true, "added": result.added, "revived": result.revived_keys.len() })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_markdown() -> Value {
     export_checklists()
 }
 
 /// 导出软件清单为 xlsx（零依赖手写，直接写盘）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_xlsx(dest: String) -> Value {
     let rows = crate::exporter::export_xlsx_rows();
     let widths = [
@@ -1651,7 +1657,7 @@ pub fn export_xlsx(dest: String) -> Value {
 }
 
 /// 把导出清单写到用户选定的路径（原生另存为对话框返回的 dest）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_save(which: String, dest: String) -> Value {
     let data = export_checklists();
     if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
@@ -1679,7 +1685,7 @@ pub fn export_save(which: String, dest: String) -> Value {
 
 /// 用系统默认程序打开外链。
 /// 只放行 http/https，避免 URL 被当作本地文件或命令执行。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_url(url: String) -> Result<(), String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
