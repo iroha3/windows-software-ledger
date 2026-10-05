@@ -145,10 +145,31 @@
 
 #### 合并与删除（整理操作）
 
-- **合并**（`merge_software`）：target = **第一个选中项**（前端 `selectedIds` 插入顺序的 `ids[0]`）；其余选中项并入 target 后从台账移除。合并内容：
-  - `machines` 按 `(machine_id, install_location)` 取并集（不重复）；
-  - 字段回填：target 为空的 `version` / `download_url` 用被合并项补齐，`has_config` 取或，`config_notes` 拼接；
-  - 图标规则见上「软件图标」。
+- **合并**（`merge_software`）：target = **第一个选中项**（前端 `selectedIds` 插入顺序的 `ids[0]`，注意 `Set` 的插入顺序 = 勾选顺序；「全选」时锚点 = 筛选结果第一条）；其余选中项并入 target 后从台账移除。
+
+  **统一心智模型：锚点为准；事实与资产在锚点基础上并入或补齐，决策与主观永不并入。**
+
+  锚点的值一律优先；子项只在「锚点为空 / 未标」处补齐，绝不覆盖锚点已经表达的结论。决策字段的默认值（`unreviewed` / `todo` / `none` / `false`）**不是「空」，而是一个已表达的取值**——例如锚点为「未评」时，合并**不会**继承子项的「必须恢复」；锚点为「待办」时不会继承子项的「已就绪」。
+
+  按字段展开：
+
+  | 字段 | 归类 | 合并行为 |
+  |---|---|---|
+  | `machines` | 事实集合 | 按 `(machine_id, install_location)` 取并集；锚点为基、子项并入 |
+  | `has_config` | 事实标志 | 取或（并集）；`false` 视作「未标」，任一为 `true` 即 `true` |
+  | `version` / `download_url` | 事实 | 锚点非空则保留，空则按勾选顺序取子项第一个非空值 |
+  | `icon_file` | 资产 | 同上（细则见上「软件图标」） |
+  | `config_notes` | 文本 | 锚点空则用子项；非空则 `锚点; 子项` 追加 |
+  | `restore_intent` / `backup_strategy` / `prep_status` | 决策 | 锚点为准，**从不并入**；默认值即结论 |
+  | `is_awesome` / `awesome_role` | 主观 | 锚点为准，**从不并入** |
+  | `name` / `category` / `type` | 标识 / 规则事实 | 锚点为准 |
+  | `id` / `created_at` / `is_new` | 元数据 | 锚点保留（`created_at`、`is_new` 均不刷新） |
+
+  分类依据：**事实/资产**（机器列表、版本、下载地址、图标、配置标志）可安全合并或补齐；**决策/主观**（恢复意愿、处置方式、准备状态、精选）是用户的明确意志，一律以锚点为准。
+
+  因此「把已评的子项并进未评的锚点会丢掉子项评审」是**刻意的取舍而非缺陷**：需要分别保留两台机器的决策时，就不要合并；合并即表示接受「以锚点为准」。
+
+  > 附注：`unreviewed` 在统计口径上等同于「尚未评档」（`restore_intent` 为空串或 `unreviewed` 都计入未评），但在**合并**口径下它是一个确定取值，不触发补齐。
 - **删除**（`delete_software`）：按 `id` 移除并写入 `ignored.json` 墓碑；级联清理 `vault/<主机名>/soft/<SW-ID>/` 与 `icon_file`（仍被其它条目引用则保留）。
 
 #### 配置归档（`data/vault/<主机名>/`）
