@@ -357,7 +357,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "update_software",
-                "description": "【写入】更新一条已存在的软件记录（按 uuid 定位）。可改字段：name / category / type / version / restore_intent / backup_strategy / prep_status / has_config / download_url / config_notes / is_awesome / awesome_role。适合修正版本号、补官网链接、调整恢复意愿 / 处置方式、写配置备注。要求：设置在「Agent 集成」里开启了写入开关，且本机当前可写（未启用 WebDAV，或本机持有同步锁）。先 search_software / get_software 拿到 uuid。",
+                "description": "【写入】更新一条已存在的软件记录（按 uuid 定位）。可改字段：name / category / type / version / restore_intent / backup_strategy / prep_status / has_config / download_url / config_notes / is_awesome / awesome_role。适合修正版本号、补官网链接、调整恢复意愿 / 处置方式、写配置备注。要求：在「Agent 集成」里开启了写入开关。先 search_software / get_software 拿到 uuid。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -915,7 +915,7 @@ const WRITABLE_FIELDS: &[&str] = &[
     "awesome_role",
 ];
 
-/// 写入准入：设置里开了写开关，且本机当前确实可写（未启用 WebDAV，或本机持锁）。
+/// 写入准入：设置里开了写开关。
 fn write_gate() -> Result<(), String> {
     let enabled = store::get_config()
         .get("mcp_write_enabled")
@@ -926,9 +926,6 @@ fn write_gate() -> Result<(), String> {
             "MCP 写入未启用：请在软件「设置 → Agent 集成 (MCP)」勾选「允许 AI agent 写入台账」后重试（只读工具不受影响）。"
                 .to_string(),
         );
-    }
-    if let Some(reason) = store::mcp_write_denied() {
-        return Err(reason);
     }
     Ok(())
 }
@@ -1201,7 +1198,7 @@ mod tests {
         std::fs::create_dir_all(base.join("data")).unwrap();
         {
             let _guard = store::test_support::use_root(&base);
-            // 开启写开关；未配置 WebDAV → 本机始终可写（mcp_write_denied 返回 None）
+            // 开启写开关；写工具是否允许完全由该开关决定。
             store::save_config(&json!({ "mcp_write_enabled": true }));
             let uuid = "11111111-1111-1111-1111-111111111111";
             store::write_software(&[json!({

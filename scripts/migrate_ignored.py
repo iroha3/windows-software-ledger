@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""把旧版 ignored.json 墓碑迁移到「机器 + 路径」新结构。
+"""把旧版 ignored.json 墓碑迁移到统一的删除记录结构。
 
-旧结构：{match_key, name, paths: [...], deleted_at}
-新结构：{match_key, name, machines: [{machine_id, paths: [...]}], deleted_at}
+当前结构：{uuid, name, deleted_at, machines: [{machine_id, paths: [...], name_only?}]}
+  - uuid 供同步合并按 uuid 删除（含「合并条目」被并掉的记录）；
+  - machines 的身份键供重扫压制（同机同路径 / 同机同名 name_only）。
 
-旧墓碑不含机器信息，脚本把所有条目挂到同一台机器（默认反查 config.json
+历史结构：
+  1) {match_key, name, paths: [...], deleted_at}
+  2) {match_key, name, machines: [{machine_id, paths: [...]}], deleted_at}
+
+老墓碑不含机器信息，脚本把所有条目挂到同一台机器（默认反查 config.json
 machine_aliases 里别名为 Surface 的机器 id）。无路径的旧墓碑写成「机器 + 同名」墓碑
-（`machines[].name_only = true`），重扫时同机同名条目默认不勾选。
+（`machines[].name_only = true`）。缺 uuid 的条目补一个随机 uuid（只保证唯一，
+不保证能匹配回已删记录，因此仅参与重扫压制、不参与同步合并）。
 
 用法：
     python scripts/migrate_ignored.py [ignored.json 路径] [--machine DESKTOP-E5EJM94]
@@ -19,6 +25,7 @@ import json
 import shutil
 import sys
 import time
+import uuid
 from pathlib import Path
 
 
@@ -55,35 +62,34 @@ def main():
     if not machine:
         sys.exit(f"无法从 config.json 反查到别名“{args.alias}”的机器 id，请用 --machine 指定")
 
-    out, with_path, name_only, kept = [], 0, 0, 0
+    out, with_path, name_only, added_uuid = [], 0, 0, 0
     for g in data:
-        if "machines" in g:
-            out.append(g)
-            kept += 1
-            continue
-        paths = [p for p in g.get("paths", []) if p]
-        entry = {"machine_id": machine, "paths": paths}
-        if not paths:
-            entry["name_only"] = True
-            name_only += 1
-        else:
-            with_path += 1
-        out.append(
-            {
-                "match_key": g.get("match_key", ""),
-                "name": g.get("name", ""),
-                "machines": [entry],
-                "deleted_at": g.get("deleted_at", ""),
-            }
-        )
+        entry = {
+            "uuid": g.get("uuid") or str(uuid.uuid4()),
+            "name": g.get("name", ""),
+            "deleted_at": g.get("deleted_at", ""),
+            "machines": g.get("machines", []),
+        }
+        if not g.get("uuid"):
+            added_uuid += 1
+        if not entry["machines"]:
+            paths = [p for p in g.get("paths", []) if p]
+            m = {"machine_id": machine, "paths": paths}
+            if not paths:
+                m["name_only"] = True
+                name_only += 1
+            else:
+                with_path += 1
+            entry["machines"] = [m]
+        out.append(entry)
 
     backup = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
     shutil.copy2(path, backup)
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(
-        f"机器 {machine}：迁移 {with_path} 条（带路径），{name_only} 条（同名墓碑），"
-        f"已是新结构 {kept} 条"
+        f"机器 {machine}：旧结构补机器 {with_path} 条（带路径）+ {name_only} 条（同名墓碑），"
+        f"补 uuid {added_uuid} 条，共 {len(out)} 条"
     )
     print(f"备份于 {backup}")
     print(f"写回 {path}")

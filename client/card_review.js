@@ -51,8 +51,6 @@ const themeText = document.getElementById('themeText');
 const btnExport = document.getElementById('btnExport');
 
 const reviewSearchInput = document.getElementById('reviewSearchInput');
-const reviewIntentFilter = document.getElementById('reviewIntentFilter');
-const reviewCategoryFilter = document.getElementById('reviewCategoryFilter');
 const reviewListItems = document.getElementById('reviewListItems');
 const reviewProgressBar = document.getElementById('reviewProgressBar');
 const reviewProgressText = document.getElementById('reviewProgressText');
@@ -218,18 +216,150 @@ async function loadSoftware() {
   }
 }
 
+// 多选筛选（机器 / 进度 / 路径）：每个筛选内部取并集，三个筛选之间取交集。
+const msState = { machine: new Set(), progress: new Set(), path: new Set() };
+
+function msEls(key) {
+  const root = document.getElementById('ms' + key[0].toUpperCase() + key.slice(1));
+  if (!root) return null;
+  return {
+    root,
+    btnText: root.querySelector('.ms-btn-text'),
+    panel: root.querySelector('.ms-panel'),
+  };
+}
+
+function fillMs(key, options) {
+  const els = msEls(key);
+  if (!els) return;
+  // 丢弃已不存在的选项，避免列表变化后筛选条件悬空
+  const valid = new Set(options.map(o => o.value));
+  for (const v of [...msState[key]]) if (!valid.has(v)) msState[key].delete(v);
+  els.panel.innerHTML = options.map(o => {
+    const dot = key === 'machine' ? machineChipDot(o.value) : '';
+    return `
+    <label><input type="checkbox" value="${escapeHtml(o.value)}" ${msState[key].has(o.value) ? 'checked' : ''}><span title="${escapeHtml(o.label)}">${dot}${escapeHtml(o.label)}</span></label>
+  `;
+  }).join('') || '<div class="ms-empty">无</div>';
+}
+
+function updateMsBtn(key) {
+  const els = msEls(key);
+  if (!els) return;
+  const n = msState[key].size;
+  const label = els.root.dataset.label || key;
+  if (key === 'machine' && n > 0) {
+    // 机器用稳定配色 + 机器名，而不是干巴巴的计数
+    const vals = [...msState[key]];
+    const first = vals[0];
+    const extra = n > 1 ? ` +${n - 1}` : '';
+    els.btnText.innerHTML = `${machineChipDot(first)}<span class="ms-name">${escapeHtml(getMachineDisplayName(first))}${extra}</span>`;
+  } else {
+    els.btnText.textContent = n ? `${label} · ${n}` : `${label} · 全部`;
+  }
+  els.root.classList.toggle('active', n > 0);
+}
+
+// 路径分桶：与主页「按路径筛选」保持一致，不做逐条完整路径（太碎）。
+function pathBucket(raw) {
+  if (!raw) return null;
+  const p = String(raw);
+  const lower = p.toLowerCase();
+  if (p.includes('\\AppData\\Local')) return 'AppData\\Local';
+  if (p.includes('\\AppData\\Roaming')) return 'AppData\\Roaming';
+  if (lower.startsWith('c:\\program files (x86)')) return 'C:\\Program Files (x86)';
+  if (lower.startsWith('c:\\program files')) return 'C:\\Program Files';
+  if (lower.startsWith('c:\\software')) return 'C:\\Software';
+  if (p.startsWith('D:\\')) return 'D:\\';
+  if (p.startsWith('E:\\')) return 'E:\\';
+  if (p.startsWith('C:\\')) return 'C:\\';
+  return null;
+}
+
+// 筛选维度定义：values 取某条记录在该维度的取值，label 负责展示；
+// progress 是固定两项（决策进度）。
+const MS_FACETS = {
+  machine: {
+    values: (item) => (item.machines || []).map(m => m.machine_id).filter(Boolean),
+    label: (v) => getMachineDisplayName(v),
+  },
+  progress: {
+    values: (item) => [(item.restore_intent || 'unreviewed') !== 'unreviewed' ? 'decided' : 'unreviewed'],
+    label: (v) => (v === 'decided' ? '已决定' : '待确认'),
+    fixed: [{ value: 'unreviewed', label: '待确认' }, { value: 'decided', label: '已决定' }],
+  },
+  path: {
+    values: (item) => (item.machines || []).map(m => pathBucket(m.install_location || m.path)).filter(Boolean),
+    label: (v) => v,
+  },
+};
+
+// 某条记录是否满足除 exceptKey 之外的所有筛选（筛选内部并集）。
+function itemPassesFacets(item, exceptKey) {
+  for (const key of Object.keys(MS_FACETS)) {
+    if (key === exceptKey) continue;
+    const sel = msState[key];
+    if (!sel.size) continue;
+    const vals = MS_FACETS[key].values(item);
+    if (!vals.some(v => sel.has(v))) return false;
+  }
+  return true;
+}
+
+// 联动选项：某维度的可选值只在「其它维度筛选后」的记录里取，
+// 避免路径下拉列出一堆当前机器根本没有的路径。
+function availableOptions(key) {
+  const facet = MS_FACETS[key];
+  if (facet.fixed) return facet.fixed.slice();
+  const values = [];
+  for (const item of softwareList) {
+    if (!itemPassesFacets(item, key)) continue;
+    for (const v of facet.values(item)) if (!values.includes(v)) values.push(v);
+  }
+  return values.map(v => ({ value: v, label: facet.label(v) }));
+}
+
+function refreshFilterOptions() {
+  for (const key of Object.keys(MS_FACETS)) {
+    fillMs(key, availableOptions(key));
+    updateMsBtn(key);
+  }
+}
+
+function bindMultiSelect() {
+  document.querySelectorAll('.ms').forEach(root => {
+    const key = root.id.replace(/^ms/, '').toLowerCase();
+    const btn = root.querySelector('.ms-btn');
+    const panel = root.querySelector('.ms-panel');
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = !root.classList.contains('open');
+      document.querySelectorAll('.ms.open').forEach(o => o.classList.remove('open'));
+      root.classList.toggle('open', willOpen);
+    });
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    panel.addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      if (cb.checked) msState[key].add(cb.value);
+      else msState[key].delete(cb.value);
+      applyFilters();
+    });
+  });
+  // 点击空白处收起
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.ms.open').forEach(o => o.classList.remove('open'));
+  });
+}
+
 // 过滤与侧边栏渲染
 function applyFilters() {
+  // 先按当前选择刷新各维度候选（会丢弃因联动而失效的选项）
+  refreshFilterOptions();
   const q = reviewSearchInput.value.toLowerCase().trim();
-  const intent = reviewIntentFilter.value;
-  const cat = reviewCategoryFilter.value;
 
   currentFiltered = softwareList.filter(item => {
-    if (intent !== 'all') {
-      const it = item.restore_intent || 'unreviewed';
-      if (it !== intent) return false;
-    }
-    if (cat !== 'all' && item.category !== cat) return false;
+    if (!itemPassesFacets(item, null)) return false;
     if (q) {
       const nameMatch = item.name.toLowerCase().includes(q);
       const noteMatch = (item.config_notes || '').toLowerCase().includes(q);
@@ -263,8 +393,9 @@ function renderSidebarList() {
 }
 
 function updateProgress() {
-  const total = softwareList.length;
-  const reviewed = softwareList.filter(s => s.restore_intent && s.restore_intent !== 'unreviewed').length;
+  // 进度基于筛选后的清单（当前视图的决策完成度）
+  const total = currentFiltered.length;
+  const reviewed = currentFiltered.filter(s => s.restore_intent && s.restore_intent !== 'unreviewed').length;
   const percent = total > 0 ? Math.round((reviewed / total) * 100) : 0;
   reviewProgressText.innerText = `${reviewed} / ${total} (${percent}%)`;
   reviewProgressBar.style.width = `${percent}%`;
@@ -728,10 +859,9 @@ function bindEvents() {
     applyTheme(isDark ? 'light' : 'dark');
   });
 
-  // 侧边栏搜索与过滤
+  // 侧边栏搜索与多选筛选
   reviewSearchInput.addEventListener('input', applyFilters);
-  reviewIntentFilter.addEventListener('change', applyFilters);
-  reviewCategoryFilter.addEventListener('change', applyFilters);
+  bindMultiSelect();
 
   // 侧边栏条目点击
   reviewListItems.addEventListener('click', e => {

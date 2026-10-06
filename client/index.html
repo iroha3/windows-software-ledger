@@ -18,8 +18,6 @@
   <!-- Toast 提示容器 -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- 同步横幅：另一台机器持锁时提示本机只读 -->
-  <div id="syncBanner" class="sync-banner" style="display:none;"></div>
 
   <!-- 顶部导航栏 -->
   <header>
@@ -50,11 +48,6 @@
       </a>
 
       <div class="header-divider"></div>
-
-      <button id="btnSync" class="btn btn-secondary" title="立即与 WebDAV 同步（或强制覆盖）">
-        <svg class="i sm" viewBox="0 0 24 24"><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line></svg>
-        <span>同步</span>
-      </button>
 
       <!-- 2. 数据录入与导出主工作流动作组 -->
       <button id="btnScanLocal" class="btn btn-secondary" title="执行 PowerShell 采集本机软件，预览后勾选导入">
@@ -196,7 +189,7 @@
             <svg class="i sm fill" viewBox="0 0 24 24" style="color: #c9a24a;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
           </th>
           <th style="min-width: 200px;">软件名称与分类</th>
-          <th style="width: 90px;">版本号</th>
+          <th style="width: 110px; min-width: 110px;">版本号</th>
           <th style="min-width: 120px;">所在机器</th>
           <th style="width: 135px;">恢复意愿</th>
           <th style="width: 160px;">处置方式</th>
@@ -520,11 +513,18 @@ ffmpeg, ripgrep, jq, pandoc
 
           <!-- 多机同步 -->
           <section class="config-pane" data-pane="sync">
+            <div class="sync-head">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+              <span>WebDAV 云同步</span>
+            </div>
+            <p class="config-intro">支持坚果云、AList、NAS、Nextcloud 等 WebDAV 服务。手动双向同步：点「立即同步」拉取远端改动并合并，再把本机状态推回；两台机器都可编辑，请约好同一时刻只在一台上改。凭据仅存本地 data/webdav.json，不参与同步。</p>
+
             <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
               <input type="checkbox" id="configWebdavEnabled">
               启用 WebDAV 同步
             </label>
-            <div id="webdavFields" style="display:none; flex-direction:column; gap:10px;">
+
+            <div id="webdavFields" style="display:none; flex-direction:column; gap:12px;">
               <div class="drawer-field">
                 <label>WebDAV 地址</label>
                 <input type="text" id="configWebdavUrl" placeholder="http://192.168.1.10:5244/dav/windows-software-backup">
@@ -533,15 +533,37 @@ ffmpeg, ripgrep, jq, pandoc
                 <div class="drawer-field" style="flex:1;"><label>用户名</label><input type="text" id="configWebdavUser" autocomplete="off"></div>
                 <div class="drawer-field" style="flex:1;"><label>密码</label><input type="password" id="configWebdavPass" autocomplete="off"></div>
               </div>
-              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnWebdavTest">测试连接</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnSyncNow">立即同步</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnSyncUnlock">强制解锁</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnForcePush">用本地覆盖远端</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnForcePull">用远端覆盖本地</button>
+
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" id="btnWebdavTest">测试连接</button>
+                <button type="button" class="btn btn-primary" id="btnSyncNow">
+                  <svg class="i sm" id="syncNowIcon" viewBox="0 0 24 24"><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line></svg>
+                  <span id="syncNowLabel">立即同步</span>
+                </button>
+                <span id="webdavTestResult" class="sync-test-result" style="display:none;"></span>
               </div>
+
+              <!-- 高级选项（折叠）：强制覆盖 -->
+              <div class="sync-advanced" id="syncAdvancedWrap">
+                <button type="button" class="sync-advanced-toggle" id="btnSyncAdvanced">
+                  <svg class="i sm" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+                  <span>高级选项</span>
+                  <svg class="i sm sync-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div id="syncAdvanced" class="sync-advanced-body" style="display:none;">
+                  <button type="button" class="sync-link-btn" id="btnForcePush">
+                    <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    用本地覆盖远端
+                  </button>
+                  <button type="button" class="sync-link-btn" id="btnForcePull">
+                    <svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    用远端覆盖本地
+                  </button>
+                </div>
+              </div>
+
+              <div id="syncLast" class="hint">尚未进行过同步</div>
             </div>
-            <span class="hint">同一时刻只有一台机器可写，其余只读。凭据仅存本地 data/webdav.json，不参与同步。</span>
           </section>
 
           <!-- Agent 集成 (MCP) -->
@@ -551,7 +573,7 @@ ffmpeg, ripgrep, jq, pandoc
               <input type="checkbox" id="configMcpWrite">
               允许 AI agent 写入台账（更新 / 新增 / 删除 / 合并）
             </label>
-            <span class="hint">默认关闭，只读信息源。开启后 agent 可改台账：删除会写墓碑并移入 data/trash（可回滚），合并不可逆；每次写入记入 data/.mcp/audit.jsonl。启用 WebDAV 时，仅「本机持有同步锁（软件正在编辑）」才能写。</span>
+            <span class="hint">默认关闭，只读信息源。开启后 agent 可改台账：删除会写墓碑并移入 data/trash（可回滚），合并不可逆；每次写入记入 data/.mcp/audit.jsonl。</span>
             <div style="display:flex; gap:8px; align-items:center;">
               <select id="mcpClientSelect" style="flex:1;">
                 <option value="claude-code-cmd">Claude Code（命令行）</option>
@@ -671,6 +693,62 @@ ffmpeg, ripgrep, jq, pandoc
             <div class="about-key-row"><span class="keys"><kbd>data</kbd></span><span class="desc">software.json（清单）、config.json（设置）、ignored.json（已删墓碑）、evidence/（采集证据与截图）</span></div>
           </div>
         </div>
+        <div class="about-section">
+          <button class="btn btn-secondary btn-sm" id="btnShowWelcome" type="button">
+            <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            重新查看新手引导
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新手引导覆盖层：首次运行引导，可点「扫描本机」直接开始 -->
+  <div class="welcome-overlay" id="welcomeOverlay">
+    <div class="welcome-card">
+      <button class="welcome-close" id="welcomeClose" type="button" title="关闭">
+        <svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      <div class="welcome-hero">
+        <div class="welcome-logo">
+          <svg class="i lg" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        </div>
+        <div class="welcome-hero-text">
+          <h2>欢迎使用 软件备份台账</h2>
+          <p>本地优先的软件清点工具 · 数据就在 exe 旁的 <code>data/</code>，可随 U 盘带走</p>
+        </div>
+      </div>
+
+      <div class="welcome-steps">
+        <div class="welcome-step" data-tone="blue">
+          <span class="welcome-step-ico"><svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg></span>
+          <div class="welcome-step-body"><b>扫描本机</b><span>采集已装软件，自动去重。</span></div>
+        </div>
+        <div class="welcome-step" data-tone="green">
+          <span class="welcome-step-ico"><svg class="i sm" viewBox="0 0 24 24"><path d="M9 2h6a1 1 0 0 1 1 1v1H8V3a1 1 0 0 1 1-1z"></path><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"></path><polyline points="9 14 11 16 15 11"></polyline></svg></span>
+          <div class="welcome-step-body"><b>逐条速审</b><span>标注意愿与处置方式。</span></div>
+        </div>
+        <div class="welcome-step" data-tone="amber">
+          <span class="welcome-step-ico"><svg class="i sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"></rect><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"></path><line x1="10" y1="13" x2="14" y2="13"></line></svg></span>
+          <div class="welcome-step-body"><b>备份配置</b><span>重要配置拖进保管箱。</span></div>
+        </div>
+        <div class="welcome-step" data-tone="violet">
+          <span class="welcome-step-ico"><svg class="i sm" viewBox="0 0 24 24"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"></path><polyline points="8 16 12 12 16 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line></svg></span>
+          <div class="welcome-step-body"><b>多机同步 / AI</b><span>可选，设置里开启。</span></div>
+        </div>
+      </div>
+
+      <div class="welcome-actions">
+        <button class="btn btn-secondary" id="welcomeOpenSettings" type="button">打开设置</button>
+        <button class="btn btn-primary" id="welcomeScan" type="button">
+          <svg class="i sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          扫描本机
+        </button>
+      </div>
+
+      <div class="welcome-foot">
+        <label class="welcome-dontshow"><input type="checkbox" id="welcomeDontShow" checked> 下次不再自动弹出</label>
+        <button class="welcome-later" id="welcomeLater" type="button">稍后再说</button>
       </div>
     </div>
   </div>
@@ -703,5 +781,6 @@ ffmpeg, ripgrep, jq, pandoc
   <script src="/confirm_delete.js"></script>
   <script src="/vault.js"></script>
   <script src="/app.js"></script>
+  <script src="/welcome.js"></script>
 </body>
 </html>

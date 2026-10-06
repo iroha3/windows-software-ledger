@@ -533,6 +533,112 @@ svg.i.fill {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
+/* 卡片速审：机器 / 进度 / 路径 多选筛选（筛选内部并集，三者之间交集） */
+.ms-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ms {
+  position: relative;
+  flex: 1 1 88px;
+  min-width: 0;
+}
+.ms-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border: 0;
+  color: var(--ink);
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.ms.active .ms-btn {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+}
+.ms-btn-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.ms-btn-text .ms-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ms-caret {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.ms.open .ms-caret {
+  transform: rotate(180deg);
+}
+.ms-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 100%;
+  display: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--rule-2);
+  border-radius: 8px;
+  padding: 4px;
+}
+/* 路径面板稍宽，向左展开避免超出侧栏 */
+#msPath .ms-panel {
+  left: auto;
+  right: 0;
+  min-width: 200px;
+}
+.ms.open .ms-panel {
+  display: block;
+}
+.ms-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ms-panel label:hover {
+  background: var(--surface-2);
+}
+.ms-panel label span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ms-panel input {
+  margin: 0;
+  flex-shrink: 0;
+}
+.ms-empty {
+  padding: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
 /* 浮动批量操作条 (优雅底部胶囊，零位移) */
 .batch-bar {
   position: fixed;
@@ -1942,19 +2048,23 @@ a.evidence-val:hover {
 
 .review-split {
   flex: 1;
+  min-height: 0;
   display: flex;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* 左侧栏：软件列表与进度 */
 .review-sidebar {
   width: 320px;
   flex-shrink: 0;
+  min-height: 0;
   border-right: 1px solid var(--rule);
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 10;
 }
 
 .review-sidebar-header {
@@ -2280,11 +2390,11 @@ a.evidence-val:hover {
   gap: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--mc, var(--accent));
+  background: color-mix(in srgb, var(--mc, var(--accent)) 14%, transparent);
   padding: 2px 7px;
   border-radius: 5px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc, var(--accent)) 30%, transparent);
   white-space: nowrap;
 }
 
@@ -2929,57 +3039,6 @@ a.evidence-val:hover {
   background: transparent;
 }
 
-/* 同步按钮文案在「同步 / 同步中…」之间切换，固定标签宽度避免左侧按钮位移 */
-#btnSync > span {
-  display: inline-block;
-  min-width: 4.2em;
-  text-align: center;
-}
-
-/* WebDAV 同步横幅：另一台设备持锁时提示本机只读 */
-.sync-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: #fdf3d8;
-  color: #8a6d1a;
-  border-bottom: 1px solid #f0e0a8;
-  font-size: 12.5px;
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-[data-theme="dark"] .sync-banner {
-  background: #3a3218;
-  color: #e8d48a;
-  border-bottom-color: #55491f;
-}
-
-/* 只读镜像：禁用可编辑控件（后端也会拒绝写命令，二者互为兵底） */
-body.sync-readonly #tableBody input,
-body.sync-readonly #tableBody select,
-body.sync-readonly #sideDrawer input,
-body.sync-readonly #sideDrawer select,
-body.sync-readonly #sideDrawer textarea,
-body.sync-readonly .row-checkbox,
-body.sync-readonly #selectAllCheckbox,
-body.sync-readonly #btnScanLocal,
-body.sync-readonly #btnAddSoftware,
-body.sync-readonly #btnDeleteCurrent,
-body.sync-readonly #btnDrawerLLM,
-body.sync-readonly #drawerVaultAdd,
-body.sync-readonly #btnBatchDelete,
-body.sync-readonly #btnBatchMerge,
-body.sync-readonly #btnBatchLLM {
-  pointer-events: none !important;
-  opacity: 0.5;
-}
-body.sync-readonly #batchBar {
-  display: none !important;
-}
-
 /* Agent 集成（MCP）配置片段预览 */
 .mcp-snippet {
   margin: 0;
@@ -3054,4 +3113,277 @@ body.sync-readonly #batchBar {
   font-size: 12.5px;
   color: var(--ink-2);
   line-height: 1.7;
+}
+
+/* WebDAV 同步设置：标题 / 高级选项折叠 / 底部主操作（布局照 treeAI） */
+.sync-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sync-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-family: inherit;
+}
+.sync-advanced-toggle:hover {
+  color: var(--ink);
+}
+.sync-chevron {
+  transition: transform 0.15s ease;
+}
+.sync-advanced.open .sync-chevron {
+  transform: rotate(180deg);
+}
+.sync-advanced-body {
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 7px;
+}
+.sync-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: inherit;
+}
+.sync-link-btn:hover {
+  color: var(--ink);
+}
+.sync-link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#btnSyncNow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 标签在「立即同步 / 同步中…」之间切换，固定宽度避免按钮跳动 */
+#syncNowLabel {
+  display: inline-block;
+  min-width: 4em;
+  text-align: center;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+.sync-test-result {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+}
+.sync-test-result.ok {
+  color: var(--ok);
+}
+.sync-test-result.err {
+  color: var(--danger);
+}
+
+/* ==========================================================================
+   新手引导覆盖层
+   ========================================================================== */
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(28, 26, 23, 0.5);
+  backdrop-filter: blur(3px);
+}
+.welcome-overlay.show {
+  display: flex;
+}
+.welcome-card {
+  position: relative;
+  width: 580px;
+  max-width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  padding: 0 0 18px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.32);
+  animation: welcome-in 0.26s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@keyframes welcome-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.welcome-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 0;
+  padding: 5px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  cursor: pointer;
+  display: inline-flex;
+}
+.welcome-close:hover {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  color: var(--ink);
+}
+.welcome-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 26px 30px 22px;
+  border-radius: 18px 18px 0 0;
+  border-bottom: 1px solid var(--rule);
+  background:
+    radial-gradient(130% 150% at 0% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface));
+}
+.welcome-logo {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 78%, #fff), var(--accent));
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.welcome-hero-text {
+  min-width: 0;
+}
+.welcome-hero h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: 0.2px;
+  color: var(--ink);
+}
+.welcome-hero p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.welcome-hero code {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 30px 0;
+}
+.welcome-step {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.welcome-step:hover {
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--tone) 40%, var(--rule-2));
+}
+.welcome-step[data-tone="blue"] { --tone: #3b82f6; }
+.welcome-step[data-tone="green"] { --tone: #10b981; }
+.welcome-step[data-tone="amber"] { --tone: #f59e0b; }
+.welcome-step[data-tone="violet"] { --tone: #8b5cf6; }
+.welcome-step-ico {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tone, var(--accent));
+  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
+}
+.welcome-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.welcome-step-body b {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.welcome-step-body span {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.welcome-actions {
+  display: flex;
+  gap: 10px;
+  padding: 18px 30px 0;
+}
+.welcome-actions .btn {
+  flex: 1;
+  justify-content: center;
+  padding: 9px 14px;
+}
+.welcome-actions .btn-primary {
+  flex: 1.25;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.welcome-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 30px 0;
+}
+.welcome-dontshow {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.welcome-later {
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.welcome-later:hover {
+  color: var(--accent);
 }

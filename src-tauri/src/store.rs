@@ -171,55 +171,6 @@ pub fn last_sync_file() -> PathBuf {
     sync_dir().join("last.json")
 }
 
-/// 编辑权状态：GUI 把「本机是否持锁（可写）」落到磁盘，供独立的 MCP 进程
-/// 判断能否写入。**本地文件，绝不参与同步**。
-pub fn sync_session_file() -> PathBuf {
-    sync_dir().join("session.json")
-}
-
-/// 记录当前编辑权状态：`read_only = true` 表示本机是只读镜像。
-pub fn write_session_state(read_only: bool) {
-    let enabled = get_webdav_config()
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    write_json(
-        &sync_session_file(),
-        &json!({
-            "webdav_enabled": enabled,
-            "read_only": read_only,
-            "updated_at": chrono::Local::now().to_rfc3339(),
-        }),
-    );
-}
-
-/// MCP 写入准入：未启用 WebDAV → 允许；启用 → 仅当本机持锁（`read_only=false`）。
-/// 返回 `Some(原因)` 表示拒绝写入。
-pub fn mcp_write_denied() -> Option<String> {
-    let sess = read_json(&sync_session_file());
-    let enabled = sess
-        .get("webdav_enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| {
-            get_webdav_config()
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        });
-    if !enabled {
-        return None;
-    }
-    let read_only = sess.get("read_only").and_then(|v| v.as_bool()).unwrap_or(true);
-    if read_only {
-        return Some(
-            "本机当前是只读镜像（另一台机器持有同步锁）。请在持锁的机器上操作，\
-             或先在软件里取得编辑权 / 关闭 WebDAV 同步，再让 agent 写入。"
-                .to_string(),
-        );
-    }
-    None
-}
-
 /// MCP 写入审计日志：`data/.mcp/audit.jsonl`，一行一次写入，方便回看 / 撤销。
 /// **本地文件，绝不参与同步**。
 pub fn audit_file() -> PathBuf {

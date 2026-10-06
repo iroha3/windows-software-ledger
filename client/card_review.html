@@ -56,23 +56,19 @@
           <kbd class="search-kbd">/</kbd>
         </div>
 
-        <div style="display: flex; gap: 6px;">
-          <select id="reviewIntentFilter" class="select-filter" style="flex: 1; font-size: 11.5px; padding: 4px 6px;">
-            <option value="all">全部意愿状态</option>
-            <option value="unreviewed">待确认</option>
-            <option value="must">必须恢复</option>
-            <option value="on_demand">用到再装</option>
-            <option value="drop">淘汰弃用</option>
-          </select>
-          <select id="reviewCategoryFilter" class="select-filter" style="flex: 1; font-size: 11.5px; padding: 4px 6px;">
-            <option value="all">全部分类</option>
-            <option value="开发工具">开发工具</option>
-            <option value="系统工具">系统工具</option>
-            <option value="浏览器与网络">浏览器与网络</option>
-            <option value="媒体娱乐">媒体娱乐</option>
-            <option value="办公与笔记">办公与笔记</option>
-            <option value="通讯与社交">通讯与社交</option>
-          </select>
+        <div class="ms-row">
+          <div class="ms" id="msMachine" data-label="机器">
+            <button type="button" class="ms-btn"><span class="ms-btn-text">机器 · 全部</span><svg class="i sm ms-caret" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+            <div class="ms-panel"></div>
+          </div>
+          <div class="ms" id="msProgress" data-label="进度">
+            <button type="button" class="ms-btn"><span class="ms-btn-text">进度 · 全部</span><svg class="i sm ms-caret" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+            <div class="ms-panel"></div>
+          </div>
+          <div class="ms" id="msPath" data-label="路径">
+            <button type="button" class="ms-btn"><span class="ms-btn-text">路径 · 全部</span><svg class="i sm ms-caret" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+            <div class="ms-panel"></div>
+          </div>
         </div>
 
         <!-- 评审完成度进度条 -->

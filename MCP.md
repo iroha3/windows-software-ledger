@@ -96,16 +96,11 @@ pi mcp add software-ledger -- "D:\Tools\软件备份台账\windows-software-ledg
 
 任何支持 stdio MCP 的客户端都一样：命令 = exe 绝对路径，参数 = `--mcp`。配好后可以先用一句「列出我的软件台账里都有哪些机器」验证连通。
 
-## 写入权限与同步锁
+## 写入权限
 
-写入有两个闸门，缺一不可：
+写入只有一个闸门：在「设置 → Agent 集成 (MCP)」勾选「允许 AI agent 写入台账」。关闭时写入工具直接返回错误，只读工具不受影响。
 
-1. **设置开关**：在「设置 → Agent 集成 (MCP)」勾选「允许 AI agent 写入台账」。关闭时写入工具直接返回错误，只读工具不受影响。
-2. **本机当前可写**：
-   - 未启用 WebDAV：本机始终可写；
-   - 启用 WebDAV：**只有本机持有同步锁时才可写**，也就是「软件正开着、且抢到了锁」。此时 agent 的改动是本地改动，关软件时（或点「立即同步」）会自动推送到远端；若另一台机器持锁、本机是只读镜像，写入会被拒绝。
-
-> 为什么不是「关掉软件才让 MCP 写」？因为同步模型里**持锁者才是写者，且必须负责推送**。没持锁的进程写入会制造「改了但没推送」的漂移：另一台机器一开机 pull 到旧状态，改动就丢了。
+> 同步是手动的，没有会话锁、也没有只读模式，所以不再有「本机是否持锁」这一层限制；agent 写入后，你需要点一次「立即同步」把改动推到远端。
 
 所有写入都会追加到 `data/.mcp/audit.jsonl`（时间 / 工具 / uuid / 改动内容），方便回看与撤销。
 
@@ -128,8 +123,8 @@ pi mcp add software-ledger -- "D:\Tools\软件备份台账\windows-software-ledg
 
 ## 安全说明
 
-- **默认只读**：不开写开关时没有任何写命令，不改动台账，也不触发多机同步的写入锁。
-- **写入可选且受限**：开启后写入仍受「本机持锁」闸门约束，字段走白名单；删除可回滚、合并不可逆，且全程记入本地审计日志 `data/.mcp/audit.jsonl`。
+- **默认只读**：不开写开关时没有任何写命令，不改动台账。
+- **写入可选且受限**：开启后字段走白名单；删除可回滚、合并不可逆，且全程记入本地审计日志 `data/.mcp/audit.jsonl`。
 - **无网络暴露**：走 stdio，不开监听端口，本机没有多出任何可被连接的入口。能读到这份清单的，本就是不接 MCP 也能直接读 `data/software.json` 的进程。
 - **不泄露配置里的密钥**：`config.json` 里的 LLM API Key、`webdav.json` 里的密码都不会经 MCP 输出；只暴露机器别名等非敏感字段。
 - **归档只给元数据**：保管箱里的文件只返回文件名 / 大小 / 时间，绝不返回文件内容。
@@ -139,7 +134,7 @@ pi mcp add software-ledger -- "D:\Tools\软件备份台账\windows-software-ledg
 - 服务端代码在 `src-tauri/src/mcp.rs`，纯手写 JSON-RPC，无新增依赖。
 - `main.rs` 判断 `--mcp` 后进入 `mcp::serve_stdio()`，否则正常开 GUI。
 - **新增工具时**，在 `mcp.rs` 的 `tools_list()` 里登记 schema、在 `call_tool()` 里加分发分支即可；不涉及前端，也不用碰 `lib.rs` 的命令注册表。
-- **写入工具**统一先调 `write_gate()`（检查设置开关 + 本机持锁），并复用 `commands::*` 的后端逻辑；成功后再 `store::append_audit(...)`。字段白名单在 `WRITABLE_FIELDS`。
+- **写入工具**统一先调 `write_gate()`（检查设置开关），并复用 `commands::*` 的后端逻辑；成功后再 `store::append_audit(...)`。字段白名单在 `WRITABLE_FIELDS`。
 - 本地验收：`node scripts/mcp-client.js`——一个零依赖的迷你 MCP 客户端，会自动连上最新构建的 exe，跑一遍 `list_machines` / `search_software` / `list_dev_env` 演示。也可 `node scripts/mcp-client.js call get_software '{"name":"Git"}'` 单独调某个工具。
 - 底层排查：`printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | windows-software-ledger.exe --mcp`
 - ⚠️ **stdout 只能跑协议**，调试输出务必走 stderr，否则会污染 JSON-RPC 流。

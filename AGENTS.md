@@ -28,14 +28,14 @@ src-tauri/src/
   exporter.rs               生成《重装恢复清单》《精选资产库》Markdown；软件清单表格数据（xlsx 用）
   xlsx.rs                   零依赖 xlsx 生成器（手写 ZIP + OOXML，仅存储不压缩）
   webdav.rs                 WebDAV 传输层（GET/PUT/DELETE/MKCOL/MOVE，不用 PROPFIND）
-  sync.rs                   同步引擎：会话锁 / manifest / 并集拉取 / 镜像推送 / 强制覆盖
+  sync.rs                   同步引擎：manifest / 并集拉取 / 镜像推送 / 强制覆盖（手动，无锁）
   mcp.rs                    MCP（stdio）服务端：默认只读，可开关写入；手写 JSON-RPC，无依赖
   main.rs                   `--mcp` 分流到 mcp::serve_stdio，否则正常开 GUI
 scripts/                  独立辅助脚本，不参与应用运行时（见下）
 src-tauri/Cargo.toml      ★版本号唯一来源
 src-tauri/tauri.conf.json 不写 version（回退用 Cargo 版本）；frontendDist=../client
 BUILD.md                  构建 / 数据目录 / 采集脚本的详细说明（本文件不重复）
-MCP.md                    MCP 接口：配置方式 / 工具清单 / 写入与同步锁语义 / 安全边界
+MCP.md                    MCP 接口：配置方式 / 工具清单 / 写入权限语义 / 安全边界
 SPEC.md                   产品范围与数据模型
 ```
 
@@ -53,10 +53,11 @@ SPEC.md                   产品范围与数据模型
 - `scripts/cargo-msvc.bat` 会自动定位 VS 2022/2019 的 `vcvars64.bat` 再调 `cargo %*`。
 - 纯 JS 语法检查：`node --check client/app.js`（无需依赖）。
 - MCP 手动验收（零依赖迷你客户端）：`node scripts/mcp-client.js`（演示）/ `... tools` / `... call search_software '{"intent":"must"}'`。自动挑选最新的 exe，也可 `MCP_EXE=<路径>` 指定。
-- MCP 写入准入：设置开关 `config.json` 的 `mcp_write_enabled`（默认关）+ `store::mcp_write_denied()`（读 `data/.sync/session.json` 判断本机是否持锁）。GUI 在 `set_read_only()` / 关窗释放锁时写入该文件；MCP 写工具先过 `mcp.rs::write_gate()`，成功记 `data/.mcp/audit.jsonl`。字段白名单在 `WRITABLE_FIELDS`。
+- MCP 写入准入：只看设置开关 `config.json` 的 `mcp_write_enabled`（默认关），写工具先过 `mcp.rs::write_gate()`，成功记 `data/.mcp/audit.jsonl`。字段白名单在 `WRITABLE_FIELDS`。
 - LLM 探测脚本：`bun scripts/test_llm.js "软件名" "路径"`（默认走 DeepSeek 非思考模式）。
 - 图标重建：`python scripts/generate_icon.py`（仅改图标时需要，改后记得 `cargo-msvc.bat clean -p windows-software-ledger` 再构建）。
-- 旧墓碑迁移：`python scripts/migrate_ignored.py`（把只有顶层 `paths` 的旧 `ignored.json` 挂到单台机器，机器 id 默认反查 config.json 里别名为 `Surface` 的键；无路径条目写成 `name_only` 同名墓碑）。
+- 旧墓碑迁移：`python scripts/migrate_ignored.py`（把旧结构（顶层 `paths` 或旧 `match_key`）统一成 `{uuid, name, deleted_at, machines:[...]}`，机器 id 默认反查 config.json 里别名为 `Surface` 的键；无路径条目写成 `name_only` 同名墓碑；缺 uuid 的补随机 uuid）。
+- **删除记录统一在 `ignored.json`**（不再单开 `deleted.json`）：一条记录同时带 `uuid` 和身份键。`uuid` 供同步合并按 uuid 删除（含「合并条目」被并掉的记录）；机器 + 路径/同名身份键供重扫压制。两端都改过 `software.json` 时用 `sync.rs::merge_software_with_deletions` 按 uuid 删掉被删/被合并的条目，避免并集复活。
 
 ## 架构关键点
 
@@ -67,14 +68,15 @@ SPEC.md                   产品范围与数据模型
 
 **数据根目录**：永远是 **exe 所在目录** 下的 `data/`（`store.rs::app_root`）。没有环境变量覆盖、不向上查找、不依赖标记文件。`cargo run` 调试时落在 `src-tauri/target/debug/data/`。`data/` 已 gitignore。
 
-**持久化**：全部是 `data/` 下的美化 JSON，直接读写，无数据库。主要文件：`software.json`、`config.json`、`ignored.json`（删除墓碑）、`extensions.json`（扩展标注）、`browsers.json`、`icons/`、`vault/`、`evidence/`。同步相关：`webdav.json`（账户凭据，**仅本地**）、`.sync/`（基线 manifest 与指纹缓存，**仅本地**）。
+**持久化**：全部是 `data/` 下的美化 JSON，直接读写，无数据库。主要文件：`software.json`、`config.json`、`ignored.json`（删除记录：重扫压制 + 同步合并）、`extensions.json`（扩展标注）、`browsers.json`、`icons/`、`vault/`、`evidence/`。同步相关：`webdav.json`（账户凭据，**仅本地**）、`.sync/`（基线 manifest 与指纹缓存，**仅本地**）。
 
-**WebDAV 同步（单写者模型）**：同一时刻只有一台机器能编辑，靠远端 `lock.json` 会话租约实现。
+**WebDAV 同步（手动，无锁）**：没有会话锁，两台机器任何时候都可编辑；用户约定同一时刻只在一台上改。同步入口只在设置页（顶部工具栏不再放同步按钮）。
 
-- 开软件抢锁并拉取；关软件（Rust `on_window_event`）**立刻隐藏窗口**，把「推送 + 释放锁」丢后台线程（看门狗 10s 兜底退出），绝不在关闭路径上阻塞网络。租约 **5 分钟**、后端每 **1 分钟**续租，异常/强制退出后最多 5 分钟可被接管。抢不到 = 只读镜像 + 横幅。只读是**双层硬限制**：前端禁用编辑控件（`body.sync-readonly`）、关闭 WebDAV 时隐藏同步入口；后端对所有写命令 `deny_if_read_only()` 直接拒绝（卡片速审 / 浏览器页同样生效）。同机旧实例的残留租约可直接接管。
-- 因为不存在并发编辑，常态是**镜像**（只传 hash 变的文件，删除/合并自然传播），不需要 3 路 diff。
-- 唯一需要合并的是**首次接入**（本地基线为空）：双方按 uuid 并集，所以「先扫描再配 WebDAV」不丢数据。
-- JSON 台账按 3 路判断：只有双方相对基线都改了才语义合并；单侧改动直接取该侧（避免「本地删除」被并集复活）。
+- 点「立即同步」= 拉取并合并远端 → 写回本地 → 把本地新状态推回（`sync.rs::run_sync(Normal)`）。不在启动/关窗时自动同步，关闭窗口无阻塞。
+- 没有会话锁 / 租约 / 心跳 / 只读镜像 / 强制接管；前端没有 `body.sync-readonly`，后端也不再 `deny_if_read_only()`。
+- 常态是**镜像**（只传 hash 变的文件，删除/合并自然传播）。JSON 台账双方都改过才语义合并，单侧改动直接取该侧。
+- 唯一需要合并的额外场景是**首次接入**（本地基线为空）：双方按 uuid 并集，所以「先扫描再配 WebDAV」不丢数据。
+- 删除与「合并条目」靠 `ignored.json` 里带 uuid 的墓碑传播（`merge_software_with_deletions`），避免并集复活。
 - 记录的新旧判据是 `updated_at`（回退 `created_at`）；所有写入路径都要 `store::touch`。
 - 两个强制按钮（本地覆盖远端 / 远端覆盖本地）会先自动快照（远端 → `_backup/<ts>/`，本地 → `data/trash/sync-<ts>/`）。
 - 不同步 `trash/`、`.sync/`、`webdav.json`；远端 manifest 带 `schema_version`，不匹配直接拒绝（不做兼容）。
@@ -91,7 +93,7 @@ SPEC.md                   产品范围与数据模型
 - `backup_strategy`：`copy_dir` / `redownload` / `sync_account` / `none`
 - **处置方式是推导出来的，不是让 LLM 猜的**：默认 `none`；评 `must` 时按形态给默认值——绿色/便携 → `copy_dir`，否则 → `redownload`。规则实现在 `commands.rs::derive_strategy` + 前端 `deriveStrategy()`，入口有单条（表格/抽屉/卡片）与批量。LLM 只负责 `category` / `type` / `restore_intent` / `download_url` / `config_notes`，**不输出 `backup_strategy`**。
 - 便携判定：`type == "portable"` 或任一机器分布 `form == "portable"`。
-- **扫描认回匹配键 = 机器 + 安装路径（bin path）**（`ingest.rs::find_known`）：**同名不算同一实体**，路径不变就不换 uuid；仅当候选本身没任何路径时才退回「同机器 + 同名」。删除墓碑同样带机器维度（`ingest.rs::tombstone_match` / `record_tombstones`）：有路径的记「机器 + 路径」，无路径的记「机器 + 同名」（`machines[].name_only = true`），跨机器不会互相误伤。墓碑结构：`{match_key, name, machines:[{machine_id, paths:[...], name_only?}], deleted_at}`，同名墓碑按机器合并（路径并集、`name_only` 取或）。
+- **扫描认回匹配键 = 机器 + 安装路径（bin path）**（`ingest.rs::find_known`）：**同名不算同一实体**，路径不变就不换 uuid；仅当候选本身没任何路径时才退回「同机器 + 同名」。删除墓碑同样带机器维度（`ingest.rs::tombstone_match` / `record_tombstones`）：有路径的记「机器 + 路径」，无路径的记「机器 + 同名」（`machines[].name_only = true`），跨机器不会互相误伤。墓碑结构：`{uuid, name, machines:[{machine_id, paths:[...], name_only?}], deleted_at}`，按 uuid 归并（路径并集、`name_only` 取或）。
 - **不做旧版本兼容**：这一系列都是破坏性更新。`store::read_software` 是**纯读**——不补 uuid、不归并字段、不读 evidence。**uuid 是所有内部绑定的硬前提**（匹配 / 删除 / 合并一律只认 uuid，不再回退 SW-ID）。
 
 ## 约定与地雷
@@ -115,7 +117,7 @@ SPEC.md                   产品范围与数据模型
 | 扫描/去重/导入规则 | `src-tauri/src/ingest.rs`、`scripts/collect.ps1` |
 | 导出文档格式 | `src-tauri/src/exporter.rs` |
 | xlsx 生成（导出 Excel） | `src-tauri/src/xlsx.rs` |
-| WebDAV 同步 / 会话锁 / 合并规则 | `src-tauri/src/sync.rs`、`src-tauri/src/webdav.rs` |
+| WebDAV 同步 / 合并规则 | `src-tauri/src/sync.rs`、`src-tauri/src/webdav.rs` |
 | MCP 接口（agent 集成，只读 + 可选写入） | `src-tauri/src/mcp.rs`、`MCP.md` |
 | 数据路径 / 数据落盘 | `src-tauri/src/store.rs` |
 | LLM 提示词 | `src-tauri/src/commands.rs`（`llm_analyze`）、`scripts/test_llm.js` |

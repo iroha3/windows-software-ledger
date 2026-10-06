@@ -186,7 +186,7 @@
   因此「把已评的子项并进未评的锚点会丢掉子项评审」是**刻意的取舍而非缺陷**：需要分别保留两台机器的决策时，就不要合并；合并即表示接受「以锚点为准」。
 
   > 附注：`unreviewed` 在统计口径上等同于「尚未评档」（`restore_intent` 为空串或 `unreviewed` 都计入未评），但在**合并**口径下它是一个确定取值，不触发补齐。
-- **删除**（`delete_software`）：按 `uuid` 移除条目并写入 `ignored.json` 墓碑。墓碑带**机器维度**（`ingest.rs::tombstone_match`），结构为 `{match_key, name, machines:[{machine_id, paths:[...], name_only?}], deleted_at}`：有路径的按「同机同路径」命中，无路径的按「同机同名」（`name_only`）命中；换机器、路径不对都不算。同名墓碑归并到一条记录，路径按机器取并集（`record_tombstones`）；复活时按 (机器, 路径) 或 (机器, 同名) 精确清除（`clear_tombstones`）。归档目录 `data/vault/<kind>/<uuid>/` 整个**软删除**到 `data/trash/`（写 `meta.json` 记住原始路径，不 `remove_dir_all`，避免「删一条记录」变成「瞬间抹掉几个 G」）；图标 `<uuid>.png` 体积可忽略，直接删。
+- **删除**（`delete_software`）：按 `uuid` 移除条目并写 `ignored.json` 删除记录，结构 `{uuid, name, deleted_at, machines:[{machine_id, paths:[...], name_only?}]}`。一条记录同时服务两件事：`uuid` 供同步合并按 uuid 删除（含「合并条目」被并掉的记录，`ingest.rs::record_merge_tombstones`）；机器 + 身份键供重扫压制（`ingest.rs::tombstone_match`）——有路径的按「同机同路径」命中，无路径的按「同机同名」（`name_only`）命中；换机器、路径不对都不算。按 uuid 归并，路径按机器取并集（`record_tombstones`）；复活时按 (机器, 路径) 或 (机器, 同名) 精确清除（`clear_tombstones`）。同步合并时 `merge_software_with_deletions` 按 uuid 删掉被删/被合并的条目（记录更新时间晚于删除时间则视为复活）。归档目录 `data/vault/<kind>/<uuid>/` 整个**软删除**到 `data/trash/`（写 `meta.json` 记住原始路径，不 `remove_dir_all`，避免「删一条记录」变成「瞬间抹掉几个 G」）；图标 `<uuid>.png` 体积可忽略，直接删。
 
 #### 配置归档（`data/vault/<kind>/<uuid>/`）
 
@@ -196,13 +196,14 @@
 
 `scan_preview` 只解析候选，`scan_commit` 只写入勾选项。若导入前台账为空（首次全量扫描），导入的条目**不标记 `is_new`**；台账非空时，勾选导入的条目 `is_new = true`。删除的条目写入 `data/ignored.json` 作墓志铭，重扫默认不勾选，手动再勾选可复活。
 
-#### WebDAV 同步（单写者模型）
+#### WebDAV 同步（手动，无锁）
 
-不追求真正的分布式合并，而是用「同一时刻只有一台机器编辑」把并发消掉。
+不做真正的分布式并发控制，而是靠「用户约定同一时刻只在一台机器上改」把并发消掉；同步完全手动触发。
 
-- **会话锁**：远端 `lock.json` 租约（`{owner, host, acquired_at, expires_at}`，5 分钟）。开软件抢锁并拉取；关软件（Rust `on_window_event`）立刻隐藏窗口，把推送 + 释放锁放后台线程（看门狗 10s 兜底退出），不在关闭路径上阻塞网络；后端心跳每 1 分钟续租。抢不到锁 = 本机只读：顶部横幅提示，且**前后端双层禁用编辑**（前端禁用编辑控件、关闭 WebDAV 时隐藏同步入口；后端 `commands.rs` 对全部写命令直接拒绝），可强制接管。同机旧实例残留的租约视为自家锁，可直接接管。异常退出后租约到期（≤5 分钟）自动可被接管。
+- **入口与触发**：只在设置页（顶部工具栏无同步按钮）。点「立即同步」= 拉取并合并远端 → 写回本地 → 把本地新状态推回；不在启动/关窗时自动同步，关闭窗口无网络阻塞。
+- **无锁**：没有会话锁 / 租约 / 心跳 / 只读镜像 / 强制接管；两台机器任何时候都可编辑，前端无 `body.sync-readonly`，后端不再 `deny_if_read_only()`。
 - **传输**：远端镜像 `data/`（排除 `trash/`、`.sync/`、`webdav.json`），并维护 `manifest.json`（每个文件的 sha256 / size / mtime）。本地 `.sync/manifest.json` 是上次同步基线，`.sync/index.json` 是指纹缓存（size+mtime 未变则复用 hash，避免重算几个 G）。只用 GET / PUT / DELETE / MKCOL / MOVE，不用 PROPFIND，因此无 XML 依赖。
-- **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `machine_id` 并集）。
+- **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `machine_id` 并集）。删除/「合并条目」靠 `ignored.json` 里带 uuid 的墓碑传播（`merge_software_with_deletions`）。
 - **新旧判据**：每条记录 `updated_at`（回退 `created_at`）。冲突时较新者为准，空字段由旧记录补齐。
 - **强制覆盖（高级）**：`本地覆盖远端` / `远端覆盖本地`，覆盖前自动快照（远端 → `_backup/<时间戳>/`，本地 → `data/trash/sync-<时间戳>/`）。
 - **凭据**：`data/webdav.json` 仅存本地，不参与同步；`llm_api_key` 随 `config.json` 同步。`scan_directories` 按主机名分键。

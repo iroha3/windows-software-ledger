@@ -105,16 +105,8 @@
         return method === 'POST' ? invoke('save_webdav_config', { payload: body }) : invoke('get_webdav_config');
       case '/api/webdav/test':
         return invoke('webdav_test');
-      case '/api/sync/session-start':
-        return invoke('sync_session_start');
-      case '/api/sync/session-end':
-        return invoke('sync_session_end');
-      case '/api/sync/heartbeat':
-        return invoke('sync_heartbeat');
       case '/api/sync/now':
         return invoke('sync_now', { mode: body.mode || 'auto' });
-      case '/api/sync/unlock':
-        return invoke('sync_unlock');
       case '/api/sync/status':
         return invoke('sync_status');
       default:
@@ -156,26 +148,6 @@
       }));
   };
 
-  // 只读镜像提示：另一台机器持锁时，本机进入只读（后端也会拒绝所有写命令）。
-  // 主页由 app.js 自己管理横幅，这里只负责卡片速审 / 浏览器等子页面。
-  function syncReadOnlyCheck() {
-    if (document.getElementById('syncBanner')) return; // 主页已被 app.js 接管
-    fetch('/api/sync/status')
-      .then((r) => r.json())
-      .then((st) => {
-        if (st && st.enabled && st.we_hold === false) {
-          document.body.classList.add('sync-readonly');
-          if (!document.getElementById('syncReadonlyNotice')) {
-            const d = document.createElement('div');
-            d.id = 'syncReadonlyNotice';
-            d.className = 'sync-banner';
-            d.textContent = (st.host ? st.host + ' 正在编辑，' : '') + '本机只读，已禁用编辑';
-            document.body.insertBefore(d, document.body.firstChild);
-          }
-        }
-      })
-      .catch(() => {});
-  }
   // 关于弹窗的版本号：从后端读（唯一来源 src-tauri/Cargo.toml），避免各页面硬编码漂移。
   // 三个页面（主页 / 卡片速审 / 浏览器）都有 .about-version。
   function fillAppVersion() {
@@ -190,7 +162,6 @@
   }
 
   function bootPageState() {
-    syncReadOnlyCheck();
     fillAppVersion();
   }
   if (document.readyState === 'loading') {

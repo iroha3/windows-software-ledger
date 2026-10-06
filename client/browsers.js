@@ -196,7 +196,7 @@ function buildRowHtml(e) {
   const sel = state.selected.has(e.key);
   const intentClass = `intent-${e.intent}`;
   const profile = cleanProfile(e.profile);
-  const machineBadge = `<span class="badge-machine" title="设备ID: ${escapeHtml(e.machineId)}">${escapeHtml(getMachineDisplayName(e.machineId))}</span>`;
+  const machineBadge = `<span class="badge-machine" style="--mc:${machineColor(e.machineId)}" title="设备ID: ${escapeHtml(e.machineId)}">${escapeHtml(getMachineDisplayName(e.machineId))}</span>`;
   const storeCell = `<div class="ext-store-cell"><input type="text" class="cell-input ext-store-input" data-field="store_url" data-id="${escapeHtml(e.uuid)}" value="${escapeHtml(e.storeUrl)}" placeholder="https://…"><button type="button" class="vault-icon-btn ext-store-open" data-action="open-url" data-url="${escapeHtml(e.storeUrl)}" title="打开商店页" ${e.storeUrl ? '' : 'disabled'}>${ICONS.external}</button></div>`;
   const attach = `<button type="button" class="vault-icon-btn ext-attach-btn ${e.attachCount > 0 ? 'has-files' : ''}" data-action="attach" data-key="${escapeHtml(e.key)}" title="附件归档（可拖入或选择文件）">${ICONS.paperclip}<span class="vault-count" ${e.attachCount > 0 ? '' : 'hidden'}>${e.attachCount}</span></button>`;
   const opts = ['must', 'on_demand', 'drop', 'unreviewed'].map((v) => `<option value="${v}" ${e.intent === v ? 'selected' : ''}>${INTENT_LABEL[v]}</option>`).join('');

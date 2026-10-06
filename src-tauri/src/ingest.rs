@@ -488,7 +488,13 @@ fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
         .trim()
         .to_string();
     for g in ignored {
-        let g_key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
+        let g_name = g
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .trim()
+            .to_string();
         let Some(gms) = g.get("machines").and_then(|v| v.as_array()) else {
             continue;
         };
@@ -517,7 +523,7 @@ fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
                         }
                     }
                     None => {
-                        if g_name_only && !cand_name.is_empty() && g_key == cand_name {
+                        if g_name_only && !cand_name.is_empty() && g_name == cand_name {
                             return true;
                         }
                     }
@@ -528,61 +534,86 @@ fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
     false
 }
 
+/// 墓碑记录按 **uuid** 归并：同一实体重复删除 / 删除后又合并掉，只更新一条。
+/// 身份键（机器 + 路径 / 同名）只服务于 `tombstone_match` 的扫描压制；
+/// `uuid` 服务于同步合并（`sync.rs::merge_software_with_deletions`）。
+fn upsert_tombstone(
+    ignored: &mut Vec<Value>,
+    uuid: &str,
+    name: &str,
+    locs: &[(String, Option<String>)],
+    deleted_at: &str,
+) {
+    if uuid.is_empty() {
+        return;
+    }
+    let idx = match ignored
+        .iter()
+        .position(|g| g.get("uuid").and_then(|v| v.as_str()) == Some(uuid))
+    {
+        Some(i) => i,
+        None => {
+            ignored.push(json!({
+                "uuid": uuid,
+                "name": name,
+                "machines": [],
+                "deleted_at": deleted_at,
+            }));
+            ignored.len() - 1
+        }
+    };
+    let g = &mut ignored[idx];
+    g["name"] = json!(name);
+    g["deleted_at"] = json!(deleted_at);
+    if g.get("machines").and_then(|v| v.as_array()).is_none() {
+        g["machines"] = json!([]);
+    }
+    let gms = g.get_mut("machines").unwrap().as_array_mut().unwrap();
+    for (mid, path) in locs {
+        let gm = gms
+            .iter_mut()
+            .find(|m| m.get("machine_id").and_then(|v| v.as_str()) == Some(mid.as_str()));
+        match gm {
+            Some(gm) => match path {
+                Some(path) => match gm.get_mut("paths").and_then(|v| v.as_array_mut()) {
+                    Some(arr) => {
+                        if !arr.iter().any(|x| x.as_str() == Some(path.as_str())) {
+                            arr.push(json!(path));
+                        }
+                    }
+                    None => gm["paths"] = json!([path]),
+                },
+                None => gm["name_only"] = json!(true),
+            },
+            None => gms.push(match path {
+                Some(path) => json!({ "machine_id": mid, "paths": [path] }),
+                None => json!({ "machine_id": mid, "paths": [], "name_only": true }),
+            }),
+        }
+    }
+}
+
 /// 写入删除墓碑：有路径的记「机器 + 路径」，无路径的记「机器 + 同名」（`name_only`）。
-/// 同名条目归并到同一条墓碑记录，路径按机器取**并集**（不覆盖），避免先删的被后来者抹掉。
 pub fn record_tombstones(ignored: &mut Vec<Value>, doomed: &[Value]) {
     let deleted_at = chrono::Local::now().to_rfc3339();
     for item in doomed {
+        let uuid = item.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
         let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let key = name.to_lowercase().trim().to_string();
         let locs = candidate_machine_locations(item);
-        if locs.is_empty() {
-            continue;
-        }
-        let idx = match ignored
-            .iter()
-            .position(|g| g.get("match_key").and_then(|v| v.as_str()) == Some(key.as_str()))
-        {
-            Some(i) => i,
-            None => {
-                ignored.push(json!({
-                    "match_key": key,
-                    "name": name,
-                    "machines": [],
-                    "deleted_at": deleted_at,
-                }));
-                ignored.len() - 1
-            }
-        };
-        let g = &mut ignored[idx];
-        g["name"] = json!(name);
-        g["deleted_at"] = json!(deleted_at);
-        if g.get("machines").and_then(|v| v.as_array()).is_none() {
-            g["machines"] = json!([]);
-        }
-        let gms = g.get_mut("machines").unwrap().as_array_mut().unwrap();
-        for (mid, path) in &locs {
-            let gm = gms.iter_mut().find(|m| {
-                m.get("machine_id").and_then(|v| v.as_str()) == Some(mid.as_str())
-            });
-            match gm {
-                Some(gm) => match path {
-                    Some(path) => match gm.get_mut("paths").and_then(|v| v.as_array_mut()) {
-                        Some(arr) => {
-                            if !arr.iter().any(|x| x.as_str() == Some(path.as_str())) {
-                                arr.push(json!(path));
-                            }
-                        }
-                        None => gm["paths"] = json!([path]),
-                    },
-                    None => gm["name_only"] = json!(true),
-                },
-                None => gms.push(match path {
-                    Some(path) => json!({ "machine_id": mid, "paths": [path] }),
-                    None => json!({ "machine_id": mid, "paths": [], "name_only": true }),
-                }),
-            }
-        }
+        upsert_tombstone(ignored, uuid, name, &locs, &deleted_at);
+    }
+}
+
+/// 「合并条目」时被并掉的记录也留一条墓碑：它没有可区分的身份键（机器 + 路径
+/// 已被锚点吸收），但同步合并需要它的 uuid 才能把另一端的副本删掉，
+/// 否则并集会把旧记录复活（`sync.rs::merge_software_with_deletions`）。
+pub fn record_merge_tombstones(ignored: &mut Vec<Value>, merged: &[Value]) {
+    let deleted_at = chrono::Local::now().to_rfc3339();
+    for item in merged {
+        let uuid = item.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let locs = candidate_machine_locations(item);
+        upsert_tombstone(ignored, uuid, name, &locs, &deleted_at);
     }
 }
 
@@ -590,7 +621,13 @@ pub fn record_tombstones(ignored: &mut Vec<Value>, doomed: &[Value]) {
 /// 墓碑机器条目既无路径又无 `name_only` 了就删掉，整条记录空了再删记录。
 pub fn clear_tombstones(ignored: &mut Vec<Value>, revived: &[RevivedTombstone]) {
     for g in ignored.iter_mut() {
-        let g_key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let g_key = g
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .trim()
+            .to_string();
         let Some(ms) = g.get_mut("machines").and_then(|v| v.as_array_mut()) else {
             continue;
         };
@@ -879,7 +916,7 @@ mod tests {
             { "id": "SW-003", "name": "7-Zip", "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }] }
         ]);
         let ignored = json!([
-            { "match_key": "hibit uninstaller", "name": "HiBit Uninstaller",
+            { "name": "HiBit Uninstaller",
               "machines": [{ "machine_id": "M-B", "paths": ["c:\\program files\\hibit uninstaller"] }] }
         ]);
 
@@ -972,7 +1009,7 @@ mod tests {
         });
         let g = |mid: &str, path: &str| {
             json!([
-                { "match_key": "7-zip", "name": "7-Zip",
+                { "name": "7-Zip",
                   "machines": [{ "machine_id": mid, "paths": [path] }] }
             ])
         };
@@ -994,7 +1031,7 @@ mod tests {
         // 无路径候选：同机名字墓碑（name_only）才命中
         let no_path = json!({ "name": "7-Zip", "machines": [{ "machine_id": "M-B" }] });
         let name_only = json!([{
-            "match_key": "7-zip", "name": "7-Zip",
+            "name": "7-Zip",
             "machines": [{ "machine_id": "M-B", "paths": [], "name_only": true }]
         }]);
         assert!(tombstone_match(&no_path, name_only.as_array().unwrap()));
@@ -1005,7 +1042,7 @@ mod tests {
         ));
         // 名字墓碑同样受机器维度约束：别的机器不命中
         let other_machine = json!([{
-            "match_key": "7-zip", "name": "7-Zip",
+            "name": "7-Zip",
             "machines": [{ "machine_id": "M-A", "paths": [], "name_only": true }]
         }]);
         assert!(!tombstone_match(&no_path, other_machine.as_array().unwrap()));
@@ -1014,18 +1051,18 @@ mod tests {
     #[test]
     fn record_and_clear_tombstones_are_per_machine_union() {
         let mut ignored: Vec<Value> = Vec::new();
-        // 同名不同机器的两条记录先后删除：按机器取并集，不互相覆盖
+        // 同一实体（同 uuid）在不同机器的两条删除记录：按机器取并集，不互相覆盖
         record_tombstones(
             &mut ignored,
             &[json!({
-                "name": "7-Zip",
+                "uuid": "zip-1", "name": "7-Zip",
                 "machines": [{ "machine_id": "M-A", "install_location": "C:\\Program Files\\7-Zip" }]
             })],
         );
         record_tombstones(
             &mut ignored,
             &[json!({
-                "name": "7-Zip",
+                "uuid": "zip-1", "name": "7-Zip",
                 "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }]
             })],
         );
@@ -1035,9 +1072,9 @@ mod tests {
         // 无路径条目 -> 写「机器 + 同名」墓碑（name_only）
         record_tombstones(
             &mut ignored,
-            &[json!({ "name": "Python", "machines": [{ "machine_id": "M-A" }] })],
+            &[json!({ "uuid": "py-1", "name": "Python", "machines": [{ "machine_id": "M-A" }] })],
         );
-        let py = ignored.iter().find(|g| g["match_key"] == "python").unwrap();
+        let py = ignored.iter().find(|g| g["uuid"] == "py-1").unwrap();
         assert_eq!(py["machines"][0]["name_only"], json!(true));
 
         // 精确清除 (M-A, path)：只清这台机器，记录保留
@@ -1050,7 +1087,7 @@ mod tests {
             }],
         );
         assert_eq!(ignored.len(), 2);
-        let zip = ignored.iter().find(|g| g["match_key"] == "7-zip").unwrap();
+        let zip = ignored.iter().find(|g| g["uuid"] == "zip-1").unwrap();
         assert_eq!(zip["machines"].as_array().unwrap().len(), 1);
 
         // 名字墓碑按 (机器, 同名) 清除
@@ -1062,7 +1099,7 @@ mod tests {
                 path: None,
             }],
         );
-        assert!(ignored.iter().all(|g| g["match_key"] != "python"), "{:?}", ignored);
+        assert!(ignored.iter().all(|g| g["uuid"] != "py-1"), "{:?}", ignored);
 
         // 清掉最后一台 -> 整条记录消失
         clear_tombstones(
@@ -1073,7 +1110,23 @@ mod tests {
                 path: Some("c:\\program files\\7-zip".to_string()),
             }],
         );
-        assert!(ignored.iter().all(|g| g["match_key"] != "7-zip"), "{:?}", ignored);
+        assert!(ignored.iter().all(|g| g["uuid"] != "zip-1"), "{:?}", ignored);
+    }
+
+    #[test]
+    fn merge_tombstone_keeps_uuid_for_sync_deletion() {
+        // 「合并条目」被并掉的记录也要留墓碑（带 uuid），供同步合并按 uuid 删除。
+        let mut ignored: Vec<Value> = Vec::new();
+        record_merge_tombstones(
+            &mut ignored,
+            &[json!({
+                "uuid": "merged-1", "name": "Old Tool",
+                "machines": [{ "machine_id": "M-A", "install_location": "C:\\Old" }]
+            })],
+        );
+        let t = ignored.iter().find(|g| g["uuid"] == "merged-1").unwrap();
+        assert_eq!(t["name"], "Old Tool");
+        assert_eq!(t["machines"][0]["paths"][0], "c:\\old");
     }
 
     #[test]

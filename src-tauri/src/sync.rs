@@ -1,11 +1,12 @@
-// 同步引擎：单写者会话锁 + 文件级镜像 + 记录级并集。
+// 同步引擎：手动双向同步（无锁） + 文件级镜像 + 记录级并集。
 //
-// 心智模型（见与用户敲定的方案）：
-//   - 同一时刻只有一台机器持有会话锁（`lock.json` 租约），持有者可编辑；
-//   - 抢不到锁的机器只读。因为不存在并发编辑，日常「拉取 → 推送」是纯镜像，
-//     删除/合并靠镜像自然传播，不需要 3 路 diff。
-//   - 唯一需要合并的场景是「首次接入」：本地基线为空时，双方按 uuid 并集，
-//     所以先扫描再配置 WebDAV 也不会丢数据。
+// 心智模型：
+//   - 同步完全由用户手动触发（设置页「立即同步」），没有会话锁、没有只读模式，
+//     两台机器任何时候都可编辑；用户约定同一时刻只在一台上改。
+//   - 一次同步 = 拉取并合并远端 → 写回本地 → 把本地新状态推回远端
+//     （`pull_merge` + `push`）。乙方未动的文件按 hash 镜像；双方都动过的 JSON 台账
+//     走语义合并（`merge_software_with_deletions` 按 uuid 并集 + 墓碑过滤）。
+//   - 删除与「合并条目」靠带 uuid 的墓碑传播（`ignored.json`），避免并集复活。
 //
 // 所有网络与文件操作都是阻塞式的，整体跑在 spawn_blocking 里。
 
@@ -20,17 +21,18 @@ use crate::store;
 use crate::webdav::WebDav;
 
 const MANIFEST_REMOTE: &str = "manifest.json";
-const LOCK_REMOTE: &str = "lock.json";
 const BACKUP_DIR: &str = "_backup";
 const SCHEMA_VERSION: u32 = 1;
-/// 会话锁租约：5 分钟，后端每 1 分钟续租一次；异常/强制退出后最多 5 分钟可被接管。
-const LOCK_LEASE_SECS: i64 = 300;
 
 /// 需要语义合并的 JSON 台账文件（其余文件一律按内容 hash 整份传输）。
 fn is_json_ledger(rel: &str) -> bool {
     matches!(
         rel,
-        "software.json" | "ignored.json" | "extensions.json" | "browsers.json" | "config.json"
+        "software.json"
+            | "ignored.json"
+            | "extensions.json"
+            | "browsers.json"
+            | "config.json"
     )
 }
 
@@ -77,11 +79,6 @@ struct IndexEntry {
     mtime: i64,
     hash: String,
 }
-
-fn now_secs() -> i64 {
-    chrono::Local::now().timestamp()
-}
-
 fn hash_file(path: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let mut f = std::fs::File::open(path).map_err(|e| format!("打开 {} 失败: {}", path.display(), e))?;
@@ -298,7 +295,12 @@ fn merge_software_item(local: &Value, remote: &Value) -> Value {
     merged
 }
 
-pub fn merge_software(local: &[Value], remote: &[Value]) -> Vec<Value> {
+/// 合并 software.json：按 uuid 并集 + 记录级取新，再按墓碑 uuid 过滤。
+pub fn merge_software_with_deletions(
+    local: &[Value],
+    remote: &[Value],
+    tombstones: &[Value],
+) -> Vec<Value> {
     let mut result = local.to_vec();
     let mut index: HashMap<String, usize> = HashMap::new();
     for (i, it) in result.iter().enumerate() {
@@ -320,19 +322,43 @@ pub fn merge_software(local: &[Value], remote: &[Value]) -> Vec<Value> {
             result.push(r.clone());
         }
     }
+    apply_deletions(&mut result, tombstones);
     result
+}
+
+/// 按墓碑 uuid 过滤：墓碑时间 >= 记录更新时间 → 删掉；记录更新 → 视为
+/// 「删除后又被改」（复活），保留。复活的墓碑无需清理：记录时间只会往后走，
+/// 后续合并仍会判为复活（幂等）。
+fn apply_deletions(records: &mut Vec<Value>, tombstones: &[Value]) {
+    if tombstones.is_empty() {
+        return;
+    }
+    records.retain(|rec| {
+        let uuid = as_str(rec, "uuid");
+        if uuid.is_empty() {
+            return true;
+        }
+        match tombstones.iter().find(|m| as_str(m, "uuid") == uuid) {
+            Some(m) => rec_time(m) < rec_time(rec),
+            None => true,
+        }
+    });
 }
 
 pub fn merge_ignored(local: &[Value], remote: &[Value]) -> Vec<Value> {
     let mut out = local.to_vec();
     for r in remote {
-        let key = as_str(r, "match_key");
-        let found = out
-            .iter()
-            .position(|x| as_str(x, "match_key") == key && !key.is_empty());
-        match found {
+        let uuid = as_str(r, "uuid");
+        if uuid.is_empty() {
+            // 无 uuid 的历史墓碑：按整条去重即可，只参与扫描压制。
+            if !out.contains(r) {
+                out.push(r.clone());
+            }
+            continue;
+        }
+        match out.iter().position(|x| as_str(x, "uuid") == uuid) {
             Some(i) => {
-                // 同名墓碑：机器条目按 machine_id 并集，每台机器内 paths 也并集；
+                // 同一实体的墓碑：机器条目按 machine_id 并集，每台机器内 paths 也并集；
                 // name / deleted_at 取较新的一条作为底子（否则较旧一侧的机器会被丢掉）。
                 let machines = merge_tombstone_machines(&out[i], r);
                 if rec_time(r) > rec_time(&out[i]) {
@@ -495,7 +521,9 @@ fn merge_json_file(rel: &str, local: &Value, remote: &Value) -> Value {
         "software.json" => {
             let l = local.as_array().cloned().unwrap_or_default();
             let r = remote.as_array().cloned().unwrap_or_default();
-            json!(merge_software(&l, &r))
+            // ignored.json 排序先于 software.json，此处读到的是本次已合并的墓碑。
+            let tombstones = store::read_ignored();
+            json!(merge_software_with_deletions(&l, &r, &tombstones))
         }
         "ignored.json" => {
             let l = local.as_array().cloned().unwrap_or_default();
@@ -506,88 +534,6 @@ fn merge_json_file(rel: &str, local: &Value, remote: &Value) -> Value {
         "config.json" => merge_config(local, remote),
         _ => local.clone(),
     }
-}
-
-// ---------------------------------------------------------------------------
-// 会话锁
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct LockInfo {
-    pub owner: String,
-    pub host: String,
-    pub acquired_at: i64,
-    pub expires_at: i64,
-}
-
-pub enum LockResult {
-    Acquired,
-    HeldByOther(LockInfo),
-}
-
-fn read_lock(client: &WebDav) -> Option<LockInfo> {
-    client
-        .get_json(LOCK_REMOTE)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-}
-
-pub fn acquire_lock(client: &WebDav, owner: &str, host: &str) -> Result<LockResult, String> {
-    let now = now_secs();
-    if let Some(l) = read_lock(client) {
-        // 同一台机器的旧实例（进程重启、崩溃残留）不算「别人持有」，直接接管；
-        // 否则本机会被自己上一次会话的租约锁死。
-        if l.owner != owner && l.host != host && l.expires_at > now {
-            return Ok(LockResult::HeldByOther(l));
-        }
-    }
-    write_lock(client, owner, host)?;
-    // 回读校验：并发抢占时后写者获胜，先写者退让
-    match read_lock(client) {
-        Some(l) if l.owner == owner => Ok(LockResult::Acquired),
-        Some(l) => Ok(LockResult::HeldByOther(l)),
-        None => Err("写入会话锁后无法读回".to_string()),
-    }
-}
-
-fn write_lock(client: &WebDav, owner: &str, host: &str) -> Result<(), String> {
-    let now = now_secs();
-    let info = LockInfo {
-        owner: owner.to_string(),
-        host: host.to_string(),
-        acquired_at: now,
-        expires_at: now + LOCK_LEASE_SECS,
-    };
-    client.put(LOCK_REMOTE, serde_json::to_vec(&info).unwrap())
-}
-
-pub fn renew_lock(client: &WebDav, owner: &str, host: &str) -> Result<bool, String> {
-    if let Some(l) = read_lock(client) {
-        // 续租必须是自己持有的锁；若已被接管（含同机新实例），立即停止续租。
-        if l.owner != owner && l.expires_at > now_secs() {
-            return Ok(false);
-        }
-    }
-    write_lock(client, owner, host)?;
-    Ok(true)
-}
-
-pub fn release_lock(client: &WebDav, owner: &str) -> Result<(), String> {
-    if let Some(l) = read_lock(client) {
-        if l.owner == owner {
-            client.delete(LOCK_REMOTE)?;
-        }
-    }
-    Ok(())
-}
-
-pub fn force_unlock(client: &WebDav) -> Result<(), String> {
-    client.delete(LOCK_REMOTE)
-}
-
-pub fn peek_lock(client: &WebDav) -> Option<LockInfo> {
-    read_lock(client)
 }
 
 // ---------------------------------------------------------------------------
@@ -904,86 +850,6 @@ pub fn run_sync(mode: SyncMode) -> Value {
     })
 }
 
-/// 抢会话锁（抢到后由调用方在会话期间保持）。
-pub fn try_acquire(owner: &str, host: &str) -> Value {
-    if !enabled() {
-        return json!({"success": false, "enabled": false});
-    }
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "error": e}),
-    };
-    client.ensure_base();
-    match acquire_lock(&client, owner, host) {
-        Ok(LockResult::Acquired) => json!({"success": true, "acquired": true}),
-        Ok(LockResult::HeldByOther(l)) => json!({
-            "success": true, "acquired": false,
-            "lock": {"host": l.host, "owner": l.owner, "until": l.expires_at}
-        }),
-        Err(e) => json!({"success": false, "error": e}),
-    }
-}
-
-pub fn renew(owner: &str, host: &str) -> Value {
-    if !enabled() {
-        return json!({"success": false, "enabled": false});
-    }
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "error": e}),
-    };
-    match renew_lock(&client, owner, host) {
-        Ok(true) => json!({"success": true, "held": true}),
-        Ok(false) => json!({"success": true, "held": false}),
-        Err(e) => json!({"success": false, "error": e}),
-    }
-}
-
-pub fn release(owner: &str) -> Value {
-    if !enabled() {
-        return json!({"success": false, "enabled": false});
-    }
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "error": e}),
-    };
-    match release_lock(&client, owner) {
-        Ok(_) => json!({"success": true}),
-        Err(e) => json!({"success": false, "error": e}),
-    }
-}
-
-pub fn unlock() -> Value {
-    if !enabled() {
-        return json!({"success": false, "enabled": false});
-    }
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "error": e}),
-    };
-    match force_unlock(&client) {
-        Ok(_) => json!({"success": true}),
-        Err(e) => json!({"success": false, "error": e}),
-    }
-}
-
-pub fn lock_status(owner: &str) -> Value {
-    if !enabled() {
-        return json!({"success": true, "enabled": false});
-    }
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "error": e}),
-    };
-    match peek_lock(&client) {
-        Some(l) => json!({
-            "success": true, "enabled": true, "held": l.owner == owner,
-            "host": l.host, "until": l.expires_at, "expired": l.expires_at <= now_secs()
-        }),
-        None => json!({"success": true, "enabled": true, "held": false, "host": Value::Null}),
-    }
-}
-
 pub fn test_connection() -> Value {
     let client = match build_client() {
         Ok(c) => c,
@@ -1037,7 +903,7 @@ mod tests {
             item("u2", "B", "2026-01-01T00:00:00+08:00", "M2", "D:\\B"),
             item("u1", "A", "2026-01-01T00:00:00+08:00", "M2", "D:\\A"),
         ];
-        let merged = merge_software(&local, &remote);
+        let merged = merge_software_with_deletions(&local, &remote, &[]);
         assert_eq!(merged.len(), 2, "同 uuid 合并、不同 uuid 并集");
         let a = merged.iter().find(|x| as_str(x, "uuid") == "u1").unwrap();
         assert_eq!(a["machines"].as_array().unwrap().len(), 2, "machines 按 machine_id 并集");
@@ -1047,19 +913,52 @@ mod tests {
     fn merge_software_newer_updated_at_wins_but_fills_blanks() {
         let local = json!([{ "uuid": "u1", "name": "A", "updated_at": "2026-01-02T00:00:00+08:00", "version": "2.0", "machines": [] }]);
         let remote = json!([{ "uuid": "u1", "name": "A", "updated_at": "2026-01-01T00:00:00+08:00", "version": "1.0", "download_url": "https://x", "machines": [] }]);
-        let merged = merge_software(local.as_array().unwrap(), remote.as_array().unwrap());
+        let merged = merge_software_with_deletions(local.as_array().unwrap(), remote.as_array().unwrap(), &[]);
         assert_eq!(merged[0]["version"], "2.0", "较新的记录为准");
         assert_eq!(merged[0]["download_url"], "https://x", "新记录的空字段由旧记录补齐");
     }
 
     #[test]
+    fn merge_software_applies_uuid_tombstones() {
+        // 两端都改过 software.json 时，被删除/合并掉的条目必须按 uuid 删掉，不能并集复活。
+        let local = json!([
+            { "uuid": "keep", "name": "Keep", "updated_at": "2026-01-01T00:00:00+08:00", "machines": [] },
+            { "uuid": "gone", "name": "Gone", "updated_at": "2026-01-01T00:00:00+08:00", "machines": [] }
+        ]);
+        let remote = json!([
+            { "uuid": "keep", "name": "Keep", "updated_at": "2026-01-01T00:00:00+08:00", "machines": [] }
+        ]);
+        let tombstones = json!([{ "uuid": "gone", "name": "Gone", "deleted_at": "2026-01-02T00:00:00+08:00", "machines": [] }]);
+        let merged = merge_software_with_deletions(
+            local.as_array().unwrap(),
+            remote.as_array().unwrap(),
+            tombstones.as_array().unwrap(),
+        );
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0]["uuid"], "keep");
+    }
+
+    #[test]
+    fn merge_software_revives_record_edited_after_delete() {
+        // 删除之后又被改过（记录更新时间晚于删除时间）→ 复活，保留。
+        let local = json!([{ "uuid": "x", "name": "X", "updated_at": "2026-01-03T00:00:00+08:00", "machines": [] }]);
+        let tombstones = json!([{ "uuid": "x", "name": "X", "deleted_at": "2026-01-02T00:00:00+08:00", "machines": [] }]);
+        let merged = merge_software_with_deletions(
+            local.as_array().unwrap(),
+            &[],
+            tombstones.as_array().unwrap(),
+        );
+        assert_eq!(merged.len(), 1, "后改的应该复活");
+    }
+
+    #[test]
     fn merge_ignored_unions_machines_and_paths() {
         let local = json!([{
-            "match_key": "a", "name": "A", "deleted_at": "2026-01-01T00:00:00+08:00",
+            "uuid": "a", "name": "A", "deleted_at": "2026-01-01T00:00:00+08:00",
             "machines": [{ "machine_id": "M1", "paths": ["c:\\a"] }]
         }]);
         let remote = json!([{
-            "match_key": "a", "name": "A", "deleted_at": "2026-01-02T00:00:00+08:00",
+            "uuid": "a", "name": "A", "deleted_at": "2026-01-02T00:00:00+08:00",
             "machines": [
                 { "machine_id": "M1", "paths": ["d:\\a"], "name_only": true },
                 { "machine_id": "M2", "paths": ["c:\\a"] }
@@ -1269,34 +1168,7 @@ mod tests {
             assert_eq!(arr.len(), 1, "删除应传播到 B: {}", local);
             assert_eq!(as_str(&arr[0], "uuid"), "u1");
         }
-        // 锁互斥
-        {
-            let _g = crate::store::test_support::use_root(&root_a);
-            let c = build_client().unwrap();
-            assert!(matches!(acquire_lock(&c, "owner1", "M-A").unwrap(), LockResult::Acquired));
-            match acquire_lock(&c, "owner2", "M-B").unwrap() {
-                LockResult::HeldByOther(l) => assert_eq!(l.host, "M-A"),
-                LockResult::Acquired => panic!("锁应被 owner1 持有"),
-            }
-            release_lock(&c, "owner2").unwrap(); // 无权限释放
-            match acquire_lock(&c, "owner2", "M-B").unwrap() {
-                LockResult::HeldByOther(_) => {}
-                LockResult::Acquired => panic!("无权限者不应能释放别人的锁"),
-            }
-            // 同机新实例（进程重启）应能接管，不被自己的旧租约锁死
-            assert!(matches!(acquire_lock(&c, "owner3", "M-A").unwrap(), LockResult::Acquired));
-            // 老实例续租应失败（已被接管）
-            assert!(!renew_lock(&c, "owner1", "M-A").unwrap());
-            assert!(renew_lock(&c, "owner3", "M-A").unwrap());
-            assert!(matches!(acquire_lock(&c, "owner2", "M-B").unwrap(), LockResult::HeldByOther(_)));
-            release_lock(&c, "owner1").unwrap(); // owner3 仍持有
-            assert!(matches!(acquire_lock(&c, "owner2", "M-B").unwrap(), LockResult::HeldByOther(_)));
-            release_lock(&c, "owner3").unwrap();
-            assert!(matches!(acquire_lock(&c, "owner2", "M-B").unwrap(), LockResult::Acquired));
-            force_unlock(&c).unwrap();
-            let _ = c.delete("software.json");
-            let _ = c.delete(MANIFEST_REMOTE);
-        }
+        // 删除后同步（无锁）：不再做锁互斥测试。
         let _ = std::fs::remove_dir_all(&root_a);
         let _ = std::fs::remove_dir_all(&root_b);
     }
