@@ -186,7 +186,7 @@
   因此「把已评的子项并进未评的锚点会丢掉子项评审」是**刻意的取舍而非缺陷**：需要分别保留两台机器的决策时，就不要合并；合并即表示接受「以锚点为准」。
 
   > 附注：`unreviewed` 在统计口径上等同于「尚未评档」（`restore_intent` 为空串或 `unreviewed` 都计入未评），但在**合并**口径下它是一个确定取值，不触发补齐。
-- **删除**（`delete_software`）：按 `uuid` 移除条目并写入 `ignored.json` 墓碑。墓碑**按路径精确命中**（`tombstone_match`：候选带路径时只认路径，仅双方都无路径才退回同名），避免删掉一份同名安装就永久误伤其它同名安装。归档目录 `data/vault/<kind>/<uuid>/` 整个**软删除**到 `data/trash/`（写 `meta.json` 记住原始路径，不 `remove_dir_all`，避免「删一条记录」变成「瞬间抹掉几个 G」）；图标 `<uuid>.png` 体积可忽略，直接删。
+- **删除**（`delete_software`）：按 `uuid` 移除条目并写入 `ignored.json` 墓碑。墓碑带**机器维度**（`ingest.rs::tombstone_match`），结构为 `{match_key, name, machines:[{machine_id, paths:[...], name_only?}], deleted_at}`：有路径的按「同机同路径」命中，无路径的按「同机同名」（`name_only`）命中；换机器、路径不对都不算。同名墓碑归并到一条记录，路径按机器取并集（`record_tombstones`）；复活时按 (机器, 路径) 或 (机器, 同名) 精确清除（`clear_tombstones`）。归档目录 `data/vault/<kind>/<uuid>/` 整个**软删除**到 `data/trash/`（写 `meta.json` 记住原始路径，不 `remove_dir_all`，避免「删一条记录」变成「瞬间抹掉几个 G」）；图标 `<uuid>.png` 体积可忽略，直接删。
 
 #### 配置归档（`data/vault/<kind>/<uuid>/`）
 
@@ -200,7 +200,7 @@
 
 不追求真正的分布式合并，而是用「同一时刻只有一台机器编辑」把并发消掉。
 
-- **会话锁**：远端 `lock.json` 租约（`{owner, host, acquired_at, expires_at}`，15 分钟）。开软件抢锁并拉取，关软件推送并释放（Rust `on_window_event` 拦截关闭）；心跳每 5 分钟续租。抢不到锁 = 本机只读：顶部横幅提示，且**前后端双层禁用编辑**（前端禁用编辑控件、关闭 WebDAV 时隐藏同步入口；后端 `commands.rs` 对全部写命令直接拒绝），可强制接管。同机旧实例残留的租约视为自家锁，可直接接管。异常退出后租约到期自动可被接管。
+- **会话锁**：远端 `lock.json` 租约（`{owner, host, acquired_at, expires_at}`，5 分钟）。开软件抢锁并拉取；关软件（Rust `on_window_event`）立刻隐藏窗口，把推送 + 释放锁放后台线程（看门狗 10s 兜底退出），不在关闭路径上阻塞网络；后端心跳每 1 分钟续租。抢不到锁 = 本机只读：顶部横幅提示，且**前后端双层禁用编辑**（前端禁用编辑控件、关闭 WebDAV 时隐藏同步入口；后端 `commands.rs` 对全部写命令直接拒绝），可强制接管。同机旧实例残留的租约视为自家锁，可直接接管。异常退出后租约到期（≤5 分钟）自动可被接管。
 - **传输**：远端镜像 `data/`（排除 `trash/`、`.sync/`、`webdav.json`），并维护 `manifest.json`（每个文件的 sha256 / size / mtime）。本地 `.sync/manifest.json` 是上次同步基线，`.sync/index.json` 是指纹缓存（size+mtime 未变则复用 hash，避免重算几个 G）。只用 GET / PUT / DELETE / MKCOL / MOVE，不用 PROPFIND，因此无 XML 依赖。
 - **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `machine_id` 并集）。
 - **新旧判据**：每条记录 `updated_at`（回退 `created_at`）。冲突时较新者为准，空字段由旧记录补齐。

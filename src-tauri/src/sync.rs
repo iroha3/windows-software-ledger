@@ -23,8 +23,8 @@ const MANIFEST_REMOTE: &str = "manifest.json";
 const LOCK_REMOTE: &str = "lock.json";
 const BACKUP_DIR: &str = "_backup";
 const SCHEMA_VERSION: u32 = 1;
-/// 会话锁租约：15 分钟，前端每 5 分钟续租一次；异常退出后最多 15 分钟可被接管。
-const LOCK_LEASE_SECS: i64 = 900;
+/// 会话锁租约：5 分钟，后端每 1 分钟续租一次；异常/强制退出后最多 5 分钟可被接管。
+const LOCK_LEASE_SECS: i64 = 300;
 
 /// 需要语义合并的 JSON 台账文件（其余文件一律按内容 hash 整份传输）。
 fn is_json_ledger(rel: &str) -> bool {
@@ -332,24 +332,69 @@ pub fn merge_ignored(local: &[Value], remote: &[Value]) -> Vec<Value> {
             .position(|x| as_str(x, "match_key") == key && !key.is_empty());
         match found {
             Some(i) => {
-                let rp = r.get("paths").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-                let mut paths = out[i].get("paths").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-                for p in rp {
-                    if !paths.contains(&p) {
-                        paths.push(p);
-                    }
-                }
+                // 同名墓碑：机器条目按 machine_id 并集，每台机器内 paths 也并集；
+                // name / deleted_at 取较新的一条作为底子（否则较旧一侧的机器会被丢掉）。
+                let machines = merge_tombstone_machines(&out[i], r);
                 if rec_time(r) > rec_time(&out[i]) {
                     out[i] = r.clone();
                 }
                 if let Some(o) = out[i].as_object_mut() {
-                    o.insert("paths".to_string(), json!(paths));
+                    o.insert("machines".to_string(), machines);
                 }
             }
             None => out.push(r.clone()),
         }
     }
     out
+}
+
+/// 合并两个同名墓碑的 machines：按 machine_id 求并集，同机器内的 paths 求并集。
+fn merge_tombstone_machines(a: &Value, b: &Value) -> Value {
+    let mut out: Vec<Value> = a
+        .get("machines")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if let Some(ms) = b.get("machines").and_then(|v| v.as_array()) {
+        for m in ms {
+            let mid = as_str(m, "machine_id");
+            let dst = if mid.is_empty() {
+                None
+            } else {
+                out.iter_mut().find(|x| as_str(x, "machine_id") == mid)
+            };
+            match dst {
+                Some(dst) => {
+                    let mut paths = dst
+                        .get("paths")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    if let Some(rp) = m.get("paths").and_then(|v| v.as_array()) {
+                        for p in rp {
+                            if !paths.contains(p) {
+                                paths.push(p.clone());
+                            }
+                        }
+                    }
+                    // name_only 是布尔标记：任一侧有就保留（或）
+                    let name_only = dst
+                        .get("name_only")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                        || m.get("name_only").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if let Some(o) = dst.as_object_mut() {
+                        o.insert("paths".to_string(), json!(paths));
+                        if name_only {
+                            o.insert("name_only".to_string(), json!(true));
+                        }
+                    }
+                }
+                None => out.push(m.clone()),
+            }
+        }
+    }
+    json!(out)
 }
 
 pub fn merge_keyed(local: &Value, remote: &Value) -> Value {
@@ -1008,12 +1053,28 @@ mod tests {
     }
 
     #[test]
-    fn merge_ignored_unions_paths() {
-        let local = json!([{ "match_key": "a", "paths": ["c:\\a"], "deleted_at": "2026-01-01T00:00:00+08:00" }]);
-        let remote = json!([{ "match_key": "a", "paths": ["d:\\a"], "deleted_at": "2026-01-02T00:00:00+08:00" }]);
+    fn merge_ignored_unions_machines_and_paths() {
+        let local = json!([{
+            "match_key": "a", "name": "A", "deleted_at": "2026-01-01T00:00:00+08:00",
+            "machines": [{ "machine_id": "M1", "paths": ["c:\\a"] }]
+        }]);
+        let remote = json!([{
+            "match_key": "a", "name": "A", "deleted_at": "2026-01-02T00:00:00+08:00",
+            "machines": [
+                { "machine_id": "M1", "paths": ["d:\\a"], "name_only": true },
+                { "machine_id": "M2", "paths": ["c:\\a"] }
+            ]
+        }]);
         let merged = merge_ignored(local.as_array().unwrap(), remote.as_array().unwrap());
         assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0]["paths"].as_array().unwrap().len(), 2);
+        // 较新一侧为底子，但机器并集不能丢：M1 的路径并集、M2 保留
+        assert_eq!(merged[0]["deleted_at"], "2026-01-02T00:00:00+08:00");
+        let ms = merged[0]["machines"].as_array().unwrap();
+        assert_eq!(ms.len(), 2, "{:?}", merged[0]);
+        let m1 = ms.iter().find(|m| m["machine_id"] == "M1").unwrap();
+        assert_eq!(m1["paths"].as_array().unwrap().len(), 2);
+        assert_eq!(m1["name_only"], json!(true), "name_only 并集：任一侧有就保留");
+        assert!(ms.iter().any(|m| m["machine_id"] == "M2"));
     }
 
     #[test]

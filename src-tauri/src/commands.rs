@@ -8,7 +8,7 @@ use base64::Engine;
 use tauri::Manager;
 
 use crate::exporter::export_checklists;
-use crate::ingest::{apply_selected, build_candidates, known_icon_refreshes};
+use crate::ingest::{apply_selected, build_candidates, clear_tombstones, known_icon_refreshes, record_tombstones};
 use crate::store;
 
 // ---------------------------------------------------------------------------
@@ -978,37 +978,9 @@ pub fn delete_software(payload: Value) -> Value {
         .collect();
     let doomed_uuids: Vec<String> = doomed.iter().map(|s| as_str(s, "uuid")).collect();
 
-    // 删除即为墓碑：记录规范化名称与路径，重扫时默认不勾选，避免垃圾复活。
-    for item in &doomed {
-        let name = as_str(item, "name");
-        let key = name.to_lowercase().trim().to_string();
-        let mut paths: Vec<String> = Vec::new();
-        if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
-            for m in ms {
-                let loc = {
-                    let a = as_str(m, "install_location");
-                    if a.is_empty() { as_str(m, "path") } else { a }
-                };
-                let p = crate::ingest::normalize_path(&loc);
-                if !p.is_empty() && !paths.contains(&p) {
-                    paths.push(p);
-                }
-            }
-        }
-        let deleted_at = chrono::Local::now().to_rfc3339();
-        if let Some(existing) = ignored.iter_mut().find(|g| as_str(g, "match_key") == key) {
-            existing["name"] = json!(name);
-            existing["paths"] = json!(paths);
-            existing["deleted_at"] = json!(deleted_at);
-        } else {
-            ignored.push(json!({
-                "match_key": key,
-                "name": name,
-                "paths": paths,
-                "deleted_at": deleted_at,
-            }));
-        }
-    }
+    // 删除即为墓碑：按「机器 + 规范化安装路径」记录，重扫时同机同路径默认不勾选。
+    // 无路径的条目不写墓碑（没有身份锚点，按名字封杀会误伤同名）。
+    record_tombstones(&mut ignored, &doomed);
 
     software.retain(|s| !doomed_uuids.contains(&as_str(s, "uuid")));
 
@@ -1614,14 +1586,14 @@ pub fn scan_commit(payload: Value) -> Value {
         let _ = std::fs::copy(src, dir.join(safe_component(file)));
     }
 
-    if !result.revived_keys.is_empty() {
+    if !result.revived.is_empty() {
         let mut ignored = store::read_ignored();
-        ignored.retain(|g| !result.revived_keys.iter().any(|k| as_str(g, "match_key") == *k));
+        clear_tombstones(&mut ignored, &result.revived);
         store::write_ignored(&ignored);
     }
 
     let _ = std::fs::remove_file(pending_scan_file());
-    json!({ "success": true, "added": result.added, "revived": result.revived_keys.len() })
+    json!({ "success": true, "added": result.added, "revived": result.revived.len() })
 }
 
 #[tauri::command(async)]

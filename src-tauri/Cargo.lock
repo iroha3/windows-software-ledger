@@ -4556,7 +4556,7 @@ dependencies = [
 
 [[package]]
 name = "windows-software-ledger"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",

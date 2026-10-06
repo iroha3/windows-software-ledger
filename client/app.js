@@ -1391,6 +1391,11 @@ function bindEvents() {
       const item = softwareList.find(s => s.id === id);
       if (item) {
         item.prep_status = item.prep_status === 'ready' ? 'todo' : 'ready';
+        const ready = item.prep_status === 'ready';
+        // 单行编辑不重渲染整表，这里手动同步按钮外观
+        prepBtn.classList.toggle('prep-ready', ready);
+        prepBtn.classList.toggle('prep-todo', !ready);
+        prepBtn.innerHTML = `<span class="status-dot dot-${ready ? 'ready' : 'unreviewed'}"></span>${ready ? '就绪' : '待办'}`;
         await updateItemField(id, { prep_status: item.prep_status });
         await fetchStatus();
       }

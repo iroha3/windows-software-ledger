@@ -331,21 +331,42 @@ fn parse_evidence(
     }
 }
 
+/// 机器条目的安装路径：优先 `install_location`，否则退回 `path`。
+fn machine_location(m: &Value) -> &str {
+    let a = m.get("install_location").and_then(|v| v.as_str()).unwrap_or("");
+    if a.is_empty() {
+        m.get("path").and_then(|v| v.as_str()).unwrap_or("")
+    } else {
+        a
+    }
+}
+
 fn candidate_paths(item: &Value) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
         for m in ms {
-            let loc = {
-                let a = m.get("install_location").and_then(|v| v.as_str()).unwrap_or("");
-                if a.is_empty() {
-                    m.get("path").and_then(|v| v.as_str()).unwrap_or("")
-                } else {
-                    a
-                }
-            };
-            let p = normalize_path(loc);
+            let p = normalize_path(machine_location(m));
             if !p.is_empty() && !out.contains(&p) {
                 out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// 机器 + 规范化路径（无路径为 None）的候选定位键。
+fn candidate_machine_locations(item: &Value) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    if let Some(ms) = item.get("machines").and_then(|m| m.as_array()) {
+        for m in ms {
+            let mid = m.get("machine_id").and_then(|v| v.as_str()).unwrap_or("");
+            if mid.is_empty() {
+                continue;
+            }
+            let p = normalize_path(machine_location(m));
+            let pair = (mid.to_string(), if p.is_empty() { None } else { Some(p) });
+            if !out.contains(&pair) {
+                out.push(pair);
             }
         }
     }
@@ -452,9 +473,13 @@ pub fn known_icon_refreshes(
     out
 }
 
-/// 墓碑判定：优先按「删掉的那条安装路径」精确命中；仅当双方都没有路径时，
-/// 才退回「名称相同」。避免删掉一份同名安装就永久误伤其它同名安装。
+/// 墓碑判定：路径命中只认「机器 + 路径」；无路径候选则按「机器 + 同名」匹配。
+/// 两者都带机器维度 —— 一台机器上的删除不会波及别的机器。
 fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
+    let cand = candidate_machine_locations(candidate);
+    if cand.is_empty() {
+        return false;
+    }
     let cand_name = candidate
         .get("name")
         .and_then(|v| v.as_str())
@@ -462,28 +487,149 @@ fn tombstone_match(candidate: &Value, ignored: &[Value]) -> bool {
         .to_lowercase()
         .trim()
         .to_string();
-    let cand_paths = candidate_paths(candidate);
-    let cand_has_path = !cand_paths.is_empty();
     for g in ignored {
-        let g_paths: Vec<&str> = g
-            .get("paths")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|p| p.as_str())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-        if cand_paths.iter().any(|cp| g_paths.iter().any(|gp| gp == cp)) {
-            return true;
-        }
-        let key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
-        if !cand_has_path && g_paths.is_empty() && !cand_name.is_empty() && key == cand_name {
-            return true;
+        let g_key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(gms) = g.get("machines").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for gm in gms {
+            let gmid = gm.get("machine_id").and_then(|v| v.as_str()).unwrap_or("");
+            if gmid.is_empty() {
+                continue;
+            }
+            let g_paths = gm.get("paths").and_then(|v| v.as_array());
+            let g_name_only = gm.get("name_only").and_then(|v| v.as_bool()).unwrap_or(false);
+            for (cmid, cpath) in &cand {
+                if cmid != gmid {
+                    continue;
+                }
+                match cpath {
+                    Some(p) => {
+                        let hit = g_paths
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|x| x.as_str())
+                                    .any(|gp| normalize_path(gp) == *p)
+                            })
+                            .unwrap_or(false);
+                        if hit {
+                            return true;
+                        }
+                    }
+                    None => {
+                        if g_name_only && !cand_name.is_empty() && g_key == cand_name {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
     }
     false
+}
+
+/// 写入删除墓碑：有路径的记「机器 + 路径」，无路径的记「机器 + 同名」（`name_only`）。
+/// 同名条目归并到同一条墓碑记录，路径按机器取**并集**（不覆盖），避免先删的被后来者抹掉。
+pub fn record_tombstones(ignored: &mut Vec<Value>, doomed: &[Value]) {
+    let deleted_at = chrono::Local::now().to_rfc3339();
+    for item in doomed {
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let key = name.to_lowercase().trim().to_string();
+        let locs = candidate_machine_locations(item);
+        if locs.is_empty() {
+            continue;
+        }
+        let idx = match ignored
+            .iter()
+            .position(|g| g.get("match_key").and_then(|v| v.as_str()) == Some(key.as_str()))
+        {
+            Some(i) => i,
+            None => {
+                ignored.push(json!({
+                    "match_key": key,
+                    "name": name,
+                    "machines": [],
+                    "deleted_at": deleted_at,
+                }));
+                ignored.len() - 1
+            }
+        };
+        let g = &mut ignored[idx];
+        g["name"] = json!(name);
+        g["deleted_at"] = json!(deleted_at);
+        if g.get("machines").and_then(|v| v.as_array()).is_none() {
+            g["machines"] = json!([]);
+        }
+        let gms = g.get_mut("machines").unwrap().as_array_mut().unwrap();
+        for (mid, path) in &locs {
+            let gm = gms.iter_mut().find(|m| {
+                m.get("machine_id").and_then(|v| v.as_str()) == Some(mid.as_str())
+            });
+            match gm {
+                Some(gm) => match path {
+                    Some(path) => match gm.get_mut("paths").and_then(|v| v.as_array_mut()) {
+                        Some(arr) => {
+                            if !arr.iter().any(|x| x.as_str() == Some(path.as_str())) {
+                                arr.push(json!(path));
+                            }
+                        }
+                        None => gm["paths"] = json!([path]),
+                    },
+                    None => gm["name_only"] = json!(true),
+                },
+                None => gms.push(match path {
+                    Some(path) => json!({ "machine_id": mid, "paths": [path] }),
+                    None => json!({ "machine_id": mid, "paths": [], "name_only": true }),
+                }),
+            }
+        }
+    }
+}
+
+/// 复活后从墓碑里精确移除：有路径按 (机器, 路径)，无路径按 (机器, 同名) 清 `name_only`。
+/// 墓碑机器条目既无路径又无 `name_only` 了就删掉，整条记录空了再删记录。
+pub fn clear_tombstones(ignored: &mut Vec<Value>, revived: &[RevivedTombstone]) {
+    for g in ignored.iter_mut() {
+        let g_key = g.get("match_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let Some(ms) = g.get_mut("machines").and_then(|v| v.as_array_mut()) else {
+            continue;
+        };
+        for m in ms.iter_mut() {
+            let mid = m.get("machine_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if mid.is_empty() {
+                continue;
+            }
+            if let Some(paths) = m.get_mut("paths").and_then(|v| v.as_array_mut()) {
+                paths.retain(|p| {
+                    let np = p.as_str().unwrap_or("");
+                    !revived
+                        .iter()
+                        .any(|r| r.machine_id == mid && r.path.as_deref() == Some(np))
+                });
+            }
+            let clear_name = revived
+                .iter()
+                .any(|r| r.machine_id == mid && r.path.is_none() && r.name_key == g_key);
+            if clear_name {
+                if let Some(o) = m.as_object_mut() {
+                    o.remove("name_only");
+                }
+            }
+        }
+        ms.retain(|m| {
+            m.get("name_only").and_then(|v| v.as_bool()).unwrap_or(false)
+                || m.get("paths")
+                    .and_then(|v| v.as_array())
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false)
+        });
+    }
+    ignored.retain(|g| {
+        g.get("machines")
+            .and_then(|v| v.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+    });
 }
 
 /// 解析证据目录，产出扫描候选：未知项 + 墓碑项。已有条目在此阶段零改动。
@@ -525,9 +671,18 @@ pub fn build_candidates(
     candidates
 }
 
+/// 复活墓碑的定位键：机器 + 小写名 + 可选路径（None = 机器内的名字墓碑）。
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RevivedTombstone {
+    pub machine_id: String,
+    pub name_key: String,
+    pub path: Option<String>,
+}
+
 pub struct ApplyResult {
     pub added: usize,
-    pub revived_keys: Vec<String>,
+    /// 复活项对应的墓碑定位键，用于从墓碑里精确清除。
+    pub revived: Vec<RevivedTombstone>,
     /// 需要落盘的图标：(图标文件名, 证据里的绝对源路径)。
     pub icons: Vec<(String, String)>,
 }
@@ -559,7 +714,7 @@ pub fn apply_selected(
         .unwrap_or(0);
 
     let mut new_items: Vec<Value> = Vec::new();
-    let mut revived_keys: Vec<String> = Vec::new();
+    let mut revived: Vec<RevivedTombstone> = Vec::new();
     let mut icons: Vec<(String, String)> = Vec::new();
     for cand in candidates {
         let key = cand.get("key").and_then(|v| v.as_str()).unwrap_or("");
@@ -599,7 +754,16 @@ pub fn apply_selected(
         }
         crate::store::touch(&mut item);
         if cand.get("kind").and_then(|v| v.as_str()) == Some("deleted_before") {
-            revived_keys.push(key.to_string());
+            for (mid, path) in candidate_machine_locations(cand) {
+                let r = RevivedTombstone {
+                    machine_id: mid,
+                    name_key: key.to_string(),
+                    path,
+                };
+                if !revived.contains(&r) {
+                    revived.push(r);
+                }
+            }
         }
         new_items.push(item);
     }
@@ -609,7 +773,7 @@ pub fn apply_selected(
     *software = new_items;
     ApplyResult {
         added,
-        revived_keys,
+        revived,
         icons,
     }
 }
@@ -715,7 +879,8 @@ mod tests {
             { "id": "SW-003", "name": "7-Zip", "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }] }
         ]);
         let ignored = json!([
-            { "match_key": "hibit uninstaller", "name": "HiBit Uninstaller", "paths": ["c:\\program files\\hibit uninstaller"] }
+            { "match_key": "hibit uninstaller", "name": "HiBit Uninstaller",
+              "machines": [{ "machine_id": "M-B", "paths": ["c:\\program files\\hibit uninstaller"] }] }
         ]);
 
         let candidates = build_candidates(
@@ -799,46 +964,116 @@ mod tests {
     }
 
     #[test]
-    fn tombstone_is_path_scoped_not_name_wide() {
-        // 删掉 C:\Program Files\7-Zip 那份后，另一路径的同名安装不该被墓碑误伤。
-        let root = std::env::temp_dir().join(format!("ledger_tomb_test_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let evidence_root = root.join("evidence");
-        let machine_dir = evidence_root.join("M-B");
-        fs::create_dir_all(&machine_dir).unwrap();
-        fs::write(
-            machine_dir.join("registry-apps.json"),
-            json!([{ "name": "7-Zip 24.07 (x64)", "install_location": "C:\\Program Files\\7-Zip" }])
-                .to_string(),
-        )
-        .unwrap();
+    fn tombstone_requires_machine_and_path() {
+        // 墓碑只认「机器 + 路径」：换机器、换路径、或候选没路径，都不该被误伤。
+        let cand = json!({
+            "name": "7-Zip",
+            "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }]
+        });
+        let g = |mid: &str, path: &str| {
+            json!([
+                { "match_key": "7-zip", "name": "7-Zip",
+                  "machines": [{ "machine_id": mid, "paths": [path] }] }
+            ])
+        };
+        // 同机同路径 -> 命中
+        assert!(tombstone_match(
+            &cand,
+            g("M-B", "c:\\program files\\7-zip").as_array().unwrap()
+        ));
+        // 同路径异机 -> 不命中（机器维度生效）
+        assert!(!tombstone_match(
+            &cand,
+            g("M-A", "c:\\program files\\7-zip").as_array().unwrap()
+        ));
+        // 同机异路径 -> 不命中
+        assert!(!tombstone_match(
+            &cand,
+            g("M-B", "c:\\other\\7-zip").as_array().unwrap()
+        ));
+        // 无路径候选：同机名字墓碑（name_only）才命中
+        let no_path = json!({ "name": "7-Zip", "machines": [{ "machine_id": "M-B" }] });
+        let name_only = json!([{
+            "match_key": "7-zip", "name": "7-Zip",
+            "machines": [{ "machine_id": "M-B", "paths": [], "name_only": true }]
+        }]);
+        assert!(tombstone_match(&no_path, name_only.as_array().unwrap()));
+        // 有路径的墓碑不拦无路径候选
+        assert!(!tombstone_match(
+            &no_path,
+            g("M-B", "c:\\program files\\7-zip").as_array().unwrap()
+        ));
+        // 名字墓碑同样受机器维度约束：别的机器不命中
+        let other_machine = json!([{
+            "match_key": "7-zip", "name": "7-Zip",
+            "machines": [{ "machine_id": "M-A", "paths": [], "name_only": true }]
+        }]);
+        assert!(!tombstone_match(&no_path, other_machine.as_array().unwrap()));
+    }
 
-        let other_path = json!([
-            { "match_key": "7-zip", "name": "7-Zip", "paths": ["c:\\other\\7-zip"] }
-        ]);
-        let cands = build_candidates(
-            &evidence_root,
-            &["M-B".to_string()],
-            &[],
-            other_path.as_array().unwrap(),
+    #[test]
+    fn record_and_clear_tombstones_are_per_machine_union() {
+        let mut ignored: Vec<Value> = Vec::new();
+        // 同名不同机器的两条记录先后删除：按机器取并集，不互相覆盖
+        record_tombstones(
+            &mut ignored,
+            &[json!({
+                "name": "7-Zip",
+                "machines": [{ "machine_id": "M-A", "install_location": "C:\\Program Files\\7-Zip" }]
+            })],
         );
-        assert_eq!(cands.len(), 1);
-        assert_eq!(cands[0].get("kind").and_then(|v| v.as_str()), Some("new"));
-
-        // 同一路径 -> 才判为「之前已删除」
-        let same_path = json!([
-            { "match_key": "7-zip", "name": "7-Zip", "paths": ["c:\\program files\\7-zip"] }
-        ]);
-        let cands = build_candidates(
-            &evidence_root,
-            &["M-B".to_string()],
-            &[],
-            same_path.as_array().unwrap(),
+        record_tombstones(
+            &mut ignored,
+            &[json!({
+                "name": "7-Zip",
+                "machines": [{ "machine_id": "M-B", "install_location": "C:\\Program Files\\7-Zip" }]
+            })],
         );
-        assert_eq!(cands.len(), 1);
-        assert_eq!(cands[0].get("kind").and_then(|v| v.as_str()), Some("deleted_before"));
+        assert_eq!(ignored.len(), 1);
+        assert_eq!(ignored[0]["machines"].as_array().unwrap().len(), 2, "{:?}", ignored);
 
-        let _ = fs::remove_dir_all(&root);
+        // 无路径条目 -> 写「机器 + 同名」墓碑（name_only）
+        record_tombstones(
+            &mut ignored,
+            &[json!({ "name": "Python", "machines": [{ "machine_id": "M-A" }] })],
+        );
+        let py = ignored.iter().find(|g| g["match_key"] == "python").unwrap();
+        assert_eq!(py["machines"][0]["name_only"], json!(true));
+
+        // 精确清除 (M-A, path)：只清这台机器，记录保留
+        clear_tombstones(
+            &mut ignored,
+            &[RevivedTombstone {
+                machine_id: "M-A".to_string(),
+                name_key: "7-zip".to_string(),
+                path: Some("c:\\program files\\7-zip".to_string()),
+            }],
+        );
+        assert_eq!(ignored.len(), 2);
+        let zip = ignored.iter().find(|g| g["match_key"] == "7-zip").unwrap();
+        assert_eq!(zip["machines"].as_array().unwrap().len(), 1);
+
+        // 名字墓碑按 (机器, 同名) 清除
+        clear_tombstones(
+            &mut ignored,
+            &[RevivedTombstone {
+                machine_id: "M-A".to_string(),
+                name_key: "python".to_string(),
+                path: None,
+            }],
+        );
+        assert!(ignored.iter().all(|g| g["match_key"] != "python"), "{:?}", ignored);
+
+        // 清掉最后一台 -> 整条记录消失
+        clear_tombstones(
+            &mut ignored,
+            &[RevivedTombstone {
+                machine_id: "M-B".to_string(),
+                name_key: "7-zip".to_string(),
+                path: Some("c:\\program files\\7-zip".to_string()),
+            }],
+        );
+        assert!(ignored.iter().all(|g| g["match_key"] != "7-zip"), "{:?}", ignored);
     }
 
     #[test]
@@ -852,7 +1087,7 @@ mod tests {
         })];
         let candidates = vec![
             json!({ "key": "new one", "kind": "new", "name": "New One", "restore_intent": "unreviewed", "backup_strategy": "none" }),
-            json!({ "key": "revived", "kind": "deleted_before", "name": "Revived", "restore_intent": "unreviewed", "backup_strategy": "none" }),
+            json!({ "key": "revived", "kind": "deleted_before", "name": "Revived", "restore_intent": "unreviewed", "backup_strategy": "none", "machines": [{ "machine_id": "M-A", "install_location": "C:\\x" }] }),
             json!({ "key": "unselected", "kind": "new", "name": "Unselected", "restore_intent": "unreviewed", "backup_strategy": "none" }),
         ];
         let res = apply_selected(
@@ -862,7 +1097,14 @@ mod tests {
             true,
         );
         assert_eq!(res.added, 2);
-        assert_eq!(res.revived_keys, vec!["revived".to_string()]);
+        assert_eq!(
+            res.revived,
+            vec![RevivedTombstone {
+                machine_id: "M-A".to_string(),
+                name_key: "revived".to_string(),
+                path: Some("c:\\x".to_string()),
+            }]
+        );
 
         // 已有条目：is_new 被清掉，其他字段零改动
         let old = software.iter().find(|s| s["id"] == "SW-001").unwrap();

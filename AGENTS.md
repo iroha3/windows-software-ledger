@@ -56,6 +56,7 @@ SPEC.md                   产品范围与数据模型
 - MCP 写入准入：设置开关 `config.json` 的 `mcp_write_enabled`（默认关）+ `store::mcp_write_denied()`（读 `data/.sync/session.json` 判断本机是否持锁）。GUI 在 `set_read_only()` / 关窗释放锁时写入该文件；MCP 写工具先过 `mcp.rs::write_gate()`，成功记 `data/.mcp/audit.jsonl`。字段白名单在 `WRITABLE_FIELDS`。
 - LLM 探测脚本：`bun scripts/test_llm.js "软件名" "路径"`（默认走 DeepSeek 非思考模式）。
 - 图标重建：`python scripts/generate_icon.py`（仅改图标时需要，改后记得 `cargo-msvc.bat clean -p windows-software-ledger` 再构建）。
+- 旧墓碑迁移：`python scripts/migrate_ignored.py`（把只有顶层 `paths` 的旧 `ignored.json` 挂到单台机器，机器 id 默认反查 config.json 里别名为 `Surface` 的键；无路径条目写成 `name_only` 同名墓碑）。
 
 ## 架构关键点
 
@@ -70,7 +71,7 @@ SPEC.md                   产品范围与数据模型
 
 **WebDAV 同步（单写者模型）**：同一时刻只有一台机器能编辑，靠远端 `lock.json` 会话租约实现。
 
-- 开软件抢锁并拉取；关软件（Rust `on_window_event`）推送并释放；抢不到 = 只读镜像 + 横幅。只读是**双层硬限制**：前端禁用编辑控件（`body.sync-readonly`）、关闭 WebDAV 时隐藏同步入口；后端对所有写命令 `deny_if_read_only()` 直接拒绝（卡片速审 / 浏览器页同样生效）。同机旧实例的残留租约可直接接管。
+- 开软件抢锁并拉取；关软件（Rust `on_window_event`）**立刻隐藏窗口**，把「推送 + 释放锁」丢后台线程（看门狗 10s 兜底退出），绝不在关闭路径上阻塞网络。租约 **5 分钟**、后端每 **1 分钟**续租，异常/强制退出后最多 5 分钟可被接管。抢不到 = 只读镜像 + 横幅。只读是**双层硬限制**：前端禁用编辑控件（`body.sync-readonly`）、关闭 WebDAV 时隐藏同步入口；后端对所有写命令 `deny_if_read_only()` 直接拒绝（卡片速审 / 浏览器页同样生效）。同机旧实例的残留租约可直接接管。
 - 因为不存在并发编辑，常态是**镜像**（只传 hash 变的文件，删除/合并自然传播），不需要 3 路 diff。
 - 唯一需要合并的是**首次接入**（本地基线为空）：双方按 uuid 并集，所以「先扫描再配 WebDAV」不丢数据。
 - JSON 台账按 3 路判断：只有双方相对基线都改了才语义合并；单侧改动直接取该侧（避免「本地删除」被并集复活）。
@@ -90,7 +91,7 @@ SPEC.md                   产品范围与数据模型
 - `backup_strategy`：`copy_dir` / `redownload` / `sync_account` / `none`
 - **处置方式是推导出来的，不是让 LLM 猜的**：默认 `none`；评 `must` 时按形态给默认值——绿色/便携 → `copy_dir`，否则 → `redownload`。规则实现在 `commands.rs::derive_strategy` + 前端 `deriveStrategy()`，入口有单条（表格/抽屉/卡片）与批量。LLM 只负责 `category` / `type` / `restore_intent` / `download_url` / `config_notes`，**不输出 `backup_strategy`**。
 - 便携判定：`type == "portable"` 或任一机器分布 `form == "portable"`。
-- **扫描认回匹配键 = 机器 + 安装路径（bin path）**（`ingest.rs::find_known`）：**同名不算同一实体**，路径不变就不换 uuid；仅当候选本身没任何路径时才退回「同机器 + 同名」。删除墓碑同理按路径精确命中（`tombstone_match`）。
+- **扫描认回匹配键 = 机器 + 安装路径（bin path）**（`ingest.rs::find_known`）：**同名不算同一实体**，路径不变就不换 uuid；仅当候选本身没任何路径时才退回「同机器 + 同名」。删除墓碑同样带机器维度（`ingest.rs::tombstone_match` / `record_tombstones`）：有路径的记「机器 + 路径」，无路径的记「机器 + 同名」（`machines[].name_only = true`），跨机器不会互相误伤。墓碑结构：`{match_key, name, machines:[{machine_id, paths:[...], name_only?}], deleted_at}`，同名墓碑按机器合并（路径并集、`name_only` 取或）。
 - **不做旧版本兼容**：这一系列都是破坏性更新。`store::read_software` 是**纯读**——不补 uuid、不归并字段、不读 evidence。**uuid 是所有内部绑定的硬前提**（匹配 / 删除 / 合并一律只认 uuid，不再回退 SW-ID）。
 
 ## 约定与地雷
