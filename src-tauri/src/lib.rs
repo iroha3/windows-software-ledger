@@ -16,6 +16,7 @@ pub fn run() {
             commands::save_config,
             commands::get_status,
             commands::get_version,
+            commands::check_update,
             commands::get_mcp_info,
             commands::get_ledger_revision,
             commands::get_software,

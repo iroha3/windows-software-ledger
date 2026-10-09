@@ -18,6 +18,13 @@ function getMachineDisplayName(id) {
   return machineAliases[id] || id;
 }
 
+// 意愿对应的圆点类名：CSS 里是 dot-ondemand（没有下划线），
+// 直接拼 dot-${restore_intent} 会让「用到再装」的小圆点消失，这里统一映射。
+function intentDotClass(intent) {
+  const v = intent || 'unreviewed';
+  return `dot-${v === 'on_demand' ? 'ondemand' : v}`;
+}
+
 // 绿色/便携软件：形态决定处置方式推导（绿色版压缩目录，安装版重新下载）。
 function isPortableItem(item) {
   if (!item) return false;
@@ -232,13 +239,19 @@ function msEls(key) {
 function fillMs(key, options) {
   const els = msEls(key);
   if (!els) return;
-  // 丢弃已不存在的选项，避免列表变化后筛选条件悬空
+  // 已选中的值即便在联动候选里暂时消失，也保留为可选项（不静默清空筛选条件）：
+  // 否则「先选设备、再勾进度」会把设备筛选丢掉，列表退回全部设备。
   const valid = new Set(options.map(o => o.value));
-  for (const v of [...msState[key]]) if (!valid.has(v)) msState[key].delete(v);
+  for (const v of msState[key]) {
+    if (!valid.has(v)) {
+      options.push({ value: v, label: MS_FACETS[key].label(v) });
+      valid.add(v);
+    }
+  }
   els.panel.innerHTML = options.map(o => {
-    const dot = key === 'machine' ? machineChipDot(o.value) : '';
+    const icon = key === 'machine' ? machineDeviceIcon(o.value) : '';
     return `
-    <label><input type="checkbox" value="${escapeHtml(o.value)}" ${msState[key].has(o.value) ? 'checked' : ''}><span title="${escapeHtml(o.label)}">${dot}${escapeHtml(o.label)}</span></label>
+    <label><input type="checkbox" value="${escapeHtml(o.value)}" ${msState[key].has(o.value) ? 'checked' : ''}><span title="${escapeHtml(o.label)}">${icon}${escapeHtml(o.label)}</span></label>
   `;
   }).join('') || '<div class="ms-empty">无</div>';
 }
@@ -253,7 +266,11 @@ function updateMsBtn(key) {
     const vals = [...msState[key]];
     const first = vals[0];
     const extra = n > 1 ? ` +${n - 1}` : '';
-    els.btnText.innerHTML = `${machineChipDot(first)}<span class="ms-name">${escapeHtml(getMachineDisplayName(first))}${extra}</span>`;
+    els.btnText.innerHTML = `${machineDeviceIcon(first)}<span class="ms-name">${escapeHtml(getMachineDisplayName(first))}${extra}</span>`;
+  } else if (key === 'progress' && n > 0) {
+    // 进度只有固定两项：显示勾选到的状态名，而不是「· 1」这种计数
+    const labels = [...msState[key]].map(v => MS_FACETS.progress.label(v));
+    els.btnText.innerHTML = `${ICONS.check}<span class="ms-name">${escapeHtml(labels.join(' / '))}</span>`;
   } else {
     els.btnText.textContent = n ? `${label} · ${n}` : `${label} · 全部`;
   }
@@ -382,7 +399,7 @@ function renderSidebarList() {
     html += `
       <li class="review-list-item ${isActive ? 'active' : ''}" data-index="${idx}">
         <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
-          <span class="status-dot dot-${intent}"></span>
+          <span class="status-dot ${intentDotClass(intent)}"></span>
           <span class="review-item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
         </div>
         <span style="font-size: 11px; color: var(--ink-3); font-family: var(--mono);">${item.category || ''}</span>
@@ -704,7 +721,7 @@ async function performAutoSave() {
     const activeSidebarEl = document.querySelector(`.review-list-item[data-index="${currentIndex}"]`);
     if (activeSidebarEl) {
       const dot = activeSidebarEl.querySelector('.status-dot');
-      if (dot) dot.className = `status-dot dot-${updates.restore_intent}`;
+      if (dot) dot.className = `status-dot ${intentDotClass(updates.restore_intent)}`;
       const title = activeSidebarEl.querySelector('.review-item-name');
       if (title) title.innerText = updates.name;
     }

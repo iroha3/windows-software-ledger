@@ -1940,6 +1940,32 @@ a.evidence-val:hover {
   color: var(--ink-3);
   font-family: var(--mono);
 }
+/* 关于弹窗内的「检查更新」入口（由 tauri-shim 注入，三页共用） */
+.about-update {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.about-update-status {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  /* 固定占位，避免状态出现/变化时把按钮与弹窗整体顶动 */
+  min-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.about-update-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.about-update-link:hover {
+  text-decoration: underline;
+}
 .about-tagline {
   font-size: 12px;
   color: var(--ink-3);

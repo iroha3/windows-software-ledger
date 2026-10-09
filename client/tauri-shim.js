@@ -59,6 +59,8 @@
         return invoke('get_status');
       case '/api/version':
         return invoke('get_version');
+      case '/api/update/check':
+        return invoke('check_update');
       case '/api/mcp':
         return invoke('get_mcp_info');
       case '/api/software':
@@ -150,9 +152,63 @@
 
   // 关于弹窗的版本号：从后端读（唯一来源 src-tauri/Cargo.toml），避免各页面硬编码漂移。
   // 三个页面（主页 / 卡片速审 / 浏览器）都有 .about-version。
+  // 同时在版本号下挂一个「检查更新」入口，复用 GitHub Releases。
+  function mountUpdateChecker(versionEl) {
+    if (versionEl.dataset.updateReady === '1') return;
+    versionEl.dataset.updateReady = '1';
+    const anchor = versionEl.closest('.about-hero') || versionEl.parentElement;
+    if (!anchor) return;
+
+    const box = document.createElement('div');
+    box.className = 'about-update';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.innerHTML = '<svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>检查更新</span>';
+    const status = document.createElement('span');
+    status.className = 'about-update-status';
+    box.appendChild(btn);
+    box.appendChild(status);
+    versionEl.insertAdjacentElement('afterend', box);
+
+    btn.addEventListener('click', async () => {
+      // 按钮文案/尺寸保持不变，避免点击后位置或弹窗高度跳动；状态一律写在下方固定占位里
+      btn.disabled = true;
+      status.textContent = '检查中...';
+      try {
+        const res = await fetch('/api/update/check');
+        const d = await res.json();
+        if (!d || !d.success) {
+          status.textContent = '检查失败' + (d && d.error ? '：' + d.error : '');
+        } else if (d.has_update) {
+          status.textContent = `发现新版本 v${d.latest} · `;
+          const link = document.createElement('a');
+          link.className = 'about-update-link';
+          link.href = '#';
+          link.textContent = '前往下载';
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.openExternal(d.download_url || d.url);
+          });
+          status.appendChild(link);
+          if (typeof window.showToast === 'function') {
+            window.showToast(`发现新版本 v${d.latest}，可前往下载`, 'success');
+          }
+        } else {
+          status.textContent = `已是最新版本 v${d.current}`;
+        }
+      } catch (e) {
+        status.textContent = '检查失败：' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   function fillAppVersion() {
     const els = document.querySelectorAll('.about-version');
     if (!els.length) return;
+    els.forEach((el) => mountUpdateChecker(el));
     fetch('/api/version')
       .then((r) => r.json())
       .then((d) => {

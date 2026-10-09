@@ -144,6 +144,75 @@ pub fn get_version() -> Value {
     json!({ "version": env!("CARGO_PKG_VERSION") })
 }
 
+// GitHub 仓库坐标：用于检查是否有新版本发布。
+const UPDATE_REPO: &str = "iroha3/windows-software-ledger";
+
+/// 把 "v2.3.1" / "2.3" 这类版本号拆成数字段，便于逐段比较。
+fn parse_version(v: &str) -> Vec<u64> {
+    v.trim()
+        .trim_start_matches('v')
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<u64>().ok())
+        .collect()
+}
+
+/// 检查 GitHub 最新 Release 是否比当前版本新。
+/// 不调 api.github.com（未认证 60 次/小时/IP，容易 403），而是请求
+/// github.com/<repo>/releases/latest，让它 302 到 /releases/tag/vX.Y.Z，
+/// 从 Location 头解析版本号。只做「查询 + 告知」，下载交给系统浏览器打开。
+#[tauri::command]
+pub async fn check_update() -> Value {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        // 关键：不自动跟随跳转，自己读取 Location 里的最新 tag
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return json!({ "success": false, "error": e.to_string() }),
+    };
+
+    let latest_url = format!("https://github.com/{}/releases/latest", UPDATE_REPO);
+    let resp = match client
+        .get(&latest_url)
+        .header("User-Agent", "windows-software-ledger")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return json!({ "success": false, "error": format!("无法连接 GitHub: {}", e) }),
+    };
+
+    // Location 形如 https://github.com/<repo>/releases/tag/v2.3.1，取最后一段作为 tag
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let tag = location.rsplit('/').next().unwrap_or("").to_string();
+    let latest = tag.trim_start_matches('v').to_string();
+    if latest.is_empty() {
+        return json!({ "success": false, "error": "无法解析最新版本号" });
+    }
+
+    let has_update = parse_version(&latest) > parse_version(&current);
+    json!({
+        "success": true,
+        "current": current,
+        "latest": latest,
+        "has_update": has_update,
+        "url": latest_url,
+        // 发布 workflow 会额外生成去掉版本号的别名 zip，供 latest/download 长期直链使用
+        "download_url": format!(
+            "https://github.com/{}/releases/latest/download/windows-software-ledger-windows-x64.zip",
+            UPDATE_REPO
+        ),
+    })
+}
+
 /// MCP（agent 集成）配置信息：返回当前 exe 绝对路径，供设置页生成各客户端的配置片段。
 /// 数据目录始终是 exe 同级的 data/，所以客户端只认这个 exe 路径就够了。
 #[tauri::command(async)]
