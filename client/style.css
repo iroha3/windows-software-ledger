@@ -2813,6 +2813,15 @@ a.evidence-val:hover {
   font-size: 12px;
   color: var(--ink);
   overflow-wrap: anywhere;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.vault-file-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 .vault-file-btn {
   flex-shrink: 0;

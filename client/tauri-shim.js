@@ -81,6 +81,8 @@
         return invoke('vault_delete', { kind: body.kind, id: body.id, name: body.name });
       case '/api/vault/export':
         return invoke('vault_export', { kind: body.kind, id: body.id, name: body.name, dest: body.dest });
+      case '/api/vault/open':
+        return invoke('vault_open', { kind: body.kind, id: body.id, name: body.name });
       case '/api/software/update':
         return invoke('update_software', { payload: body });
       case '/api/software/batch-update':

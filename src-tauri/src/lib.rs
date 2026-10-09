@@ -27,6 +27,7 @@ pub fn run() {
             commands::vault_add,
             commands::vault_delete,
             commands::vault_export,
+            commands::vault_open,
             commands::update_software,
             commands::batch_update,
             commands::delete_software,

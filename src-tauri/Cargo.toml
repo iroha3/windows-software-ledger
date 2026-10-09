@@ -1,6 +1,6 @@
 [package]
 name = "windows-software-ledger"
-version = "2.4.0"
+version = "2.4.1"
 description = "软件备份台账"
 authors = ["iroha3"]
 license = "AGPL-3.0"

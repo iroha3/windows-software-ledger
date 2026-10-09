@@ -44,6 +44,7 @@ function machineChips(machines, labelOf) {
   const ICONS = {
     save: '<svg class="i sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
     del: '<svg class="i sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
+    run: '<svg class="i sm" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>',
   };
 
   async function api(path, payload) {
@@ -110,7 +111,8 @@ function machineChips(machines, labelOf) {
       }
       list.innerHTML = files.map((f) => `
         <li class="vault-file">
-          <span class="vault-file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+          <button type="button" class="vault-file-name" data-name="${esc(f.name)}" title="运行 / 用默认程序打开 ${esc(f.name)}">${esc(f.name)}</button>
+          <button type="button" class="vault-file-btn vault-file-run" data-name="${esc(f.name)}" title="运行 / 用默认程序打开">${ICONS.run}</button>
           <button type="button" class="vault-file-btn vault-file-save" data-name="${esc(f.name)}" title="保存到…">${ICONS.save}</button>
           <button type="button" class="vault-file-btn vault-file-del" data-name="${esc(f.name)}" title="删除此归档文件">${ICONS.del}</button>
         </li>`).join('');
@@ -163,6 +165,15 @@ function machineChips(machines, labelOf) {
       }
     }
 
+    async function openFile(name) {
+      try {
+        const res = await api('/api/vault/open', { kind, id, name });
+        if (!res || !res.success) toast((res && res.error) || '打开失败');
+      } catch (e) {
+        toast('打开失败: ' + e.message);
+      }
+    }
+
     async function deleteFile(name) {
       try {
         const res = await api('/api/vault/delete', { kind, id, name });
@@ -179,7 +190,9 @@ function machineChips(machines, labelOf) {
       const del = e.target.closest('.vault-file-del');
       if (del) { deleteFile(del.getAttribute('data-name')); return; }
       const save = e.target.closest('.vault-file-save');
-      if (save) { saveFile(save.getAttribute('data-name')); }
+      if (save) { saveFile(save.getAttribute('data-name')); return; }
+      const run = e.target.closest('.vault-file-run, .vault-file-name');
+      if (run) { openFile(run.getAttribute('data-name')); }
     });
 
     render();

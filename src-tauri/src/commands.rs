@@ -780,6 +780,25 @@ pub fn vault_export(kind: String, id: String, name: String, dest: String) -> Val
     }
 }
 
+/// 用系统默认程序打开归档文件（.exe 即运行，配置文件即用关联程序打开）。
+/// 只认保管箱目录内的文件名，先做路径收敛再校验，杜绝越界。
+#[tauri::command(async)]
+pub fn vault_open(kind: String, id: String, name: String) -> Value {
+    let dir = vault_target_dir(&kind, &id);
+    let name = safe_component(&name);
+    let target = dir.join(&name);
+    if !target.starts_with(&dir) {
+        return json!({ "success": false, "error": "非法文件名" });
+    }
+    if !target.is_file() {
+        return json!({ "success": false, "error": "归档文件不存在" });
+    }
+    match opener::open(&target) {
+        Ok(_) => json!({ "success": true }),
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}
+
 #[tauri::command(async)]
 pub fn update_software(payload: Value) -> Value {
     let _w = store::lock_writes();
