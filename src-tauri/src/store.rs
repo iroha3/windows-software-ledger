@@ -264,19 +264,45 @@ pub fn write_software(items: &[Value]) {
     write_json(&software_file(), &Value::Array(items.to_vec()));
 }
 
-/// 台账数据版本指纹：software.json / ignored.json 的修改时间。
-/// 前端轮询它判断是否被外部（如 MCP 写工具）改动，避免每次拉全量清单。
-pub fn ledger_revision() -> String {
-    let stamp = |p: &Path| -> String {
-        match fs::metadata(p).and_then(|m| m.modified()) {
-            Ok(t) => t
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos().to_string())
-                .unwrap_or_else(|_| "0".to_string()),
-            Err(_) => "0".to_string(),
-        }
+/// 单个路径的修改时间（纳秒），取不到算 0。
+fn mtime_stamp(p: &Path) -> u128 {
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// 保管箱目录指纹：只看 `data/vault/<kind>/<uuid>/` 这两层实体目录的修改时间。
+/// 这样 agent 往某条软件的附件目录里投文件后，目录 mtime 会变，前端能据此自动刷新角标；
+/// 只走目录、不递归文件，避免每 2 秒一次的轮询变成全量扫描。
+fn vault_stamp() -> u128 {
+    let root = vault_dir();
+    let Ok(kinds) = fs::read_dir(&root) else {
+        return 0;
     };
-    format!("{}:{}", stamp(&software_file()), stamp(&ignored_file()))
+    let mut newest = 0;
+    for kind in kinds.flatten() {
+        let Ok(entities) = fs::read_dir(kind.path()) else {
+            continue;
+        };
+        for e in entities.flatten() {
+            newest = newest.max(mtime_stamp(&e.path()));
+        }
+    }
+    newest
+}
+
+/// 台账数据版本指纹：software.json / ignored.json 以及保管箱目录的修改时间。
+/// 前端轮询它判断是否被外部（如 MCP 写工具 / agent 投递附件）改动，避免每次拉全量清单。
+pub fn ledger_revision() -> String {
+    format!(
+        "{}:{}:{}",
+        mtime_stamp(&software_file()),
+        mtime_stamp(&ignored_file()),
+        vault_stamp()
+    )
 }
 
 pub fn read_ignored() -> Vec<Value> {

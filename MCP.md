@@ -26,8 +26,8 @@
 |---|---|
 | `list_machines` | 所有机器、别名、软件数、当前机器；用来发现「别的机器装了、这台没有」 |
 | `search_software` | 按关键词 / 机器 / 恢复意愿 / 形态 / 处置方式 / 精选过滤，返回精简条目 |
-| `get_software` | 单条完整信息：各机器路径、官网链接、配置备注、**归档文件清单** |
-| `list_vault_files` | 某条实体归档目录里的文件（名称 / 大小 / 时间） |
+| `get_software` | 单条完整信息：各机器路径、官网链接、配置备注、**归档文件清单**与**附件目录绝对路径**（`vault_dir`） |
+| `list_vault_files` | 某条实体归档目录里的文件（名称 / 大小 / 时间）与目录绝对路径 |
 | `list_dev_env` | 各机器的开发环境：每个工具链的全局包、配置文件列表与短恢复命令（路径已展开为绝对路径） |
 | `get_dev_env_file` | 读取 `dev-env/` 下某个文件的**原文**（如 `python-requirements.txt`、`vscode-extensions.txt`），跨机器重装时把包列表带过去 |
 | `list_browser_extensions` | 各机器浏览器扩展的只读元数据与备注 |
@@ -43,13 +43,30 @@
 | `batch_update` | 对多条记录批量写入相同字段 |
 | `add_software` | 新增软件入库（挂到当前机器） |
 | `delete_software` | 删除记录（写墓碑 + 归档移入 `data/trash/`，可回滚） |
-| `merge_software` | 合并重复条目（**不可逆**，合并前建议先 `get_software` 确认） |
+| `merge_software` | 合并重复条目（**不可逆**）。`merge_uuids` 只放要被并掉的条目，不要含锚点自身（含了会被自动过滤）。机器证据按「同机同路径」去重、同机不同路径会多留一条；动手前自动快照 `software.json`/`ignored.json` 到 `data/trash/merge-<时间>/` |
 
-另外还暴露了几个只读 Resource（`ledger://software`、`ledger://machines`、`ledger://checklist`、`ledger://awesome`、`ledger://dev-env`）和一个 `reinstall_plan` 提示词模板。
+另外还暴露了几个只读 Resource（`ledger://software`、`ledger://machines`、`ledger://checklist`、`ledger://awesome`、`ledger://dev-env`）和 `reinstall_plan` / `backup_plan` 两个提示词模板。
+
+### 附件就是目录，agent 直接写
+
+台账的附件（保管箱）就是 `data/vault/soft/<uuid>/`。所以 MCP 不提供“上传工具”——**目录本身就是接口**：`get_software` 回带该条的 `vault_dir`（绝对路径），`list_vault_files` 也回带目录，agent 拿到后用自己的文件能力写入 / 删除 / 打包即可。这样少一层包装，agent 能做的事反而更多（zip、大批量、进目录清理放错的文件都行），也不会绕开所谓“受控”而实际上绕得过去。
+
+**备份闭环**（对 agent 说“帮我备份这台机器”即可，也可用 `backup_plan` 提示词）：
+
+1. `search_software { machine, strategy: "copy_dir" }` → 要打包目录的绿色 / 便携软件；`{ strategy: "redownload" }` → 要重新下载的；
+2. 逐条 `get_software` 拿 `install_location`（要打包的目录）+ `download_url`（直链）+ `vault_dir`（落点）+ `vault_files`（已归档的，非空就跳过）；
+3. `copy_dir` 的把安装目录打成 zip 放进 `vault_dir`；`redownload` 的下载安装包放进 `vault_dir`（没链接就上网找）；
+4. 放完 `get_software` 复查 `vault_files`。
+
+涉及凭据 / token / 许可证密钥的文件不要归档；`sync_account` 的走账号同步，不用本地归档。归档只是把文件放进去，台账不会自动解包或执行。
+
+> 附件目录指纹（`data/vault/<kind>/<uuid>/` 的 mtime）已纳入前端的台账轮询：agent 投递后，开着的软件主界面会自动刷新出附件角标，不需要手动重开。
 
 ## 怎么配置
 
-> 最省事的方式：打开软件 → 右上角 **设置** → 左栏 **Agent 集成 (MCP)** → 选好客户端后点「复制配置」，粘贴到对应文件即可。下面手动配置的写法与之一致。
+> **真的不想碰配置文件：**打开软件 → 右上角 **设置** → **Agent 集成 (MCP)** → 「复制这段指令」，把那段话粘贴到你正在聊的 AI agent（Claude Code / Codex / Cursor / Pi …）并发送。支持自配置的 agent 会自己把本台账加进它的 MCP 配置、重载并调 `list_machines` 验证，然后回你结果。嫌手动配置麻烦就用这条。
+>
+> 想自己贴也行：同一页选好客户端后点「复制配置」，粘贴到对应文件即可。下面手动配置的写法与之一致。
 
 服务端就是应用自己的 exe，加一个 `--mcp` 参数即可（客户端会以 stdio 方式拉起它，不需要你先打开应用）。**`command` 请填 exe 的绝对路径，指向你日常使用的那份**——数据目录始终是 exe 同级的 `data/`。
 

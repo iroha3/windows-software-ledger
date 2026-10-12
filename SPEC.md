@@ -171,7 +171,7 @@
 
   | 字段 | 归类 | 合并行为 |
   |---|---|---|
-  | `machines` | 事实集合 | **按 `machine_id` 去重**（同一台机器只留一条，缺失字段补齐）；锚点为基、子项并入 |
+  | `machines` | 事实集合 | **按 `(machine_id, 路径)` 去重**：同机同路径只留一条（缺失字段补齐）；同机不同路径作为额外证据保留；锚点为基、子项并入 |
   | `has_config` | 事实标志 | 取或（并集）；`false` 视作「未标」，任一为 `true` 即 `true` |
   | `version` / `download_url` | 事实 | 锚点非空则保留，空则按勾选顺序取子项第一个非空值 |
   | `icon_file` | 资产 | 同上（细则见上「软件图标」） |
@@ -182,6 +182,8 @@
   | `id` / `created_at` / `is_new` | 元数据 | 锚点保留（`created_at`、`is_new` 均不刷新） |
 
   分类依据：**事实/资产**（机器列表、版本、下载地址、图标、配置标志）可安全合并或补齐；**决策/主观**（恢复意愿、处置方式、准备状态、精选）是用户的明确意志，一律以锚点为准。
+
+  > 不可逆性兜底：每次合并动手前，会把 `software.json` / `ignored.json` 快照到 `data/trash/merge-<时间>-<随机>/`（附 `meta.json` 记锚点与被并 uuid），供人工恢复。
 
   因此「把已评的子项并进未评的锚点会丢掉子项评审」是**刻意的取舍而非缺陷**：需要分别保留两台机器的决策时，就不要合并；合并即表示接受「以锚点为准」。
 
@@ -203,7 +205,7 @@
 - **入口与触发**：只在设置页（顶部工具栏无同步按钮）。点「立即同步」= 拉取并合并远端 → 写回本地 → 把本地新状态推回；不在启动/关窗时自动同步，关闭窗口无网络阻塞。
 - **无锁**：没有会话锁 / 租约 / 心跳 / 只读镜像 / 强制接管；两台机器任何时候都可编辑，前端无 `body.sync-readonly`，后端不再 `deny_if_read_only()`。
 - **传输**：远端镜像 `data/`（排除 `trash/`、`.sync/`、`webdav.json`），并维护 `manifest.json`（每个文件的 sha256 / size / mtime）。本地 `.sync/manifest.json` 是上次同步基线，`.sync/index.json` 是指纹缓存（size+mtime 未变则复用 hash，避免重算几个 G）。只用 GET / PUT / DELETE / MKCOL / MOVE，不用 PROPFIND，因此无 XML 依赖。
-- **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `machine_id` 并集）。删除/「合并条目」靠 `ignored.json` 里带 uuid 的墓碑传播（`merge_software_with_deletions`）。
+- **常态 = 镜像**：拉取时按「基线 / 本地 / 远端」三路判断，仅单侧改动取该侧；推送时本地为权威，上传变更并删除远端多余（删除自然传播）。JSON 台账仅当双方相对基线都改才按 uuid 语义合并（首次接入即此情形：双方按 uuid 并集，`machines[]` 按 `(machine_id, 路径)` 并集）。删除/「合并条目」靠 `ignored.json` 里带 uuid 的墓碑传播（`merge_software_with_deletions`）。
 - **新旧判据**：每条记录 `updated_at`（回退 `created_at`）。冲突时较新者为准，空字段由旧记录补齐。
 - **强制覆盖（高级）**：`本地覆盖远端` / `远端覆盖本地`，覆盖前自动快照（远端 → `_backup/<时间戳>/`，本地 → `data/trash/sync-<时间戳>/`）。
 - **凭据**：`data/webdav.json` 仅存本地，不参与同步；`llm_api_key` 随 `config.json` 同步。`scan_directories` 按主机名分键。

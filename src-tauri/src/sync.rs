@@ -211,6 +211,17 @@ fn as_str(v: &Value, key: &str) -> String {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
 }
 
+/// 机器条目的定位路径（优先 `install_location`，回退 `path`）。
+/// 机器证据按 `(machine_id, 路径)` 去重：同一台机器的不同路径是两条不同证据。
+fn machine_loc(v: &Value) -> String {
+    let a = as_str(v, "install_location");
+    if a.is_empty() {
+        as_str(v, "path")
+    } else {
+        a
+    }
+}
+
 fn is_empty_val(v: &Value) -> bool {
     match v {
         Value::Null => true,
@@ -246,7 +257,10 @@ fn merge_machines(a: &Value, b: &Value) -> Value {
             }
             if let Some(ex) = out
                 .iter_mut()
-                .find(|x| x.get("machine_id").and_then(|v| v.as_str()) == Some(mid))
+                .find(|x| {
+                    x.get("machine_id").and_then(|v| v.as_str()) == Some(mid)
+                        && machine_loc(x) == machine_loc(m)
+                })
             {
                 if let (Some(eo), Some(mo)) = (ex.as_object_mut(), m.as_object()) {
                     for (k, v) in mo {

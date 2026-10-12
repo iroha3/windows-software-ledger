@@ -149,7 +149,9 @@ const webdavTestResult = document.getElementById('webdavTestResult');
 const mcpClientSelect = document.getElementById('mcpClientSelect');
 const mcpSnippet = document.getElementById('mcpSnippet');
 const mcpTargetHint = document.getElementById('mcpTargetHint');
+const mcpAgentPrompt = document.getElementById('mcpAgentPrompt');
 const btnMcpCopy = document.getElementById('btnMcpCopy');
+const btnMcpAgentCopy = document.getElementById('btnMcpAgentCopy');
 const mcpDocLink = document.getElementById('mcpDocLink');
 const configNav = document.getElementById('configNav');
 
@@ -434,7 +436,7 @@ let selfWriteAt = 0;
   window.fetch = function (input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-    if (method === 'POST' && /\/api\/(software|scan|sync)\//.test(url)) {
+    if (method === 'POST' && /\/api\/(software|scan|sync|vault)\//.test(url)) {
       selfWriteAt = Date.now();
     }
     return origFetch(input, init);
@@ -1552,6 +1554,7 @@ function bindEvents() {
   }
   if (mcpClientSelect) mcpClientSelect.addEventListener('change', renderMcpSnippet);
   if (btnMcpCopy) btnMcpCopy.addEventListener('click', copyMcpSnippet);
+  if (btnMcpAgentCopy) btnMcpAgentCopy.addEventListener('click', copyMcpAgentPrompt);
   if (mcpDocLink) mcpDocLink.addEventListener('click', (e) => { e.preventDefault(); window.openExternal(REPO_URL + '/blob/master/MCP.md'); });
 
   // WebDAV 同步（手动）
@@ -2185,6 +2188,29 @@ function mcpSnippetText(client) {
   }
 }
 
+// 给「不会配置」的人留的出路：复制一段话，粘贴给正在聊的 agent，让它自己把台账接上。
+function mcpAgentPromptText() {
+  // 统一用正斜杠：Windows 可接受，也免去 JSON 示例里的反斜杠转义困扰。
+  const exe = ((mcpInfo && mcpInfo.exe_path) || 'D:/Tools/windows-software-ledger.exe').replace(/\\/g, '/');
+  const name = (mcpInfo && mcpInfo.server_name) || 'software-ledger';
+  return [
+    '帮我把下面这个本地 MCP（stdio）服务器接入你自己，让我以后能直接在对话里查我的软件台账。',
+    '',
+    `- 命令：${exe}`,
+    '- 启动参数：--mcp',
+    `- 名称：${name}`,
+    '',
+    '按你自身支持的配置方式写进对应配置文件，完成后重载 MCP，并调用一次 list_machines 验证连通，把结果告诉我；如果你改不了配置，就把「该改哪个文件、改成什么」发给我。',
+    '',
+    '补充：它是本机进程，不联网、不监听端口，默认只读，是否允许写入由我在应用内开关控制。',
+  ].join('\n');
+}
+
+function renderMcpAgentPrompt() {
+  if (!mcpAgentPrompt) return;
+  mcpAgentPrompt.textContent = mcpAgentPromptText();
+}
+
 function renderMcpSnippet() {
   if (!mcpSnippet || !mcpClientSelect) return;
   const client = mcpClientSelect.value;
@@ -2210,12 +2236,11 @@ function showConfigPane(name) {
   document.querySelectorAll('#configModal .config-pane').forEach((p) => {
     p.classList.toggle('active', p.dataset.pane === name);
   });
-  if (name === 'mcp') loadMcpInfo().then(renderMcpSnippet);
+  if (name === 'mcp') loadMcpInfo().then(() => { renderMcpSnippet(); renderMcpAgentPrompt(); });
 }
 
-async function copyMcpSnippet() {
-  if (!mcpSnippet) return;
-  const text = mcpSnippet.textContent || '';
+// 复制文本到剪贴板：优先 Clipboard API，失败退回 execCommand（Tauri WebView / 非 https 场景）。
+async function copyTextToClipboard(text, okMsg) {
   let ok = false;
   try {
     await navigator.clipboard.writeText(text);
@@ -2230,7 +2255,16 @@ async function copyMcpSnippet() {
     try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
     document.body.removeChild(ta);
   }
-  showToast(ok ? 'MCP 配置已复制' : '复制失败，请手动选择复制', ok ? 'success' : 'error');
+  showToast(ok ? okMsg : '复制失败，请手动选择复制', ok ? 'success' : 'error');
+}
+
+async function copyMcpSnippet() {
+  if (!mcpSnippet) return;
+  await copyTextToClipboard(mcpSnippet.textContent || '', 'MCP 配置已复制');
+}
+
+async function copyMcpAgentPrompt() {
+  await copyTextToClipboard(mcpAgentPromptText(), '指令已复制，粘贴给 Agent 即可');
 }
 
 // 配置弹窗管理

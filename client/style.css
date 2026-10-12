@@ -3091,6 +3091,28 @@ a.evidence-val:hover {
   color: var(--ink);
 }
 
+/* MCP：让 Agent 自配置的卡片 */
+.mcp-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.mcp-agent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.mcp-agent-card .mcp-snippet {
+  background: var(--surface);
+  max-height: 200px;
+}
+
 /* 设置弹窗：左栏分页 */
 .config-layout {
   flex: 1;

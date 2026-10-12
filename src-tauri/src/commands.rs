@@ -13,6 +13,17 @@ fn as_str(v: &Value, key: &str) -> String {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
 }
 
+/// 机器条目的定位路径（优先 `install_location`，回退 `path`）。
+/// 合并去重键 = `(machine_id, 路径)`：同一台机器的不同路径是两条不同的证据。
+fn machine_loc(v: &Value) -> String {
+    let a = as_str(v, "install_location");
+    if a.is_empty() {
+        as_str(v, "path")
+    } else {
+        a
+    }
+}
+
 /// 绿色/便携判定：类型为 portable，或任一机器分布标记为 portable。
 fn item_is_portable(item: &Value) -> bool {
     if as_str(item, "type") == "portable" {
@@ -544,7 +555,7 @@ fn safe_component(raw: &str) -> String {
 
 /// 保管箱目录：`data/vault/<kind>/<uuid>/`（不再分主机名，data 不追求人类可读）。
 /// `id` 参数一律是实体的 uuid（软件 / 扩展 / 浏览器）。
-fn vault_target_dir(kind: &str, id: &str) -> PathBuf {
+pub fn vault_target_dir(kind: &str, id: &str) -> PathBuf {
     store::vault_dir()
         .join(safe_component(kind))
         .join(safe_component(id))
@@ -578,6 +589,31 @@ fn move_to_trash(src: &std::path::Path, original_rel: &str) -> bool {
         let _ = std::fs::remove_dir_all(&slot);
         false
     }
+}
+
+/// 合并前把台账快照到 `data/trash/merge-<时间>-<随机>/`（software.json + ignored.json + meta.json）。
+/// 「合并」会不可逆地移除被并条目，给一次后悔机会；快照失败不阻断合并本身。
+fn snapshot_before_merge(target_uuid: &str, merge_uuids: &[String]) {
+    let stamp = chrono::Local::now().format("%Y%m%d%H%M%S");
+    let rand = store::new_uuid();
+    let slot = store::trash_dir().join(format!("merge-{}-{}", stamp, &rand[..8.min(rand.len())]));
+    if std::fs::create_dir_all(&slot).is_err() {
+        return;
+    }
+    let _ = std::fs::copy(store::software_file(), slot.join("software.json"));
+    if store::ignored_file().exists() {
+        let _ = std::fs::copy(store::ignored_file(), slot.join("ignored.json"));
+    }
+    let meta = json!({
+        "reason": "merge",
+        "target_uuid": target_uuid,
+        "merge_uuids": merge_uuids,
+        "at": chrono::Local::now().to_rfc3339(),
+    });
+    let _ = std::fs::write(
+        slot.join("meta.json"),
+        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+    );
 }
 
 /// 按 `(machine_id, browser_id, profile, ext_id)` 在扩展用户层里认回 uuid；认不到才铸新。
@@ -971,15 +1007,43 @@ pub fn merge_software(payload: Value) -> Value {
     if target_uuid.is_empty() {
         return json!({ "success": false, "message": "Target not found" });
     }
-    let merge_uuids: Vec<String> = payload
+    let mut merge_uuids: Vec<String> = payload
         .get("mergeUuids")
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
+    // 锚点绝不能被当作被并项：否则后面的 retain 会把锚点一起删掉，表现为「合并变删除」。
+    // 过滤掉锚点自身与重复项；过滤后若没有可并项则直接失败，不做任何改动。
+    // （外部 agent 常把重复项整列传入、其中恰好含它指定的锚点，这里兜住。）
+    merge_uuids.retain(|u| !u.is_empty() && u != &target_uuid);
+    merge_uuids.sort();
+    merge_uuids.dedup();
+    if merge_uuids.is_empty() {
+        return json!({
+            "success": false,
+            "message": "没有可合并的条目：mergeUuids 不能为空，也不能只包含锚点自身"
+        });
+    }
+
     let Some(target_idx) = software.iter().position(|s| as_str(s, "uuid") == target_uuid) else {
         return json!({ "success": false, "message": "Target not found" });
     };
+
+    // 「合并」会不可逆地移除被并条目：动手前先留一份台账快照，给一次后悔机会。
+    snapshot_before_merge(&target_uuid, &merge_uuids);
+
+    // 锚点若没有 machines 数组（如手工新增或只有同名墓碑的记录），补齐，
+    // 否则下面的机器合并会被静默跳过，又变成「只删不并」。
+    if !software[target_idx]
+        .get("machines")
+        .map(|m| m.is_array())
+        .unwrap_or(false)
+    {
+        if let Some(o) = software[target_idx].as_object_mut() {
+            o.insert("machines".to_string(), json!([]));
+        }
+    }
 
     // 收集需要合并的机器与字段
     let merge_items: Vec<Value> = software
@@ -998,20 +1062,29 @@ pub fn merge_software(payload: Value) -> Value {
                 else {
                     continue;
                 };
-                // 同一台机器只保留一条：锚点已有则只补齐缺失字段，不再重复追加。
-                if let Some(existing) = arr.iter_mut().find(|tm| as_str(tm, "machine_id") == mid) {
-                    if as_str(existing, "install_location").is_empty() {
-                        let loc = as_str(m, "install_location");
-                        if !loc.is_empty() {
-                            existing["install_location"] = json!(loc);
+                // 合并去重键 = (machine_id, 路径)：同一台机器 + 同一路径只留一条（缺失字段补齐），
+                // 同一台机器但路径不同则作为**额外证据**追加——合并后证据列表里能多看到那条彩色 PC。
+                let loc = machine_loc(m);
+                if let Some(existing) = arr
+                    .iter_mut()
+                    .find(|tm| as_str(tm, "machine_id") == mid && machine_loc(tm) == loc)
+                {
+                    if let (Some(eo), Some(so)) = (existing.as_object_mut(), m.as_object()) {
+                        for (k, v) in so {
+                            if k == "machine_id" {
+                                continue;
+                            }
+                            let missing = eo
+                                .get(k)
+                                .map(|x| x.is_null() || x.as_str() == Some(""))
+                                .unwrap_or(true);
+                            let incoming = !(v.is_null() || v.as_str() == Some(""));
+                            if missing && incoming {
+                                eo.insert(k.clone(), v.clone());
+                            }
                         }
                     }
-                    if as_str(existing, "version").is_empty() {
-                        let v = as_str(m, "version");
-                        if !v.is_empty() {
-                            existing["version"] = json!(v);
-                        }
-                    }
+                    // 便携是更强的形态判定：任一为 portable 即 portable。
                     if as_str(m, "form") == "portable" {
                         existing["form"] = json!("portable");
                     }
@@ -1115,7 +1188,7 @@ pub fn merge_software(payload: Value) -> Value {
         .cloned()
         .unwrap_or(Value::Null);
     store::write_software(&software);
-    json!({ "success": true, "target": target })
+    json!({ "success": true, "target": target, "merged_count": merge_uuids.len() })
 }
 
 // ---------------------------------------------------------------------------
@@ -1621,6 +1694,49 @@ mod tests {
     }
 
     #[test]
+    fn merge_backfills_same_path_machine_fields_and_snapshots() {
+        let root = std::env::temp_dir().join(format!("ledger_merge_trace_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data")).unwrap();
+        let _guard = crate::store::test_support::use_root(&root);
+
+        let seed = json!([
+            { "id": "SW-001", "uuid": "uuid-a", "name": "Office", "machines": [{ "machine_id": "M1", "install_location": "C:\\Office", "form": "installed" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-002", "uuid": "uuid-b", "name": "Office", "machines": [{ "machine_id": "M1", "install_location": "C:\\Office", "publisher": "Microsoft", "main_exe": "C:\\Office\\winword.exe", "form": "installed" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
+            { "id": "SW-003", "uuid": "uuid-c", "name": "Office", "machines": [{ "machine_id": "M2", "install_location": "D:\\Office" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
+        ]);
+        store::write_software(seed.as_array().unwrap());
+
+        let r = merge_software(json!({ "targetUuid": "uuid-a", "mergeUuids": ["uuid-b", "uuid-c"] }));
+        assert_eq!(r.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(r["merged_count"], json!(2));
+
+        let sw = store::read_software();
+        assert_eq!(sw.len(), 1);
+        // 同机同路径：只补缺失字段，锚点已有值不覆盖；异机整条并入
+        let machines = sw[0]["machines"].as_array().unwrap();
+        assert_eq!(machines.len(), 2);
+        let m1 = machines.iter().find(|m| m["machine_id"] == "M1").unwrap();
+        assert_eq!(m1["publisher"], json!("Microsoft"));
+        assert_eq!(m1["main_exe"], json!("C:\\Office\\winword.exe"));
+        assert_eq!(m1["install_location"], json!("C:\\Office"));
+        assert!(machines.iter().any(|m| m["machine_id"] == "M2"));
+        // 不再额外塞 merged_names 字段
+        assert!(sw[0].get("merged_names").is_none());
+
+        // 不可逆兑底：data/trash/merge-* 快照存在
+        let has_snapshot = fs::read_dir(store::trash_dir())
+            .map(|rd| {
+                rd.flatten()
+                    .any(|e| e.file_name().to_string_lossy().starts_with("merge-"))
+            })
+            .unwrap_or(false);
+        assert!(has_snapshot, "合并前应留下 data/trash/merge-* 快照");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn merge_keeps_target_icon_and_removes_merged_icon() {
         let root = std::env::temp_dir().join(format!("ledger_merge_icon_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -1882,13 +1998,13 @@ mod tests {
     }
 
     #[test]
-    fn merge_collapses_same_machine() {
+    fn merge_same_machine_different_path_keeps_extra_evidence() {
         let root = std::env::temp_dir().join(format!("ledger_merge_machine_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("data")).unwrap();
         let _guard = crate::store::test_support::use_root(&root);
 
-        // 同一台机器上同名两条（注册表 + 快捷方式，路径不同）
+        // 同一台机器上同名两条（注册表 + 快捷方式，路径不同）：两条证据都留
         let seed = json!([
             { "id": "SW-001", "uuid": "uuid-a", "name": "A", "machines": [{ "machine_id": "M1", "form": "installed", "install_location": "C:\\A" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" },
             { "id": "SW-002", "uuid": "uuid-b", "name": "A", "machines": [{ "machine_id": "M1", "form": "shortcut", "install_location": "C:\\A\\a.exe" }], "restore_intent": "unreviewed", "backup_strategy": "none", "prep_status": "todo" }
@@ -1901,8 +2017,8 @@ mod tests {
         assert_eq!(sw.len(), 1);
         assert_eq!(
             sw[0]["machines"].as_array().unwrap().len(),
-            1,
-            "同一台机器合并后应只剩一条"
+            2,
+            "同机不同路径应保留两条证据（合并看得见）"
         );
 
         let _ = fs::remove_dir_all(&root);

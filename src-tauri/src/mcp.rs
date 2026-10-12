@@ -34,7 +34,15 @@ const INSTRUCTIONS: &str = "\
 它给出每台机器上每个工具链的包清单、配置文件列表与短恢复命令，是重装开发机最直接的信息源。\
 恢复命令里引用的清单文件（如 python-requirements.txt）可用 get_dev_env_file 读取原文，\
 这样即便目标机器和台账不在同一台电脑上，也能把包列表带过去。\
-\n重要：默认只读取台账。若用户已开启写入，你也可能拿到 update_software / batch_update / add_software / delete_software / merge_software 这些写入工具（改动会记入 data/.mcp/audit.jsonl），写入前先用只读工具确认目标 uuid。要不要安装、怎么安装，由你根据台账信息自行规划，并交给用户确认。";
+\n\n附件（保管箱）：每条软件的 vault_dir 是它在 data/vault 下的**绝对目录路径**，这就是附件目录本身——\
+你可以直接用本机文件能力往里面放/删/改文件（复制、打包、下载都行），不需要额外的 MCP 工具；放进去就自动成为这条软件的附件。\
+放完用 get_software 复查 vault_files 即可。\
+「备份台账」的典型闭环：用 search_software 按 backup_strategy=copy_dir（绿色/便携，要打包目录）或 redownload（要重新下载）找出该备份的软件，\
+也可以用 type=portable；逐条 get_software 拿到 install_location（要打包的目录）、download_url（要下载的直链）与 vault_dir（落点）；\
+vault_files 里已经有的就跳过；把打包产物 / 下载到的安装包投进 vault_dir，没有 download_url 的就上网找官方地址，实在找不到就列出来问用户；\
+backup_strategy=sync_account 的不用本地归档（走账号同步）。涉及凭据、token、许可证密钥的文件不要归档。\
+附件只被当成文件保存，台账不会自动解包或执行它们。\
+\n\n重要：MCP 工具默认只读取台账数据（附件目录除外，那是你在本机搬文件）；若用户已开启写入，你也可能拿到 update_software / batch_update / add_software / delete_software / merge_software 这些写入工具（改动会记入 data/.mcp/audit.jsonl），写入前先用只读工具确认目标 uuid。要不要安装、怎么安装，由你根据台账信息自行规划，并交给用户确认。";
 
 // ---------------------------------------------------------------------------
 // stdio 主循环
@@ -233,15 +241,27 @@ fn brief_item(item: &Value, aliases: &Value) -> Value {
     })
 }
 
-/// 全量条目：详情用，附带归档文件清单（agent 据此判断「有没有存安装包 / 配置文件」）。
+/// 全量条目：详情用，附带归档文件清单与附件目录。agent 据此判断「有没有存安装包 / 配置文件」，
+/// 并知道该往哪里投递自己准备好的文件。
 fn full_item(item: &Value, aliases: &Value) -> Value {
     let uuid = s(item, "uuid").to_string();
     let mut v = brief_item(item, aliases);
     if let Some(o) = v.as_object_mut() {
         o.insert("awesome_role".into(), json!(s(item, "awesome_role")));
+        o.insert("vault_dir".into(), json!(vault_dir_abs("soft", &uuid)));
         o.insert("vault_files".into(), vault_files("soft", &uuid));
     }
     v
+}
+
+/// 某实体附件目录的绝对路径（agent 可直接把文件投到这里）。
+fn vault_dir_abs(kind: &str, uuid: &str) -> String {
+    if uuid.is_empty() {
+        return String::new();
+    }
+    crate::commands::vault_target_dir(kind, uuid)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// 列某实体归档目录下的文件（只给名称 / 大小 / 时间，不给内容）。
@@ -297,7 +317,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "list_vault_files",
-                "description": "列出某个实体归档目录里的文件（名称 / 大小 / 修改时间），不含文件内容。kind 默认 soft（软件），也可查 browser / ext。",
+                "description": "列出某个实体归档目录里的文件（名称 / 大小 / 修改时间），不含文件内容；同时返回该目录的绝对路径。kind 默认 soft（软件），也可查 browser / ext。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -408,7 +428,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "merge_software",
-                "description": "【写入·不可逆】把若干条目合并进一个锚点条目（按 uuid）：机器分布并入锚点，随后被并项删除。用于同一款软件被重复建档时。合并前请先 get_software 确认内容，不可逆。",
+                "description": "【写入·不可逆】把若干条目合并进一个锚点条目（按 uuid）：机器分布并入锚点（同机同路径去重、缺失字段补齐；同机不同路径作为额外证据保留），随后被并项删除。用于同一款软件被重复建档时。merge_uuids 只放「要被并掉」的条目，不要包含 target_uuid 自身（若包含会被忽略）。动手前会自动把台账快照到 data/trash/merge-<时间>/ 以便恢复。合并前请先 get_software 确认内容。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -670,6 +690,7 @@ fn tool_list_vault_files(args: &Value) -> Result<Value, String> {
     Ok(json!({
         "uuid": uuid,
         "kind": kind,
+        "dir": vault_dir_abs(&kind, &uuid),
         "files": vault_files(&kind, &uuid),
     }))
 }
@@ -1070,6 +1091,13 @@ fn prompts_list() -> Value {
                 "arguments": [
                     { "name": "machine", "description": "目标机器（主机名或别名），留空表示当前机器", "required": false }
                 ]
+            },
+            {
+                "name": "backup_plan",
+                "description": "引导 agent 把该机器上可离线保存的软件（绿色/便携打包、需重新下载的）归档进各自附件目录。",
+                "arguments": [
+                    { "name": "machine", "description": "目标机器（主机名或别名），留空表示当前机器", "required": false }
+                ]
             }
         ]
     })
@@ -1077,9 +1105,6 @@ fn prompts_list() -> Value {
 
 fn get_prompt(params: &Value) -> Result<Value, (i64, String)> {
     let name = get_str(params, "name");
-    if name != "reinstall_plan" {
-        return Err((-32602, format!("Unknown prompt: {name}")));
-    }
     let machine = params
         .get("arguments")
         .and_then(|a| a.get("machine"))
@@ -1093,18 +1118,35 @@ fn get_prompt(params: &Value) -> Result<Value, (i64, String)> {
         format!("机器「{machine}」")
     };
 
-    let text = format!(
-        "请借助软件备份台账的 MCP 工具，为{target}整理一份重装方案。要求：\n\
-         1. 先调用 list_machines 了解有哪些机器和当前机器；\n\
-         2. 用 search_software（必要时配合 not_on_machine / intent / type 等过滤）找出该机器上恢复意愿为 must 的软件，以及别的机器上装了但该机器没有的软件；\n\
-         3. 对每条重要软件调用 get_software，查看它的官网链接、配置备注，以及归档文件清单——如果归档里有安装包就直接用，没有再看 download_url，两者都没有就需要你上网搜索官方下载地址；\n\
-         4. 用 list_dev_env 补充开发环境复现：逐条看各工具链的包清单与恢复命令，必要时用 get_dev_env_file 读取清单文件原文（跨机器重装时尤其需要）；再用 list_browser_extensions 补充浏览器扩展；\n\
-         5. 把方案按「先装什么、怎么装、装完怎么恢复配置」整理清楚，逐条标注信息来源（台账归档 / 官网链接 / 需自行搜索）。\n\
-         只做规划和信息整理，不要执行任何安装或下载动作；把方案交给我确认。"
-    );
+    let text = match name.as_str() {
+        "reinstall_plan" => format!(
+            "请借助软件备份台账的 MCP 工具，为{target}整理一份重装方案。要求：\n\
+             1. 先调用 list_machines 了解有哪些机器和当前机器；\n\
+             2. 用 search_software（必要时配合 not_on_machine / intent / type 等过滤）找出该机器上恢复意愿为 must 的软件，以及别的机器上装了但该机器没有的软件；\n\
+             3. 对每条重要软件调用 get_software，查看它的官网链接、配置备注，以及归档文件清单——如果归档里有安装包就直接用，没有再看 download_url，两者都没有就需要你上网搜索官方下载地址；\n\
+             4. 用 list_dev_env 补充开发环境复现：逐条看各工具链的包清单与恢复命令，必要时用 get_dev_env_file 读取清单文件原文（跨机器重装时尤其需要）；再用 list_browser_extensions 补充浏览器扩展；\n\
+             5. 把方案按「先装什么、怎么装、装完怎么恢复配置」整理清楚，逐条标注信息来源（台账归档 / 官网链接 / 需自行搜索）。\n\
+             只做规划和信息整理，不要执行任何安装或下载动作；把方案交给我确认。"
+        ),
+        "backup_plan" => format!(
+            "请借助软件备份台账的 MCP 工具，为{target}做一轮「归档备份」：把能离线保存的东西真正收进台账附件目录。要求：\n\
+             1. 先用 list_machines 确认机器；用 search_software 分别找出该机器上 backup_strategy=copy_dir（绿色/便携，要打包目录）与 redownload（要重新下载）的软件，也可用 type=portable 复核；\n\
+             2. 对每条调用 get_software，拿到 install_location（要打包的目录或主程序）、download_url（官网/直链）、vault_dir（附件落点）和 vault_files（已归档的文件，非空就跳过，避免重复）；\n\
+             3. copy_dir / 绿色软件：把安装目录打包（zip/7z）后放进该条的 vault_dir；体积过大、或目录里有凭据/token/许可证密钥，先停下来问我；\n\
+             4. redownload：用 download_url 下载安装包放进 vault_dir；没有 download_url 就上网找官方地址；找不到的列出来交给我；\n\
+             5. 完成后用 get_software 复查 vault_files，最后给我一份「已归档 / 跳过 / 待人工处理」的清单。\n\
+             vault_dir 是绝对路径，直接用你的文件能力写入即可。只做归档：不要安装、不要执行下载的东西；涉及密钥与凭据的文件不要下载或归档。"
+        ),
+        other => return Err((-32602, format!("Unknown prompt: {other}"))),
+    };
 
+    let description = if name == "backup_plan" {
+        format!("为{target}归档备份")
+    } else {
+        format!("为{target}整理重装方案")
+    };
     Ok(json!({
-        "description": format!("为{target}整理重装方案"),
+        "description": description,
         "messages": [
             { "role": "user", "content": { "type": "text", "text": text } }
         ]
@@ -1163,6 +1205,26 @@ mod tests {
     }
 
     #[test]
+    fn prompts_list_includes_backup_plan_and_returns_messages() {
+        let resp = dispatch(&json!({ "jsonrpc": "2.0", "id": 9, "method": "prompts/list" })).unwrap();
+        let names: Vec<String> = resp["result"]["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| s(p, "name").to_string())
+            .collect();
+        assert!(names.contains(&"reinstall_plan".to_string()));
+        assert!(names.contains(&"backup_plan".to_string()));
+
+        let got = get_prompt(&json!({ "name": "backup_plan", "arguments": { "machine": "PC" } })).unwrap();
+        assert!(got["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("vault_dir"));
+        assert!(get_prompt(&json!({ "name": "nope" })).is_err());
+    }
+
+    #[test]
     fn unknown_method_is_an_error() {
         let msg = json!({ "jsonrpc": "2.0", "id": 3, "method": "nope" });
         let resp = dispatch(&msg).unwrap();
@@ -1187,6 +1249,62 @@ mod tests {
             let err = tool_update_software(&json!({ "uuid": "x", "updates": { "version": "1" } }))
                 .unwrap_err();
             assert!(err.contains("未启用"), "got: {err}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn merge_software_via_mcp_keeps_anchor_with_all_machines() {
+        let base = std::env::temp_dir().join(format!("ledger_mcp_merge_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("data")).unwrap();
+        {
+            let _guard = store::test_support::use_root(&base);
+            store::save_config(&json!({ "mcp_write_enabled": true }));
+            let a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+            let b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+            store::write_software(&[
+                json!({ "id": "SW-001", "uuid": a, "name": "Git", "machines": [
+                    { "machine_id": "PC", "install_location": "C:/Git", "form": "desktop" }
+                ]}),
+                json!({ "id": "SW-002", "uuid": b, "name": "Git", "machines": [
+                    { "machine_id": "Surface", "install_location": "D:/Git", "form": "portable" }
+                ]}),
+            ]);
+
+            let res = tool_merge_software(&json!({ "target_uuid": a, "merge_uuids": [b] })).unwrap();
+            assert_eq!(res["success"], json!(true));
+
+            let items = store::read_software();
+            assert_eq!(items.len(), 1, "合并后应只剩锚点一条");
+            assert_eq!(items[0]["uuid"], json!(a));
+            let machines = items[0]["machines"].as_array().unwrap();
+            assert_eq!(machines.len(), 2, "锚点应吸收被并项的机器分布");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn merge_must_not_delete_anchor_when_it_appears_in_merge_list() {
+        let base = std::env::temp_dir().join(format!("ledger_mcp_merge_self_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("data")).unwrap();
+        {
+            let _guard = store::test_support::use_root(&base);
+            store::save_config(&json!({ "mcp_write_enabled": true }));
+            let a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+            let b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+            store::write_software(&[
+                json!({ "id": "SW-001", "uuid": a, "name": "Git", "machines": [] }),
+                json!({ "id": "SW-002", "uuid": b, "name": "Git for Windows", "machines": [] }),
+            ]);
+
+            // 把锚点也列进 merge_uuids：目前会把锚点一并删掉，只剩空表。
+            let res = tool_merge_software(&json!({ "target_uuid": a, "merge_uuids": [a, b] })).unwrap();
+            assert_eq!(res["success"], json!(true));
+            let items = store::read_software();
+            assert_eq!(items.len(), 1, "锚点不能消失，实际剩 {} 条", items.len());
+            assert_eq!(items[0]["uuid"], json!(a));
         }
         let _ = std::fs::remove_dir_all(&base);
     }

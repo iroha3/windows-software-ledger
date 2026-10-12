@@ -569,11 +569,13 @@ ffmpeg, ripgrep, jq, pandoc
           <!-- Agent 集成 (MCP) -->
           <section class="config-pane" data-pane="mcp">
             <p class="config-intro">把本台账接给支持 MCP 的 AI agent（Claude Code / Codex / Cursor / Pi 等）。接上后，agent 就能读机器、软件、官网链接、开发环境与归档文件，用来规划重装、整理清单，或任何基于这份台账的事！</p>
-            <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+            <!-- 写入权限置顶：默认只读，不勾就只能读，先看到再往下配 -->
+            <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; margin-top:4px;">
               <input type="checkbox" id="configMcpWrite">
               允许 AI agent 写入台账（更新 / 新增 / 删除 / 合并）
             </label>
             <span class="hint">默认关闭，只读信息源。开启后 agent 可改台账：删除会写墓碑并移入 data/trash（可回滚），合并不可逆；每次写入记入 data/.mcp/audit.jsonl。</span>
+            <span class="hint" style="margin-top:4px;">手动配置：选好客户端，把下面的片段粘到它对应的配置文件。</span>
             <div style="display:flex; gap:8px; align-items:center;">
               <select id="mcpClientSelect" style="flex:1;">
                 <option value="claude-code-cmd">Claude Code（命令行）</option>
@@ -589,6 +591,14 @@ ffmpeg, ripgrep, jq, pandoc
             </div>
             <div id="mcpTargetHint" class="hint" style="font-family: var(--mono); font-size: 11px;"></div>
             <pre id="mcpSnippet" class="mcp-snippet"></pre>
+            <div class="mcp-agent-card">
+              <div class="mcp-agent-head">
+                <strong>不会配置？让 Agent 自己接</strong>
+                <button type="button" class="btn btn-primary btn-sm" id="btnMcpAgentCopy">复制这段指令</button>
+              </div>
+              <span class="hint">复制后，粘贴到你正在聊的 AI agent 对话框里发出去——它会把自己接上这本台账，并验证一次给你看。</span>
+              <pre id="mcpAgentPrompt" class="mcp-snippet"></pre>
+            </div>
             <span class="hint">配置后重启对应客户端即可。完整说明见 <a href="#" id="mcpDocLink" style="color: var(--accent);">MCP.md</a>。</span>
           </section>
         </div>
