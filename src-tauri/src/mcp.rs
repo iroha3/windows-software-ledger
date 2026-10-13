@@ -28,7 +28,9 @@ const INSTRUCTIONS: &str = "\
 官网或下载链接、配置备注，以及用户手动归档的文件（可能是安装包，也可能是配置文件）。\
 \n\n使用建议：先调 list_machines 看清有哪些机器和当前机器；再用 search_software / get_software 查询；\
 用 get_software 可以看到某条软件归档里到底存了什么文件，以及官网链接。\
-如果某条软件既没有归档安装包、也没有 download_url，说明台账不知道去哪下载，需要你自己上网搜索。\
+如果某条软件既没有归档安装包、也没有 download_url，说明台账不知道去哪下载，需要你自己上网搜索；\
+若目标机器装了 winget，优先用 winget export / winget show --id <PackageIdentifier> 取权威链接（比网页搜索准，顺带拿到 PackageIdentifier 可直接 winget install 重装），没有 winget 或查不到再上网搜索。\
+winget 的省事姿势与坑（--source winget、解析 winget show、winget export）见只读 resource `ledger://winget-tips`，按需读取，不占常驻上下文。\
 可以用 search_software 的 not_on_machine 参数找出「别的机器装了、这台没有」的软件。\
 \n开发环境（Python / Rust / Node / Go / .NET / Git / VS Code 扩展等）用 list_dev_env 查看：\
 它给出每台机器上每个工具链的包清单、配置文件列表与短恢复命令，是重装开发机最直接的信息源。\
@@ -43,6 +45,19 @@ vault_files 里已经有的就跳过；把打包产物 / 下载到的安装包�
 backup_strategy=sync_account 的不用本地归档（走账号同步）。涉及凭据、token、许可证密钥的文件不要归档。\
 附件只被当成文件保存，台账不会自动解包或执行它们。\
 \n\n重要：MCP 工具默认只读取台账数据（附件目录除外，那是你在本机搬文件）；若用户已开启写入，你也可能拿到 update_software / batch_update / add_software / delete_software / merge_software 这些写入工具（改动会记入 data/.mcp/audit.jsonl），写入前先用只读工具确认目标 uuid。要不要安装、怎么安装，由你根据台账信息自行规划，并交给用户确认。";
+
+/// winget 取链接速查：按需读取的 resource，不常驻上下文（省 token）。
+const WINGET_TIPS: &str = r"# 用 winget 找权威下载链接（可选手段，不是台账功能）
+
+设备不保证装有 winget（无 App Installer 的 LTSC / 精简系统上就没有）。目标机上先探一下 `winget --version`，有就优先用，没有就用你的联网能力搜网页。
+
+- 首选 `winget download --id <PackageIdentifier> --source winget`：会连同安装包落一个 *.yaml，`InstallerUrl` + `InstallerSha256` 就在里面，还自带哈希校验。建议显式带 `--source winget`；不指定时可能去连 msstore 源（曾遇到 `0x8a15005e` 证书错，不一定每台都复现，但指定了更稳）。
+- 只想要链接时，解析 `winget show` 别按标签匹配（中文标签是全角冒号，系统语言一变就废）。稳定规则：取「含 https:// 且紧接下一行含 SHA256」的那行 URL；有多个安装包时优先含 x64 / amd64 / win64 的那条。
+- `winget export -o packages-winget.json` 给出已装包与 PackageIdentifier 的对应（只含源里有匹配的项），想做一份 winget import 清单时用。
+- 两个小坑：Windows 管道输出先去掉行尾 CR，否则字段尾带上它、包名查不到还报错模糊；解析 `winget show` 别用 Python subprocess 取 stdout（拿不到）。
+- winget 只给最新版，而台账里的版本号可能更旧。版本对不上时别自作主张：和用户确认是要装最新版，还是要复刻台账里的旧版（后者 winget 办不到，得另找安装包）。
+
+拿到链接后可用 `update_software` 把 download_url 写回台账（只在为空时补，别覆盖用户已填的；写入需用户开启写入开关）。";
 
 // ---------------------------------------------------------------------------
 // stdio 主循环
@@ -376,13 +391,42 @@ fn tools_list() -> Value {
                 }
             },
             {
+                "name": "get_backup_progress",
+                "description": "按机器统计「备份完成度」，省得你逐条数：便携 / 绿色软件（type=portable 或任一机器分布 form=portable）以「归档目录里有文件」为完成，其余软件以「download_url 非空」为完成。返回总数 / 已完成 / 待办清单（含每条缺什么）。machine 留空表示全部机器。",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "machine": { "type": "string", "description": "只看某台机器（可选，主机名或别名）" }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            {
                 "name": "update_software",
-                "description": "【写入】更新一条已存在的软件记录（按 uuid 定位）。可改字段：name / category / type / version / restore_intent / backup_strategy / prep_status / has_config / download_url / config_notes / is_awesome / awesome_role。适合修正版本号、补官网链接、调整恢复意愿 / 处置方式、写配置备注。要求：在「Agent 集成」里开启了写入开关。先 search_software / get_software 拿到 uuid。",
+                "description": "【写入】更新一条已存在的软件记录（按 uuid 定位）。可改字段：name / category / type / version / restore_intent / backup_strategy / prep_status / has_config / download_url / config_notes / is_awesome / awesome_role。适合修正版本号、补官网链接、调整恢复意愿 / 处置方式、写配置备注。注意 config_notes 是用户自留的备注字段，不要往里塞机器派生数据（ID、路径清单等）。要求：在「Agent 集成」里开启了写入开关。先 search_software / get_software 拿到 uuid。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "uuid": { "type": "string", "description": "目标软件 uuid" },
-                        "updates": { "type": "object", "description": "要写入的字段（仅限上面列出的可改字段）", "additionalProperties": true }
+                        "updates": {
+                            "type": "object",
+                            "description": "要写入的字段。合法取值：type ∈ desktop/portable/cli/runtime；restore_intent ∈ must/on_demand/drop/unreviewed；backup_strategy ∈ copy_dir/redownload/sync_account/none（推导规则：评 must 时绿色/便携→copy_dir、其余→redownload）；prep_status ∈ todo/ready。",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "category": { "type": "string", "enum": ["开发工具", "系统工具", "浏览器与网络", "媒体娱乐", "办公与笔记", "通讯与社交", "其他"] },
+                                "type": { "type": "string", "enum": ["desktop", "portable", "cli", "runtime"] },
+                                "version": { "type": "string" },
+                                "restore_intent": { "type": "string", "enum": ["must", "on_demand", "drop", "unreviewed"] },
+                                "backup_strategy": { "type": "string", "enum": ["copy_dir", "redownload", "sync_account", "none"] },
+                                "prep_status": { "type": "string", "enum": ["todo", "ready"] },
+                                "has_config": { "type": "boolean" },
+                                "download_url": { "type": "string" },
+                                "config_notes": { "type": "string" },
+                                "is_awesome": { "type": "boolean" },
+                                "awesome_role": { "type": "string" }
+                            },
+                            "additionalProperties": true
+                        }
                     },
                     "required": ["uuid", "updates"],
                     "additionalProperties": false
@@ -390,7 +434,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "batch_update",
-                "description": "【写入】对多条软件批量写入相同字段（按 uuid 列表）。字段白名单同 update_software。例如把一批软件统一设为 on_demand。",
+                "description": "【写入】对多条软件批量写入相同字段（按 uuid 列表）。字段白名单与合法取值同 update_software（见其定义）。例如把一批软件统一设为 on_demand。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -403,7 +447,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "add_software",
-                "description": "【写入】把台账里还没有的软件新增入库，自动挂到当前机器（form=manual，处置方式后续可在软件里评）。传入软件名列表。同名不会自动合并，请先 search_software 确认是否已存在。",
+                "description": "【写入】把台账里还没有的软件新增入库，自动挂到当前机器（form=manual，处置方式后续可在软件里评）。传入软件名列表。同名不会自动合并，请先 search_software 确认是否已存在。注意：这里只接软件名，新增条目没有安装路径，下次重扫认回后才会补上。",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -456,6 +500,7 @@ fn call_tool(params: &Value) -> Result<Value, (i64, String)> {
         "get_dev_env_file" => tool_get_dev_env_file(&args),
         "list_browser_extensions" => tool_list_browser_extensions(&args),
         "get_recovery_doc" => tool_get_recovery_doc(&args),
+        "get_backup_progress" => tool_backup_progress(&args),
         "update_software" => tool_update_software(&args),
         "batch_update" => tool_batch_update(&args),
         "add_software" => tool_add_software(&args),
@@ -867,6 +912,68 @@ fn tool_get_recovery_doc(args: &Value) -> Result<Value, String> {
     Ok(json!({ "filename": filename, "markdown": content }))
 }
 
+/// 备份完成度：便携/绿色以「归档目录有文件」为准，其余以「有 download_url」为准。
+/// 口径与用户约定一致，避免 agent 自己逐条数。
+fn tool_backup_progress(args: &Value) -> Result<Value, String> {
+    let items = store::read_software();
+    let aliases = machine_aliases();
+    let machine = get_str(args, "machine");
+    let want = resolve_machine_filter(&aliases, &machine);
+
+    let is_portable = |it: &Value| -> bool {
+        if s(it, "type") == "portable" {
+            return true;
+        }
+        it.get("machines")
+            .and_then(|m| m.as_array())
+            .map(|a| a.iter().any(|m| s(m, "form") == "portable"))
+            .unwrap_or(false)
+    };
+
+    let mut total = 0usize;
+    let mut done = 0usize;
+    let mut pending: Vec<Value> = Vec::new();
+    for item in &items {
+        if let Some(targets) = &want {
+            if !item_on_any_machine(item, targets) {
+                continue;
+            }
+        }
+        let uuid = s(item, "uuid");
+        let (ok, reason) = if is_portable(item) {
+            let has = vault_files("soft", uuid)
+                .as_array()
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            (has, "缺归档附件")
+        } else {
+            (!s(item, "download_url").trim().is_empty(), "缺 download_url")
+        };
+        total += 1;
+        if ok {
+            done += 1;
+        } else {
+            pending.push(json!({
+                "uuid": uuid,
+                "id": s(item, "id"),
+                "name": s(item, "name"),
+                "type": s(item, "type"),
+                "backup_strategy": s(item, "backup_strategy"),
+                "reason": reason,
+            }));
+        }
+    }
+
+    Ok(json!({
+        "scope": if want.is_none() { "全部机器".to_string() } else { machine },
+        "rule": "便携/绿色（type=portable 或 form=portable）以「归档目录有文件」为完成；其余以「download_url 非空」为完成",
+        "total": total,
+        "done": done,
+        "pending_count": pending.len(),
+        "pending": pending,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // resources
 // ---------------------------------------------------------------------------
@@ -878,7 +985,8 @@ fn resources_list() -> Value {
             { "uri": "ledger://software", "name": "完整软件台账", "description": "全部软件的精简条目列表", "mimeType": "application/json" },
             { "uri": "ledger://checklist", "name": "重装恢复清单", "description": "RECOVERY_CHECKLIST.md 原文", "mimeType": "text/markdown" },
             { "uri": "ledger://awesome", "name": "精选软件资产库", "description": "AWESOME_LIST.md 原文", "mimeType": "text/markdown" },
-            { "uri": "ledger://dev-env", "name": "开发环境清单", "description": "各机器的开发环境与包列表", "mimeType": "application/json" }
+            { "uri": "ledger://dev-env", "name": "开发环境清单", "description": "各机器的开发环境与包列表", "mimeType": "application/json" },
+            { "uri": "ledger://winget-tips", "name": "winget 取链接提示", "description": "在目标机上用 winget 找权威下载链接 / PackageIdentifier 的省事姿势与坑（可选手段，非台账功能）", "mimeType": "text/markdown" }
         ]
     })
 }
@@ -898,6 +1006,7 @@ fn read_resource(params: &Value) -> Result<Value, (i64, String)> {
         "ledger://checklist" => ("text/markdown", doc_text("checklist")),
         "ledger://awesome" => ("text/markdown", doc_text("awesome")),
         "ledger://dev-env" => ("application/json", pretty(&crate::commands::get_dev_env())),
+        "ledger://winget-tips" => ("text/markdown", WINGET_TIPS.to_string()),
         other => return Err((-32602, format!("Unknown resource: {other}"))),
     };
     Ok(json!({
@@ -1123,7 +1232,7 @@ fn get_prompt(params: &Value) -> Result<Value, (i64, String)> {
             "请借助软件备份台账的 MCP 工具，为{target}整理一份重装方案。要求：\n\
              1. 先调用 list_machines 了解有哪些机器和当前机器；\n\
              2. 用 search_software（必要时配合 not_on_machine / intent / type 等过滤）找出该机器上恢复意愿为 must 的软件，以及别的机器上装了但该机器没有的软件；\n\
-             3. 对每条重要软件调用 get_software，查看它的官网链接、配置备注，以及归档文件清单——如果归档里有安装包就直接用，没有再看 download_url，两者都没有就需要你上网搜索官方下载地址；\n\
+             3. 对每条重要软件调用 get_software，查看它的官网链接、配置备注，以及归档文件清单——如果归档里有安装包就直接用，没有再看 download_url；两者都没有时，先看目标机器有没有 winget（winget show --id <id> 取链接，或记下 PackageIdentifier 供重装），没有 winget 再上网搜索官方下载地址（winget 的坑见 resource ledger://winget-tips）；若台账版本与现版对不上，先问我是升到最新还是复刻旧版；\n\
              4. 用 list_dev_env 补充开发环境复现：逐条看各工具链的包清单与恢复命令，必要时用 get_dev_env_file 读取清单文件原文（跨机器重装时尤其需要）；再用 list_browser_extensions 补充浏览器扩展；\n\
              5. 把方案按「先装什么、怎么装、装完怎么恢复配置」整理清楚，逐条标注信息来源（台账归档 / 官网链接 / 需自行搜索）。\n\
              只做规划和信息整理，不要执行任何安装或下载动作；把方案交给我确认。"
@@ -1133,7 +1242,7 @@ fn get_prompt(params: &Value) -> Result<Value, (i64, String)> {
              1. 先用 list_machines 确认机器；用 search_software 分别找出该机器上 backup_strategy=copy_dir（绿色/便携，要打包目录）与 redownload（要重新下载）的软件，也可用 type=portable 复核；\n\
              2. 对每条调用 get_software，拿到 install_location（要打包的目录或主程序）、download_url（官网/直链）、vault_dir（附件落点）和 vault_files（已归档的文件，非空就跳过，避免重复）；\n\
              3. copy_dir / 绿色软件：把安装目录打包（zip/7z）后放进该条的 vault_dir；体积过大、或目录里有凭据/token/许可证密钥，先停下来问我；\n\
-             4. redownload：用 download_url 下载安装包放进 vault_dir；没有 download_url 就上网找官方地址；找不到的列出来交给我；\n\
+             4. redownload：用 download_url 下载安装包放进 vault_dir；没有 download_url 就先看本机 winget（winget show --id <id> 取链接后自行下载），没有 winget 再上网找官方地址（winget 的坑见 resource ledger://winget-tips）；找不到的列出来交给我；\n\
              5. 完成后用 get_software 复查 vault_files，最后给我一份「已归档 / 跳过 / 待人工处理」的清单。\n\
              vault_dir 是绝对路径，直接用你的文件能力写入即可。只做归档：不要安装、不要执行下载的东西；涉及密钥与凭据的文件不要下载或归档。"
         ),

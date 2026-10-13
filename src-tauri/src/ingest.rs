@@ -226,7 +226,9 @@ fn add_or_update(
 /// 路径归一化：统一分隔符、小写、去尾斜杠，用于「完全相等」判定。
 /// 只做等价比较，不做模糊匹配；识别不出就当新条目（符合「尽力保证」）。
 pub fn normalize_path(p: &str) -> String {
-    let mut s = p.trim().replace('/', "\\").to_lowercase();
+    // 注册表 InstallLocation 常自带一层引号（`"C:\..."`），先剥掉再归一，
+    // 否则路径身份失配，重扫会把同一软件重复建档。
+    let mut s = p.trim().trim_matches('"').trim().replace('/', "\\").to_lowercase();
     while s.ends_with('\\') {
         s.pop();
     }
@@ -389,6 +391,10 @@ fn candidate_machine_ids(item: &Value) -> Vec<String> {
 /// 已知判定：已有条目包含「本次机器」的记录，且安装路径完全相等；
 /// 仅当候选本身没有任何路径时，才退回「名称相同」。
 /// 命中则视为已知，扫描对它零改动。
+// TODO(疑似重复): 目前“合并”只在同名条目上提示。可进一步自动识别两类高置信重复：
+//   ① 一条的安装路径落在另一条目录之内（子目录误建）；
+//   ② 一条的 main_exe 落在另一条的安装目录里（主程序/快捷方式重复）。
+// 两者都是纯路径计算，命中后可作为“疑似重复”建议交给用户确认。
 fn find_known<'a>(candidate: &Value, existing: &'a [Value]) -> Option<&'a Value> {
     let cand_name = candidate
         .get("name")

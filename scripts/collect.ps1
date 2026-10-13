@@ -76,7 +76,7 @@ foreach ($path in $regPaths) {
                 name             = $name.Trim()
                 version          = if ($_.DisplayVersion) { $_.DisplayVersion.ToString().Trim() } else { "" }
                 publisher        = if ($_.Publisher) { $_.Publisher.ToString().Trim() } else { "" }
-                install_location = if ($_.InstallLocation) { $_.InstallLocation.ToString().Trim() } else { "" }
+                install_location = if ($_.InstallLocation) { $_.InstallLocation.ToString().Trim().Trim('"') } else { "" }
                 uninstall_string = if ($_.UninstallString) { $_.UninstallString.ToString().Trim() } else { "" }
                 display_icon     = if ($_.DisplayIcon) { $_.DisplayIcon.ToString().Trim() } else { "" }
                 source           = "registry"

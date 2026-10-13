@@ -32,6 +32,7 @@
 | `get_dev_env_file` | 读取 `dev-env/` 下某个文件的**原文**（如 `python-requirements.txt`、`vscode-extensions.txt`），跨机器重装时把包列表带过去 |
 | `list_browser_extensions` | 各机器浏览器扩展的只读元数据与备注 |
 | `get_recovery_doc` | 《重装恢复清单》/《精选资产库》Markdown 原文 |
+| `get_backup_progress` | 按机器统计备份完成度（便携看归档附件、其余看 `download_url`），返回已完成 / 待办清单，省得 agent 逐条数 |
 
 ### 写入工具（可选，默认关闭）
 
@@ -45,7 +46,7 @@
 | `delete_software` | 删除记录（写墓碑 + 归档移入 `data/trash/`，可回滚） |
 | `merge_software` | 合并重复条目（**不可逆**）。`merge_uuids` 只放要被并掉的条目，不要含锚点自身（含了会被自动过滤）。机器证据按「同机同路径」去重、同机不同路径会多留一条；动手前自动快照 `software.json`/`ignored.json` 到 `data/trash/merge-<时间>/` |
 
-另外还暴露了几个只读 Resource（`ledger://software`、`ledger://machines`、`ledger://checklist`、`ledger://awesome`、`ledger://dev-env`）和 `reinstall_plan` / `backup_plan` 两个提示词模板。
+另外还暴露了几个只读 Resource（`ledger://software`、`ledger://machines`、`ledger://checklist`、`ledger://awesome`、`ledger://dev-env`、`ledger://winget-tips`）和 `reinstall_plan` / `backup_plan` 两个提示词模板。
 
 ### 附件就是目录，agent 直接写
 
@@ -55,12 +56,25 @@
 
 1. `search_software { machine, strategy: "copy_dir" }` → 要打包目录的绿色 / 便携软件；`{ strategy: "redownload" }` → 要重新下载的；
 2. 逐条 `get_software` 拿 `install_location`（要打包的目录）+ `download_url`（直链）+ `vault_dir`（落点）+ `vault_files`（已归档的，非空就跳过）；
-3. `copy_dir` 的把安装目录打成 zip 放进 `vault_dir`；`redownload` 的下载安装包放进 `vault_dir`（没链接就上网找）；
-4. 放完 `get_software` 复查 `vault_files`。
+3. `copy_dir` 的把安装目录打成 zip 放进 `vault_dir`；`redownload` 的下载安装包放进 `vault_dir`（没链接就先看本机 winget 能不能取到，再上网找）；
+4. 放完 `get_software` 复查 `vault_files`；
+5. 用 `get_backup_progress` 拿「已完成 / 待办」总览，不必自己逐条数。
 
 涉及凭据 / token / 许可证密钥的文件不要归档；`sync_account` 的走账号同步，不用本地归档。归档只是把文件放进去，台账不会自动解包或执行。
 
 > 附件目录指纹（`data/vault/<kind>/<uuid>/` 的 mtime）已纳入前端的台账轮询：agent 投递后，开着的软件主界面会自动刷新出附件角标，不需要手动重开。
+
+### winget：取链接的省事姿势
+
+设备**不保证**装有 winget（无 App Installer 的 LTSC / 精简系统上就没有），所以这是**给 agent 的可选手段**，不是台账功能。目标机上先探一下 `winget --version`，有就优先用，没有就退回网页搜索。
+
+> 下面这份内容同时作为只读 resource **`ledger://winget-tips`** 暴露给 agent（`INSTRUCTIONS` 里只留一句指路，细节由它按需读取），MCP.md 这份是给人看的。
+
+- **首选**：`winget download --id <PackageIdentifier> --source winget` —— 会连同安装包落一个 `*.yaml`，`InstallerUrl` + `InstallerSha256` 就在里面，还自带哈希校验。建议**显式带上 `--source winget`**：不指定时可能去连 msstore 源（曾遇到 `0x8a15005e` 证书错，不一定每台都复现，但指定了更稳）。
+- **只要链接**：解析 `winget show` 文本时别按标签匹配（中文标签是全角冒号，语言一变就废）。稳定规则：取「含 `https://` 且**紧接下一行含 `SHA256`**」的那行 URL；有多个安装包时优先含 `x64` / `amd64` / `win64` 的那条。
+- **`winget export -o packages-winget.json`** 能拿到已装包与 `PackageIdentifier` 的对应（只含源里有匹配的项），想做一份 `winget import` 清单时用。
+- 两个小坑：Windows 管道输出先 `tr -d '\r'`（不然字段尾会带上 CR，包名查不到还报错模糊）；解析 `winget show` 别用 Python `subprocess` 取 stdout（拿不到）。
+- winget 只给**最新版**，而台账里的版本号可能更旧。遇到版本对不上时**别自作主张**：和用户确认是要装最新版，还是要复刻台账里的旧版（后者 winget 办不到，得另找安装包）。
 
 ## 怎么配置
 
@@ -132,7 +146,7 @@ pi mcp add software-ledger -- "D:\Tools\软件备份台账\windows-software-ledg
 1. `list_machines` → 发现当前机器是 `REDMIBOOK`，另有 `PC`、`Surface` 两台；
 2. `search_software { machine: "REDMIBOOK", intent: "must" }` → 拿到必须恢复的软件；
 3. `search_software { not_on_machine: "REDMIBOOK" }` → 发现别的机器上有、这台没有的，提示你可能漏装；
-4. 对每条调 `get_software` → 看到归档里有 `xxx-setup.exe` 就直接用；没有就看 `download_url` 去官网；两者都没有就标记「需自行搜索」；
+4. 对每条调 `get_software` → 看到归档里有 `xxx-setup.exe` 就直接用；没有就看 `download_url` 去官网；两者都没有时，如果目标机有 winget 就用 `winget show` 取链接，否则标记「需自行搜索」；
 5. `list_dev_env` → 拿到 Python / Rust / VS Code 扩展 / Node 等工具链的包清单与恢复命令；需要文件原文时（跨机器重装）再调 `get_dev_env_file` 把 `python-requirements.txt`、`vscode-extensions.txt` 等内容拉出来；
 6. 输出一份按优先级排序的方案，逐条标注信息来源，等你确认。
 
