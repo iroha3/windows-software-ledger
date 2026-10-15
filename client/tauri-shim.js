@@ -105,6 +105,8 @@
         return invoke('export_xlsx', { dest: body.dest });
       case '/api/export/save':
         return invoke('export_save', { which: body.which, dest: body.dest });
+      case '/api/data/merge':
+        return invoke('merge_data_dir', { source: body.source, apply: !!body.apply });
       case '/api/webdav/config':
         return method === 'POST' ? invoke('save_webdav_config', { payload: body }) : invoke('get_webdav_config');
       case '/api/webdav/test':

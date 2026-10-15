@@ -1,4 +1,5 @@
 mod commands;
+mod datamerge;
 mod exporter;
 mod ingest;
 pub mod mcp;
@@ -42,6 +43,7 @@ pub fn run() {
             commands::open_url,
             commands::get_webdav_config,
             commands::save_webdav_config,
+            commands::merge_data_dir,
             commands::webdav_test,
             commands::sync_now,
             commands::sync_status,

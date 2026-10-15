@@ -513,6 +513,20 @@ ffmpeg, ripgrep, jq, pandoc
 
           <!-- 多机同步 -->
           <section class="config-pane" data-pane="sync">
+            <!-- 不靠 WebDAV，一次性把另一台机器的 data 并进来 -->
+            <div class="sync-head">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span>并入另一台机器的 data 文件夹</span>
+            </div>
+            <p class="config-intro">两台机器各用各的台账、暂时没配 WebDAV？把另一台的 <code>data</code> 文件夹拖进窗口（或点下面按钮选），会按 uuid 把两边的软件、扩展、墓碑、图标、保管箱与证据并到本机。同名的软件会保留为多条，要不要合并之后在表格里自己定。合并前自动快照到 <code>data/trash/</code>，可回滚。</p>
+            <div id="dataMergeZone" class="data-merge-zone">
+              <svg class="i" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <div>把另一台机器的 <b>data</b> 文件夹拖到这里</div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnMergePick">选择文件夹…</button>
+              <span id="dataMergeResult" class="hint" style="display:none;"></span>
+            </div>
+            <hr class="config-divider">
+
             <div class="sync-head">
               <svg class="i sm" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
               <span>WebDAV 云同步</span>

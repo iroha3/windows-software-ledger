@@ -29,6 +29,7 @@ src-tauri/src/
   xlsx.rs                   零依赖 xlsx 生成器（手写 ZIP + OOXML，仅存储不压缩）
   webdav.rs                 WebDAV 传输层（GET/PUT/DELETE/MKCOL/MOVE，不用 PROPFIND）
   sync.rs                   同步引擎：manifest / 并集拉取 / 镜像推送 / 强制覆盖（手动，无锁）
+  datamerge.rs              手动合并：把另一台机器的 data/ 并进来（复用 sync 的合并函数，先快照）
   mcp.rs                    MCP（stdio）服务端：默认只读，可开关写入；手写 JSON-RPC，无依赖
   main.rs                   `--mcp` 分流到 mcp::serve_stdio，否则正常开 GUI
 scripts/                  独立辅助脚本，不参与应用运行时（见下）
@@ -57,6 +58,7 @@ SPEC.md                   产品范围与数据模型
 - LLM 探测脚本：`bun scripts/test_llm.js "软件名" "路径"`（默认走 DeepSeek 非思考模式）。
 - 图标重建：`python scripts/generate_icon.py`（仅改图标时需要，改后记得 `cargo-msvc.bat clean -p windows-software-ledger` 再构建）。
 - 旧墓碑迁移：`python scripts/migrate_ignored.py`（把旧结构（顶层 `paths` 或旧 `match_key`）统一成 `{uuid, name, deleted_at, machines:[...]}`，机器 id 默认反查 config.json 里别名为 `Surface` 的键；无路径条目写成 `name_only` 同名墓碑；缺 uuid 的补随机 uuid）。
+- 两份台账合并（各自独立用了一阵子、想并成一份）：**界面入口在设置 →「多机同步」→「并入另一台机器的 data 文件夹」**（点选或把文件夹拖进窗口；先预览再合并，自动快照到 `data/trash/merge-import-*`）。命令行等价物：`python scripts/combine_data.py <A的data> <B的data> [--out <目标 data>]`，多台就两两合并。软件/扩展条目按 uuid 纯并集、**同名不自动合并**（留在 app 里手动并），图标/保管箱/证据/墓碑/`scan_directories` 一并归并。持续同步仍应用 WebDAV。
 - **删除记录统一在 `ignored.json`**（不再单开 `deleted.json`）：一条记录同时带 `uuid` 和身份键。`uuid` 供同步合并按 uuid 删除（含「合并条目」被并掉的记录）；机器 + 路径/同名身份键供重扫压制。两端都改过 `software.json` 时用 `sync.rs::merge_software_with_deletions` 按 uuid 删掉被删/被合并的条目，避免并集复活。
 
 ## 架构关键点
@@ -118,6 +120,7 @@ SPEC.md                   产品范围与数据模型
 | 导出文档格式 | `src-tauri/src/exporter.rs` |
 | xlsx 生成（导出 Excel） | `src-tauri/src/xlsx.rs` |
 | WebDAV 同步 / 合并规则 | `src-tauri/src/sync.rs`、`src-tauri/src/webdav.rs` |
+| 手动并入另一台机器的 data | `src-tauri/src/datamerge.rs`（界面：设置 →「多机同步」）|
 | MCP 接口（agent 集成，只读 + 可选写入） | `src-tauri/src/mcp.rs`、`MCP.md` |
 | 数据路径 / 数据落盘 | `src-tauri/src/store.rs` |
 | LLM 提示词 | `src-tauri/src/commands.rs`（`llm_analyze`）、`scripts/test_llm.js` |

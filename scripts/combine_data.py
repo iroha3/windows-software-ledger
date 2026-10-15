@@ -24,6 +24,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -199,19 +200,82 @@ def combine_evidence(base_dir, inc_dir):
     return copied
 
 
+def rec_time(t):
+    """墓碑新旧判据：updated_at / created_at / deleted_at 里第一个能解析的 RFC3339。"""
+    for key in ("updated_at", "created_at", "deleted_at"):
+        v = t.get(key)
+        if isinstance(v, str) and v:
+            try:
+                return datetime.fromisoformat(v).timestamp()
+            except ValueError:
+                return 0
+    return 0
+
+
+def merge_tombstone_machines(base_machines, inc_machines):
+    """按 machine_id 并集；同机器内 paths 并集，name_only 取或（与 sync.rs 一致）。"""
+    out = [m for m in (base_machines or []) if isinstance(m, dict)]
+    for m in inc_machines or []:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("machine_id")
+        if not mid:
+            if m not in out:
+                out.append(m)
+            continue
+        dst = next((x for x in out if x.get("machine_id") == mid), None)
+        if dst is None:
+            out.append(dict(m))
+            continue
+        paths = list(dst.get("paths") or [])
+        for p in m.get("paths") or []:
+            if p not in paths:
+                paths.append(p)
+        dst["paths"] = paths
+        if dst.get("name_only") or m.get("name_only"):
+            dst["name_only"] = True
+    return out
+
+
 def combine_ignored(base_dir, inc_dir):
-    base = load_json(Path(base_dir) / "ignored.json", [])
+    path = Path(base_dir) / "ignored.json"
+    base = load_json(path, [])
     inc = load_json(Path(inc_dir) / "ignored.json", [])
     base = base if isinstance(base, list) else []
     inc = inc if isinstance(inc, list) else []
-    seen = {(t.get("name"), tuple(t.get("paths") or [])) for t in base}
+    # 当前结构带 uuid：按 uuid 归并（机器条目并集），否则两台机器各自删过的记录会互相顶掉。
+    by_uuid = {}
+    legacy_seen = set()
+    for t in base:
+        if not isinstance(t, dict):
+            continue
+        if t.get("uuid"):
+            by_uuid[t["uuid"]] = t
+        else:
+            legacy_seen.add((t.get("name"), tuple(t.get("paths") or [])))
     for t in inc:
-        k = (t.get("name"), tuple(t.get("paths") or []))
-        if k not in seen:
+        if not isinstance(t, dict):
+            continue
+        uid = t.get("uuid")
+        if not uid:
+            key = (t.get("name"), tuple(t.get("paths") or []))
+            if key not in legacy_seen:
+                legacy_seen.add(key)
+                base.append(t)
+            continue
+        dst = by_uuid.get(uid)
+        if dst is None:
             base.append(t)
-            seen.add(k)
+            by_uuid[uid] = t
+            continue
+        machines = merge_tombstone_machines(dst.get("machines"), t.get("machines"))
+        # 较新的一条作底子（name / deleted_at），机器条目仍取并集
+        if rec_time(t) > rec_time(dst):
+            dst.clear()
+            dst.update(t)
+        dst["machines"] = machines
     if base or inc:
-        dump_json(Path(base_dir) / "ignored.json", base)
+        dump_json(path, base)
 
 
 def combine_trash(base_dir, inc_dir):
@@ -237,6 +301,15 @@ def combine_config(base_dir, inc_dir):
         aliases = dict(inc.get("machine_aliases") or {})
         aliases.update(base.get("machine_aliases") or {})  # 母本优先
         base["machine_aliases"] = aliases
+        # 扫描目录按机器并集：合并后拷到任一机器，各机仍读得到自己那份（scan_directories 按主机名分键）
+        dirs = {k: list(v) for k, v in (inc.get("scan_directories") or {}).items()}
+        for mk, mv in (base.get("scan_directories") or {}).items():
+            cur = dirs.setdefault(mk, [])
+            for d in mv or []:
+                if d not in cur:
+                    cur.append(d)
+        if dirs:
+            base["scan_directories"] = dirs
         dump_json(dst, base)
 
 

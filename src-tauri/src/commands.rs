@@ -110,6 +110,13 @@ pub fn save_webdav_config(payload: Value) -> Value {
     json!({ "success": true, "config": current })
 }
 
+/// 手动并入另一台机器的 `data/` 目录。`apply=false` 只预览（不落盘），
+/// `apply=true` 才真正合并（先快照到 `data/trash/merge-import-*`）。
+#[tauri::command(async)]
+pub fn merge_data_dir(source: String, apply: Option<bool>) -> Value {
+    crate::datamerge::merge_from_dir(&source, apply.unwrap_or(false))
+}
+
 #[tauri::command]
 pub async fn webdav_test() -> Value {
     match tauri::async_runtime::spawn_blocking(crate::sync::test_connection).await {

@@ -87,7 +87,7 @@ scripts\cargo-msvc.bat test -- --ignored
 
 > **旧数据迁移**：v1.x 的 `data\`（无 uuid）不与当前版本兼容。用 `python scripts\migrate_to_v2.py <旧 data 目录>` 一次性转换（原地迁移会先备份为 `<目录>.v1bak`，也可 `--out` 输出到新目录）：补 uuid、`should`→`on_demand`、`copy_config`→`copy_dir`、`vault\<主机名>\<kind>\<id>\`→`vault\<kind>\<uuid>\`、扩展标注重挂到 `(machine_id, browser_id, profile, ext_id)`（v1 扩展标注没有机器维度，反查到属哪台就挂哪台）。
 >
-> **两份台账合并**：`python scripts\combine_data.py <A的data> <B的data> [--out <目标 data>]` 把两台机器的 `data\` 合成一份，可拷去 A / B / C。任一端若是 v1（缺 uuid）会先自动迁移（在临时副本上进行，不改动原目录）。**软件条目原样并列、不自动合并**：同名条目会保留为多条，要不要合并、并哪几条由用户在 app 内用「同名合并」自定，两侧决策都保留（被并入的条目重排 SW-ID 防撞号）。图标 / 保管箱 / 证据 / 墓碑一并归并；**扩展与浏览器标注同样纯并集、不自动合并**，只按 uuid 去重（扩展跟软件一样按机器分开）。
+> **两份台账合并**：**GUI**：设置 →「多机同步」→「并入另一台机器的 data 文件夹」，点选或把另一台机器的 `data\` 文件夹（或含 `data\` 的 exe 目录）拖进窗口，预览后确认即可；合并前自动快照到 `data\trash\merge-import-*\`，可回滚。**CLI**：`python scripts\combine_data.py <A的data> <B的data> [--out <目标 data>]`。两者语义一致：把两台机器的 `data\` 合成一份，可拷去 A / B / C。任一端若是 v1（缺 uuid）会先自动迁移（CLI；GUI 会提示先迁移）。**软件条目原样并列、不自动合并**：同名条目会保留为多条，要不要合并、并哪几条由用户在 app 内用「同名合并」自定，两侧决策都保留（被并入的条目重排 SW-ID 防撞号）。图标 / 保管箱 / 证据 / 墓碑一并归并；**扩展与浏览器标注同样纯并集、不自动合并**，只按 uuid 去重（扩展跟软件一样按机器分开）。
 
 ## 采集脚本
 

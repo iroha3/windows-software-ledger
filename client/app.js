@@ -154,6 +154,9 @@ const btnMcpCopy = document.getElementById('btnMcpCopy');
 const btnMcpAgentCopy = document.getElementById('btnMcpAgentCopy');
 const mcpDocLink = document.getElementById('mcpDocLink');
 const configNav = document.getElementById('configNav');
+const btnMergePick = document.getElementById('btnMergePick');
+const dataMergeZone = document.getElementById('dataMergeZone');
+const dataMergeResult = document.getElementById('dataMergeResult');
 
 // Toast 非阻塞消息提示系统 (使用纯净 SVG 图标)
 function showToast(message, type = 'info', duration = 2500) {
@@ -334,6 +337,76 @@ async function testWebdav() {
     setStatus(false, e.message);
     showToast('连接失败：' + e.message, 'error');
   }
+}
+
+// ---------------------------------------------------------------------------
+// 手动并入另一台机器的 data 文件夹（不依赖 WebDAV）
+//
+// 拖入窗口或点按钮选文件夹 → 先预览新增条数 → 确认后合并（后端自动快照）。
+// ---------------------------------------------------------------------------
+function setDataMergeResult(text, kind) {
+  if (!dataMergeResult) return;
+  dataMergeResult.style.display = text ? 'inline' : 'none';
+  dataMergeResult.textContent = text || '';
+  dataMergeResult.style.color = kind === 'err' ? 'var(--danger)' : 'var(--ink-2)';
+}
+
+async function mergeDataFolder(source, quiet) {
+  if (!source) return;
+  try {
+    setDataMergeResult('正在检查…', '');
+    const preview = await (await fetch('/api/data/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, apply: false })
+    })).json();
+    if (!preview.success) {
+      if (quiet) { setDataMergeResult('', ''); return; }
+      setDataMergeResult(preview.error || '无法读取该文件夹', 'err');
+      showToast(preview.error || '无法读取该文件夹', 'error', 5000);
+      return;
+    }
+    const p = preview.preview || {};
+    const lines = [
+      `来源：${source}`,
+      `将并入：软件 ${p.newSoftware} 条（其中同名待定 ${p.sameNameHints} 条，会保留为多条）、扩展 ${p.newExtensions} 条、浏览器 ${p.newBrowsers} 条、墓碑 ${p.newTombstones} 条。`,
+      '同名的软件不会自动合并，并入后可自行决定。',
+      '合并前会自动把本机台账快照到 data/trash/，可回滚。继续？'
+    ];
+    if (!window.confirm(lines.join('\n'))) {
+      setDataMergeResult('已取消', '');
+      return;
+    }
+    setDataMergeResult('正在合并…', '');
+    const res = await (await fetch('/api/data/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, apply: true })
+    })).json();
+    if (!res.success) {
+      setDataMergeResult(res.error || '合并失败', 'err');
+      showToast(res.error || '合并失败', 'error', 5000);
+      return;
+    }
+    const f = res.files || {};
+    const r = res.preview || {};
+    const extra = (f.icons || 0) + (f.vault || 0) + (f.evidence || 0);
+    setDataMergeResult(`已并入软件 +${r.newSoftware}、扩展 +${r.newExtensions}、墓碑 +${r.newTombstones}；图标/保管箱/证据补入 ${extra} 个`);
+    showToast('已合并另一台机器的台账', 'success', 4000);
+    await fetchStatus();
+    await loadSoftware();
+  } catch (e) {
+    setDataMergeResult('合并异常：' + e.message, 'err');
+    showToast('合并异常：' + e.message, 'error', 5000);
+  }
+}
+
+async function pickAndMergeData() {
+  if (typeof window.dialogOpen !== 'function') { showToast('当前环境不支持文件夹选择', 'warning'); return; }
+  const picked = await window.dialogOpen({ directory: true, multiple: false, title: '选择另一台机器的 data 文件夹（或含 data 的 exe 目录）' });
+  if (!picked) return;
+  const source = typeof picked === 'string' ? picked : (picked[0] || '');
+  await mergeDataFolder(source, false);
 }
 
 // 主页卡片（侧边抽屉）内悬浮滚轮切换处置方式：原生 <select> 在 WebView 中对滚轮无响应，
@@ -1572,6 +1645,23 @@ function bindEvents() {
   if (btnForcePull) btnForcePull.addEventListener('click', () => {
     if (window.confirm('将用 WebDAV 远端覆盖本机（本机现状自动移入 data/trash/）。确定继续？')) doSync('pull');
   });
+
+  // 并入另一台机器的 data 文件夹：点按钮选，或直接把文件夹拖进窗口
+  if (btnMergePick) btnMergePick.addEventListener('click', pickAndMergeData);
+  if (dataMergeZone) {
+    ['dragenter', 'dragover'].forEach((ev) => dataMergeZone.addEventListener(ev, (e) => {
+      e.preventDefault(); dataMergeZone.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => dataMergeZone.addEventListener(ev, () => dataMergeZone.classList.remove('dragover')));
+  }
+  if (typeof window.onFileDrop === 'function') {
+    window.onFileDrop((paths) => {
+      if (!paths || !paths.length) return;
+      const settingsOpen = configModal && configModal.classList.contains('show');
+      // 设置里丢进来的文件夹按显式操作处理；其他地方的干扰丢入则静默尝试（不像 data 目录就不打扰）
+      mergeDataFolder(paths[0], !settingsOpen);
+    });
+  }
 
   // 关于弹窗
   const btnAbout = document.getElementById('btnAbout');
